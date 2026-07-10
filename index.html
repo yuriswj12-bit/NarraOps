@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NarraOps</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">N</div>
+          <div>
+            <div class="brand-name">NarraOps</div>
+            <div class="brand-subtitle">Agentic Launch OS</div>
+          </div>
+        </div>
+
+        <nav class="nav-list" aria-label="Main navigation">
+          <button class="nav-item active" data-view="dashboard">Dashboard</button>
+          <button class="nav-item" data-view="narratives">Narratives</button>
+          <button class="nav-item" data-view="signal">Signal-to-Launch</button>
+          <button class="nav-item" data-view="builder">Meme Builder</button>
+          <button class="nav-item" data-view="launch">Launch Console</button>
+          <button class="nav-item" data-view="wallets">Wallet Ops</button>
+          <button class="nav-item" data-view="community">Community Ops</button>
+          <button class="nav-item" data-view="records">Records</button>
+        </nav>
+
+        <div class="side-status">
+          <div class="label">Agent Status</div>
+          <div class="status-row">
+            <span class="status-dot"></span>
+            <span>Listening</span>
+          </div>
+          <div class="side-metric">
+            <span>Signals</span>
+            <strong id="sideSignalCount">0</strong>
+          </div>
+          <div class="side-metric">
+            <span>Armed launches</span>
+            <strong id="sideArmedCount">0</strong>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <h1 id="pageTitle">Dashboard</h1>
+            <p id="pageSubtitle">Signal, build, launch, operate.</p>
+          </div>
+          <div class="top-actions">
+            <button class="language-button" id="languageToggleBtn" aria-label="Switch language">中文</button>
+            <button class="ghost-button" id="quickScanBtn">Run scan</button>
+            <button class="treasury-button" id="openContributionBtn" aria-label="Open contribution settlement">
+              <span class="treasury-icon">%</span>
+              <span id="treasuryRateText">4%</span>
+            </button>
+          </div>
+        </header>
+
+        <section id="viewRoot" class="view-root" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <div class="drawer-overlay hidden" id="drawerOverlay"></div>
+    <aside class="contribution-drawer hidden" id="contributionDrawer" aria-label="Contribution settlement">
+      <div class="drawer-head">
+        <div>
+          <div class="eyebrow">Settlement</div>
+          <h2>Contribution Engine</h2>
+        </div>
+        <button class="icon-button" id="closeContributionBtn" aria-label="Close">X</button>
+      </div>
+
+      <div class="contribution-summary">
+        <div>
+          <span>Selected rate</span>
+          <strong id="drawerRateText">4%</strong>
+        </div>
+        <div>
+          <span>Settlement wallet</span>
+          <strong>NSET...8P2A</strong>
+        </div>
+      </div>
+
+      <label class="field-label" for="contributionRate">User-selected contribution</label>
+      <input id="contributionRate" class="range" type="range" min="0" max="10" value="4" />
+      <div class="range-scale">
+        <span>0%</span>
+        <span>10%</span>
+      </div>
+
+      <div class="rule-list">
+        <div class="rule-item">
+          <span class="rule-badge">01</span>
+          <p>Calculated only from the selected launch wallet group's realized total profit.</p>
+        </div>
+        <div class="rule-item">
+          <span class="rule-badge">02</span>
+          <p>No profit means no contribution. Loss wallets are not charged.</p>
+        </div>
+        <div class="rule-item">
+          <span class="rule-badge">03</span>
+          <p>Positive wallets route their share into the settlement wallet before treasury transfer.</p>
+        </div>
+      </div>
+
+      <div class="drawer-card">
+        <div class="label">Future incentive reference</div>
+        <p>Contribution records can be used for future ecosystem rewards, ambassador access, launch partner lists, and whitelist scoring.</p>
+      </div>
+    </aside>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
