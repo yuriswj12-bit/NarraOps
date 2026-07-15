@@ -16,12 +16,13 @@ const PLATFORMS = Object.freeze([
     execution_mode: "disabled",
   },
   {
-    id: "noxa",
-    name: "Noxa.fun",
+    id: "pons",
+    name: "Pons",
     chain: "robinhood",
     chain_id: 4663,
+    launch_url: "https://pons.family/launchpad/create",
     preparation_status: "ready",
-    integration_status: "external_docs_required",
+    integration_status: "wallet_handoff_ready",
     execution_mode: "disabled",
   },
 ]);
@@ -31,8 +32,8 @@ const ALIASES = new Map([
   ["pump", "pump"],
   ["fourmeme", "fourmeme"],
   ["four.meme", "fourmeme"],
-  ["noxa.fun", "noxa"],
-  ["noxa", "noxa"],
+  ["pons.family", "pons"],
+  ["pons", "pons"],
 ]);
 
 export function listLaunchPlatforms() {

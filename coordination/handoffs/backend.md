@@ -57,7 +57,7 @@ Launch preparation contract:
 
 - `solana` -> `pump` / Pump.fun
 - `bsc` -> `fourmeme` / FourMeme
-- `robinhood` -> `noxa` / Noxa.fun (chain ID 4663)
+- `robinhood` -> `pons` / Pons (chain ID 4663)
 - A public `narrative_url` is normalized and checked against local/private targets. Draft metadata contains name, symbol, description, image, X, and website fields plus `missing_fields` for later AI enrichment.
 - Every draft is review-only: `requires_user_confirmation: true`, `execution_mode: disabled`, `signing_status: signing_disabled`, `broadcasting_status: broadcasting_disabled`.
 
@@ -75,7 +75,7 @@ Read-only Meme analysis:
 
 External blockers intentionally left open:
 
-- Noxa.fun public execution ABI/contracts/SDK and supported metadata transaction flow.
+- Pons public factory address/ABI and supported metadata transaction flow for a reviewed direct-execution adapter.
 - Privy application configuration and authentication policy.
 - Production GMGN credentials/connectivity and confirmation that the deployed API plan permits the requested scan cadence.
 - A production AI/model provider and content-fetch worker for narrative-link enrichment.

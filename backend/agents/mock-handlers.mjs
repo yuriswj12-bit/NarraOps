@@ -255,7 +255,7 @@ function extractPublicUrl(value) {
 
 function normalizeLaunchChain(value) {
   const text = String(value || "").toLowerCase();
-  if (text.includes("robinhood") || text.includes("noxa")) return "robinhood";
+  if (text.includes("robinhood") || text.includes("pons")) return "robinhood";
   if (text.includes("bsc") || text.includes("bnb") || text.includes("fourmeme")) return "bsc";
   return "solana";
 }
