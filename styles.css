@@ -1160,6 +1160,93 @@ button {
   color: var(--red, #ff6b6b);
 }
 
+.launch-image-field {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.launch-image-heading,
+.launch-image-heading > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.launch-image-heading > div {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.launch-image-heading small {
+  color: var(--muted);
+}
+
+.launch-image-heading strong {
+  color: var(--green);
+  font-size: 12px;
+}
+
+.launch-image-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.launch-image-action,
+.launch-image-secondary button {
+  border: 1px dashed var(--line-strong, var(--line));
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text);
+}
+
+.launch-image-action {
+  width: 112px;
+  min-height: 112px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.launch-image-action i {
+  color: var(--green);
+  font-size: 24px;
+}
+
+.launch-image-upload img {
+  width: 100%;
+  height: 112px;
+  object-fit: cover;
+}
+
+.launch-image-secondary {
+  width: 118px;
+  display: grid;
+  gap: 10px;
+}
+
+.launch-image-secondary button {
+  min-height: 51px;
+}
+
+.launch-image-ai {
+  color: var(--muted);
+}
+
+.launch-image-action:hover,
+.launch-image-secondary button:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+
 .launch-field {
   min-width: 0;
   display: grid;
@@ -1492,6 +1579,9 @@ select:focus-visible {
 }
 
 @media (max-width: 620px) {
+  .launch-image-actions { flex-wrap: wrap; }
+  .launch-image-action { width: calc(50% - 6px); }
+  .launch-image-secondary { width: calc(50% - 6px); }
   .global-header {
     padding: 9px 12px;
   }
