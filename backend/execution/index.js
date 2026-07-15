@@ -1,5 +1,7 @@
 export { ExecutionService } from "./service.js";
 export { PonsFollowBuyService, extractLaunchedTokenAddress } from "./pons-follow-buy-service.js";
+export { sealWalletSecret, openWalletSecret } from "./encrypted-wallet-vault.js";
+export { EncryptedBatchWalletSigner, OneTimeApprovalStore, digestBatch } from "./batch-wallet-signer.js";
 export { RobinhoodReceiptProvider } from "./robinhood-receipt-provider.js";
 export { ExecutionError } from "./errors.js";
 export { InMemoryIdempotencyStore, requestFingerprint } from "./idempotency-store.js";
