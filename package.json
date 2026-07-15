@@ -5,6 +5,7 @@
   "description": "NarraOps local MVP prototype",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check app.js && node --check server.js"
+    "check": "node --check app.js && node --check server.js && node --check backend/execution/service.js",
+    "test:execution": "node --test backend/execution/test/*.test.js"
   }
 }

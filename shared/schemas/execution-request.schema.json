@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/execution-request.schema.json",
+  "title": "ExecutionRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requestId", "operation", "chain", "walletGroupId", "amountMode", "amounts", "slippageBps", "priorityFee", "idempotencyKey"],
+  "properties": {
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "operation": { "enum": ["token.launch", "transfer.distribute", "transfer.multi", "trade.batchBuy", "trade.batchSell", "token.collect", "token.burn", "liquidity.lock"] },
+    "chain": { "enum": ["solana", "bsc", "base"] },
+    "walletGroupId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "tokenAddress": { "type": ["string", "null"], "maxLength": 128 },
+    "amountMode": { "enum": ["fixed", "random", "percentage", "per_wallet"] },
+    "amounts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$" }
+    },
+    "slippageBps": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "priorityFee": { "type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$" },
+    "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 255, "pattern": "^[A-Za-z0-9._:-]+$" }
+  }
+}
+

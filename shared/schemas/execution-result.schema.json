@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/execution-result.schema.json",
+  "title": "ExecutionResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["executionId", "status", "submittedCount", "confirmedCount", "failedCount", "transactions", "startedAt", "timing"],
+  "properties": {
+    "executionId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["planned", "signing", "submitted", "confirmed", "partially_failed", "failed", "timed_out"] },
+    "submittedCount": { "type": "integer", "minimum": 0 },
+    "confirmedCount": { "type": "integer", "minimum": 0 },
+    "failedCount": { "type": "integer", "minimum": 0 },
+    "transactions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["chain", "fromAddress", "status", "createdAt"],
+        "properties": {
+          "txHash": { "type": ["string", "null"] },
+          "chain": { "enum": ["solana", "bsc", "base"] },
+          "fromAddress": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["planned", "signing", "submitted", "confirmed", "failed", "timed_out"] },
+          "errorCode": { "type": ["string", "null"] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "submittedAt": { "type": ["string", "null"], "format": "date-time" },
+          "confirmedAt": { "type": ["string", "null"], "format": "date-time" }
+        }
+      }
+    },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "submittedAt": { "type": ["string", "null"], "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["planningMs", "signingMs", "submissionMs", "confirmationMs", "totalMs"],
+      "properties": {
+        "planningMs": { "type": "integer", "minimum": 0 },
+        "signingMs": { "type": "integer", "minimum": 0 },
+        "submissionMs": { "type": "integer", "minimum": 0 },
+        "confirmationMs": { "type": "integer", "minimum": 0 },
+        "totalMs": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
+

@@ -1,121 +1,629 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NarraOps</title>
-    <link rel="stylesheet" href="./styles.css" />
-  </head>
-  <body>
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="brand">
-          <div class="brand-mark">N</div>
-          <div>
-            <div class="brand-name">NarraOps</div>
-            <div class="brand-subtitle">Agentic Launch OS</div>
-          </div>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NarraOps • 发现叙事，发射资产</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Space+Grotesk:wght@500;600&amp;display=swap');
+
+        body {
+            font-family: 'Inter', system_ui, sans-serif;
+        }
+        
+        .font-display {
+            font-family: 'Space Grotesk', 'Inter', sans-serif;
+            font-weight: 600;
+            letter-spacing: 0;
+        }
+
+        .dark-bg {
+            background-color: #0a0a0f;
+        }
+
+        .glass {
+            background: rgba(17, 17, 24, 0.75);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(63, 63, 70, 0.35);
+        }
+
+        .hero-bg {
+            position: relative;
+            isolation: isolate;
+            background-color: #050507;
+        }
+
+        .hero-bg::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: -2;
+            background-image: url('./assets/narraops-hero-signals.png');
+            background-repeat: no-repeat;
+            background-position: center center;
+            background-size: cover;
+        }
+
+        .hero-bg::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            background:
+                linear-gradient(90deg, rgba(5, 5, 7, 0.28) 0%, rgba(5, 5, 7, 0.04) 54%, rgba(5, 5, 7, 0.2) 100%),
+                linear-gradient(180deg, rgba(5, 5, 7, 0.08) 0%, rgba(5, 5, 7, 0.02) 54%, #0a0a0f 100%);
+        }
+
+        .hero-motion {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            opacity: 0.82;
+            mix-blend-mode: screen;
+        }
+
+        .hero-shell {
+            position: relative;
+            z-index: 2;
+            width: min(1280px, calc(100% - 64px));
+            min-height: calc(100svh - 64px);
+            margin: 0 auto;
+            padding: 64px 0 80px;
+            display: flex;
+            align-items: flex-end;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .hero-motion {
+                display: none;
+            }
+        }
+
+        .hero-content {
+            width: 100%;
+            display: grid;
+            grid-template-columns: minmax(0, 1.12fr) minmax(360px, 0.88fr);
+            align-items: end;
+            gap: 72px;
+        }
+
+        .hero-copy {
+            max-width: 720px;
+        }
+
+        .hero-actions {
+            max-width: 520px;
+            justify-self: end;
+        }
+
+        @media (max-width: 900px) {
+            .hero-shell {
+                width: min(100% - 40px, 1280px);
+                min-height: calc(100svh - 64px);
+                padding: 96px 0 56px;
+            }
+
+            .hero-content {
+                grid-template-columns: 1fr;
+                gap: 32px;
+            }
+
+            .hero-actions {
+                max-width: 620px;
+                justify-self: start;
+            }
+
+            .hero-bg::before {
+                background-position: 58% center;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .hero-shell {
+                width: min(100% - 32px, 1280px);
+                padding-bottom: 48px;
+            }
+
+            .hero-bg::after {
+                background:
+                    linear-gradient(90deg, rgba(5, 5, 7, 0.52) 0%, rgba(5, 5, 7, 0.18) 100%),
+                    linear-gradient(180deg, rgba(5, 5, 7, 0.1) 0%, rgba(5, 5, 7, 0.18) 42%, #0a0a0f 100%);
+            }
+        }
+
+        .feature-card {
+            transition: all 0.4s cubic-bezier(0.23, 1.0, 0.32, 1);
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-6px);
+            border-color: #3f3f46;
+        }
+
+        .lang-dropdown {
+            animation: dropdownPop 0.2s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+        }
+
+        @keyframes dropdownPop {
+            from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+    </style>
+</head>
+<body class="dark-bg text-white">
+    
+    <!-- Top Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 border-b border-zinc-800 bg-[#0a0a0f]/95 backdrop-blur-xl">
+        <div class="max-w-screen-2xl mx-auto px-8">
+            <div class="flex items-center justify-between h-16">
+                
+                <!-- Logo -->
+                <div class="flex items-center gap-x-3">
+                    <div class="flex items-center gap-x-2.5">
+                        <div class="w-9 h-9 bg-gradient-to-br from-emerald-400 via-teal-400 to-cyan-400 rounded-2xl flex items-center justify-center">
+                            <span class="text-[#0a0a0f] font-black text-3xl tracking-[-3px]">N</span>
+                        </div>
+                        <span class="font-display text-[26px] font-semibold tracking-[-1.2px]">NarraOps</span>
+                    </div>
+                </div>
+
+                <!-- Right Actions -->
+                <div class="flex items-center gap-x-2">
+                    
+                    <!-- Social Icons -->
+                    <div class="hidden md:flex items-center gap-x-1 mr-2">
+                        <a href="#" class="w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-2xl transition-colors">
+                            <i class="fa-brands fa-x-twitter"></i>
+                        </a>
+                        <a href="#" class="w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-2xl transition-colors">
+                            <i class="fa-brands fa-discord"></i>
+                        </a>
+                        <a href="#" class="w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-2xl transition-colors">
+                            <i class="fa-brands fa-telegram"></i>
+                        </a>
+                    </div>
+
+                    <!-- Language Switcher (HertzFlow Style) -->
+                    <div class="relative">
+                        <button onclick="toggleLanguageDropdown()" 
+                                class="w-9 h-9 flex items-center justify-center rounded-2xl border border-zinc-700 hover:bg-zinc-900 transition-colors">
+                            <i class="fa-solid fa-globe text-lg text-zinc-300"></i>
+                        </button>
+                        
+                        <div id="lang-dropdown" class="lang-dropdown hidden absolute right-0 top-11 w-44 glass rounded-2xl py-1 shadow-2xl border border-zinc-700 z-50 text-sm">
+                            <button onclick="selectLanguage('en')" class="lang-option w-full px-4 py-2.5 text-left flex items-center justify-between hover:bg-white/5 rounded-xl mx-1 text-zinc-300 hover:text-white">
+                                <span>English</span>
+                            </button>
+                            
+                            <button onclick="selectLanguage('zh')" class="lang-option w-full px-4 py-2.5 text-left flex items-center justify-between hover:bg-white/5 rounded-xl mx-1 text-white">
+                                <span>简体中文</span>
+                                <i class="fa-solid fa-check text-emerald-400 text-xs ml-auto" id="check-zh"></i>
+                            </button>
+                            
+                            <button onclick="selectLanguage('zh-tw')" class="lang-option w-full px-4 py-2.5 text-left flex items-center justify-between hover:bg-white/5 rounded-xl mx-1 text-zinc-300 hover:text-white">
+                                <span>繁体中文</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Enter App Button -->
+                    <button onclick="enterApp()" 
+                            class="ml-1 px-4 sm:px-6 py-2 bg-white text-black font-semibold text-sm rounded-3xl flex items-center gap-x-2 active:scale-[0.985] transition-all hover:bg-zinc-100">
+                        <span>进入应用</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- HERO SECTION (HertzFlow Style) -->
+    <section class="min-h-[100svh] pt-16 hero-bg overflow-hidden">
+        <canvas id="heroMotionCanvas" class="hero-motion" aria-hidden="true"></canvas>
+        <div class="hero-shell">
+            <div class="hero-content">
+                <div class="hero-copy">
+                    <div class="inline-flex items-center gap-x-2 px-4 py-1.5 rounded-full bg-black/35 border border-white/15 mb-6 backdrop-blur-md">
+                        <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
+                        <span class="font-medium tracking-[1.5px] text-sm text-emerald-300">AGENTIC MEME LAUNCH OS</span>
+                    </div>
+
+                    <h1 class="font-display text-[64px] max-sm:text-[38px] leading-[1.08] tracking-normal font-semibold text-white">
+                        发现叙事，发射资产
+                    </h1>
+                </div>
+
+                <div class="hero-actions">
+                    <p class="text-lg max-sm:text-base text-zinc-200 leading-relaxed drop-shadow-lg">
+                        NarraOps 由 Agent 驱动，将叙事发现、Meme 构建、链上发射、钱包组执行和社区运营连接为一套完整工作流。
+                    </p>
+
+                    <div class="grid grid-cols-2 max-sm:grid-cols-1 gap-4 mt-6">
+                        <button onclick="enterApp()"
+                                class="h-12 px-7 bg-emerald-400 hover:bg-emerald-300 active:bg-emerald-500 text-black font-semibold text-base rounded-2xl flex items-center justify-center gap-x-3 transition-all shadow-xl shadow-emerald-400/20">
+                            <span>进入应用</span>
+                            <i class="fa-solid fa-arrow-right text-sm"></i>
+                        </button>
+
+                        <button onclick="document.getElementById('capabilities').scrollIntoView({ behavior: 'smooth' })"
+                                class="h-12 px-7 border border-white/40 bg-black/20 hover:bg-white/10 text-white font-medium text-base rounded-2xl flex items-center justify-center gap-x-2 transition-colors backdrop-blur-md">
+                            <span>了解工作流</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CAPABILITIES -->
+    <section id="capabilities" class="max-w-screen-2xl mx-auto px-8 py-20 border-t border-zinc-800">
+        <div class="max-w-2xl mb-10">
+            <div class="text-xs tracking-[2px] text-zinc-500 font-semibold mb-3">CORE WORKFLOW</div>
+            <h2 class="font-display text-5xl tracking-[-1.8px] leading-none">一套被 Agent 串联的工作流</h2>
         </div>
 
-        <nav class="nav-list" aria-label="Main navigation">
-          <button class="nav-item active" data-view="dashboard">Dashboard</button>
-          <button class="nav-item" data-view="narratives">Narratives</button>
-          <button class="nav-item" data-view="signal">Signal-to-Launch</button>
-          <button class="nav-item" data-view="builder">Meme Builder</button>
-          <button class="nav-item" data-view="launch">Launch Console</button>
-          <button class="nav-item" data-view="wallets">Wallet Ops</button>
-          <button class="nav-item" data-view="community">Community Ops</button>
-          <button class="nav-item" data-view="records">Records</button>
-        </nav>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+            
+            <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
+                <div class="w-10 h-10 rounded-2xl bg-emerald-400/10 flex items-center justify-center mb-5">
+                    <i class="fa-solid fa-search text-emerald-400 text-xl"></i>
+                </div>
+                <div class="font-semibold text-xl tracking-tight">Narrative Engine</div>
+                <div class="text-sm text-zinc-400 mt-3 leading-snug">实时监控多平台热点与指定账号，自动识别可转化为链上资产的叙事。</div>
+            </div>
 
-        <div class="side-status">
-          <div class="label">Agent Status</div>
-          <div class="status-row">
-            <span class="status-dot"></span>
-            <span>Listening</span>
-          </div>
-          <div class="side-metric">
-            <span>Signals</span>
-            <strong id="sideSignalCount">0</strong>
-          </div>
-          <div class="side-metric">
-            <span>Armed launches</span>
-            <strong id="sideArmedCount">0</strong>
-          </div>
+            <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
+                <div class="w-10 h-10 rounded-2xl bg-purple-400/10 flex items-center justify-center mb-5">
+                    <i class="fa-solid fa-hammer text-purple-400 text-xl"></i>
+                </div>
+                <div class="font-semibold text-xl tracking-tight">Meme Forge</div>
+                <div class="text-sm text-zinc-400 mt-3 leading-snug">Agent 协助生成名称、视觉方向、文案、叙事角度与 token 经济模型。</div>
+            </div>
+
+            <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
+                <div class="w-10 h-10 rounded-2xl bg-amber-400/10 flex items-center justify-center mb-5">
+                    <i class="fa-solid fa-bolt text-amber-400 text-xl"></i>
+                </div>
+                <div class="font-semibold text-xl tracking-tight">Signal Launcher</div>
+                <div class="text-sm text-zinc-400 mt-3 leading-snug">当检测到符合条件的信号时，自动生成完整发射方案，支持 Solana 与 BSC。</div>
+            </div>
+
+            <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
+                <div class="w-10 h-10 rounded-2xl bg-sky-400/10 flex items-center justify-center mb-5">
+                    <i class="fa-solid fa-layer-group text-sky-400 text-xl"></i>
+                </div>
+                <div class="font-semibold text-xl tracking-tight">Wallet Fabric</div>
+                <div class="text-sm text-zinc-400 mt-3 leading-snug">智能创建与管理钱包组，实现资金分散、防 MEV 与批量执行策略。</div>
+            </div>
+
+            <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
+                <div class="w-10 h-10 rounded-2xl bg-orange-400/10 flex items-center justify-center mb-5">
+                    <i class="fa-solid fa-users text-orange-400 text-xl"></i>
+                </div>
+                <div class="font-semibold text-xl tracking-tight">Community Agent</div>
+                <div class="text-sm text-zinc-400 mt-3 leading-snug">发射后由 Agent 辅助生成内容、匹配 KOL 并持续追踪社区健康度。</div>
+            </div>
+
+            <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
+                <div class="w-10 h-10 rounded-2xl bg-rose-400/10 flex items-center justify-center mb-5">
+                    <i class="fa-solid fa-rocket text-rose-400 text-xl"></i>
+                </div>
+                <div class="font-semibold text-xl tracking-tight">Launch OS</div>
+                <div class="text-sm text-zinc-400 mt-3 leading-snug">一站式配置与执行发射流程，包含合约部署、流动性与初始做市策略。</div>
+            </div>
+            
         </div>
-      </aside>
+    </section>
 
-      <main class="main">
-        <header class="topbar">
-          <div>
-            <h1 id="pageTitle">Dashboard</h1>
-            <p id="pageSubtitle">Signal, build, launch, operate.</p>
-          </div>
-          <div class="top-actions">
-            <button class="language-button" id="languageToggleBtn" aria-label="Switch language">中文</button>
-            <button class="ghost-button" id="quickScanBtn">Run scan</button>
-            <button class="treasury-button" id="openContributionBtn" aria-label="Open contribution settlement">
-              <span class="treasury-icon">%</span>
-              <span id="treasuryRateText">4%</span>
+    <!-- PRODUCT MOCK -->
+    <section class="bg-zinc-900/60 border-y border-zinc-800 py-16">
+        <div class="max-w-screen-2xl mx-auto px-8">
+            <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-y-4 mb-8">
+                <div>
+                    <div class="text-xs tracking-[2px] text-zinc-500 font-semibold mb-2">PRODUCT INTERFACE</div>
+                    <h3 class="font-display text-4xl tracking-[-1px]">真实的工作台体验</h3>
+                </div>
+                <button onclick="enterApp()" class="text-sm px-5 py-2.5 border border-white/20 hover:bg-white/5 rounded-2xl flex items-center gap-x-2 self-start lg:self-auto transition-colors">
+                    <span>打开完整工作台</span>
+                </button>
+            </div>
+
+            <div class="glass rounded-3xl p-2 border border-zinc-700 max-w-[1080px] mx-auto shadow-2xl">
+                <div class="bg-[#0a0a0f] rounded-[20px] overflow-hidden">
+                    <div class="px-6 py-3 border-b border-zinc-800 flex items-center justify-between text-xs">
+                        <div class="flex items-center gap-x-4 text-zinc-400">
+                            <span class="font-mono">NarraOps</span>
+                            <span class="text-emerald-400">Agent 在线</span>
+                        </div>
+                        <div class="font-mono text-emerald-400 text-[10px]">v0.9.2</div>
+                    </div>
+
+                    <div class="p-7 grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        <div class="lg:col-span-5">
+                            <div class="text-xs text-zinc-500 mb-3">Narrative Engine • 实时信号</div>
+                            <div class="space-y-2 text-sm">
+                                <div class="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex justify-between items-center">
+                                    <div>AI Agent 经济体</div>
+                                    <div class="text-emerald-400 text-xs font-medium">92</div>
+                                </div>
+                                <div class="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex justify-between items-center">
+                                    <div>Meme 2.0 叙事驱动</div>
+                                    <div class="text-emerald-400 text-xs font-medium">79</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="lg:col-span-7">
+                            <div class="text-xs text-zinc-500 mb-3">推荐动作</div>
+                            <div class="grid grid-cols-2 gap-3 text-sm">
+                                <div onclick="enterApp()" class="cursor-pointer bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 transition-colors rounded-2xl px-4 py-4">
+                                    <div class="font-medium">使用 Meme Forge 生成方案</div>
+                                    <div class="text-xs text-zinc-400 mt-4">基于当前最高分叙事</div>
+                                </div>
+                                <div onclick="enterApp()" class="cursor-pointer bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 transition-colors rounded-2xl px-4 py-4">
+                                    <div class="font-medium">创建 Wallet Fabric</div>
+                                    <div class="text-xs text-zinc-400 mt-4">智能防 MEV 分散策略</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FINAL CTA -->
+    <section class="max-w-screen-2xl mx-auto px-8 py-20 text-center">
+        <div class="max-w-lg mx-auto">
+            <h2 class="font-display text-5xl tracking-[-1.5px] leading-none">准备好用专业级工具<br>完成你的链上资产发行了吗？</h2>
+            
+            <button onclick="enterApp()" class="mt-9 px-10 py-4 bg-white text-black font-semibold text-lg rounded-3xl inline-flex items-center gap-x-3 active:scale-[0.985] transition-all">
+                <span>进入 NarraOps 工作台</span>
             </button>
-          </div>
-        </header>
-
-        <section id="viewRoot" class="view-root" aria-live="polite"></section>
-      </main>
-    </div>
-
-    <div class="drawer-overlay hidden" id="drawerOverlay"></div>
-    <aside class="contribution-drawer hidden" id="contributionDrawer" aria-label="Contribution settlement">
-      <div class="drawer-head">
-        <div>
-          <div class="eyebrow">Settlement</div>
-          <h2>Contribution Engine</h2>
+            
+            <div class="mt-4 text-xs text-zinc-500">连接钱包即可开始 • 支持 Solana 与 BSC</div>
         </div>
-        <button class="icon-button" id="closeContributionBtn" aria-label="Close">X</button>
-      </div>
+    </section>
 
-      <div class="contribution-summary">
-        <div>
-          <span>Selected rate</span>
-          <strong id="drawerRateText">4%</strong>
+    <footer class="border-t border-zinc-800 py-8 text-xs text-zinc-500">
+        <div class="max-w-screen-2xl mx-auto px-8 flex flex-col md:flex-row justify-between items-center gap-y-2 text-center md:text-left">
+            <div>© 2026 NarraOps</div>
+            <div class="flex gap-x-5">
+                <span class="cursor-pointer hover:text-white transition-colors">文档</span>
+                <span class="cursor-pointer hover:text-white transition-colors">Discord</span>
+                <span class="cursor-pointer hover:text-white transition-colors">X</span>
+            </div>
         </div>
-        <div>
-          <span>Settlement wallet</span>
-          <strong>NSET...8P2A</strong>
-        </div>
-      </div>
+    </footer>
 
-      <label class="field-label" for="contributionRate">User-selected contribution</label>
-      <input id="contributionRate" class="range" type="range" min="0" max="10" value="4" />
-      <div class="range-scale">
-        <span>0%</span>
-        <span>10%</span>
-      </div>
+    <script>
+        function toggleLanguageDropdown() {
+            const dropdown = document.getElementById('lang-dropdown');
+            dropdown.classList.toggle('hidden');
+            dropdown.classList.toggle('flex');
+            
+            setTimeout(() => {
+                document.addEventListener('click', function handler(e) {
+                    if (!dropdown.contains(e.target)) {
+                        dropdown.classList.add('hidden');
+                        dropdown.classList.remove('flex');
+                        document.removeEventListener('click', handler);
+                    }
+                }, { once: true });
+            }, 50);
+        }
 
-      <div class="rule-list">
-        <div class="rule-item">
-          <span class="rule-badge">01</span>
-          <p>Calculated only from the selected launch wallet group's realized total profit.</p>
-        </div>
-        <div class="rule-item">
-          <span class="rule-badge">02</span>
-          <p>No profit means no contribution. Loss wallets are not charged.</p>
-        </div>
-        <div class="rule-item">
-          <span class="rule-badge">03</span>
-          <p>Positive wallets route their share into the settlement wallet before treasury transfer.</p>
-        </div>
-      </div>
+        function selectLanguage(lang) {
+            const dropdown = document.getElementById('lang-dropdown');
+            dropdown.classList.add('hidden');
+            dropdown.classList.remove('flex');
 
-      <div class="drawer-card">
-        <div class="label">Future incentive reference</div>
-        <p>Contribution records can be used for future ecosystem rewards, ambassador access, launch partner lists, and whitelist scoring.</p>
-      </div>
-    </aside>
+            document.querySelectorAll('.lang-option i').forEach(el => el.remove());
 
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+            if (lang === 'zh') {
+                const btns = document.querySelectorAll('.lang-option');
+                if (btns[1]) {
+                    const check = document.createElement('i');
+                    check.className = 'fa-solid fa-check text-emerald-400 text-xs ml-auto';
+                    btns[1].appendChild(check);
+                }
+            } else if (lang === 'en') {
+                alert('English version coming soon.');
+            } else if (lang === 'zh-tw') {
+                alert('繁体中文版本即将上线。');
+            }
+        }
 
-    <script src="./app.js"></script>
-  </body>
+        function enterApp() {
+            window.location.href = 'app.html';
+        }
+
+        function initHeroMotion() {
+            const canvas = document.getElementById('heroMotionCanvas');
+            const hero = document.querySelector('.hero-bg');
+            const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+            if (!canvas || !hero || reducedMotion.matches) return;
+
+            const context = canvas.getContext('2d', { alpha: true });
+            const sourceAspect = 1672 / 941;
+            const paths = [
+                { color: [72, 201, 255], points: [[0.01, 0.20], [0.18, 0.28], [0.31, 0.56], [0.56, 0.68]] },
+                { color: [189, 255, 46], points: [[0.00, 0.31], [0.17, 0.37], [0.34, 0.61], [0.57, 0.69]] },
+                { color: [232, 239, 245], points: [[0.03, 0.43], [0.23, 0.45], [0.35, 0.65], [0.58, 0.70]] },
+                { color: [85, 139, 255], points: [[0.02, 0.57], [0.20, 0.54], [0.38, 0.70], [0.58, 0.72]] },
+                { color: [189, 255, 46], points: [[0.98, 0.45], [0.84, 0.51], [0.73, 0.66], [0.59, 0.71]] },
+                { color: [230, 236, 241], points: [[1.00, 0.61], [0.84, 0.59], [0.73, 0.70], [0.59, 0.72]] },
+                { color: [91, 150, 255], points: [[0.96, 0.77], [0.82, 0.72], [0.70, 0.72], [0.59, 0.72]] }
+            ];
+            const pulsePoints = [
+                [0.59, 0.52, [73, 145, 255]],
+                [0.63, 0.66, [189, 255, 46]],
+                [0.69, 0.64, [230, 236, 241]],
+                [0.75, 0.55, [189, 255, 46]],
+                [0.81, 0.69, [113, 97, 255]],
+                [0.88, 0.62, [230, 236, 241]],
+                [0.91, 0.72, [189, 255, 46]]
+            ];
+            const particles = Array.from({ length: 42 }, (_, index) => ({
+                path: index % paths.length,
+                phase: Math.random(),
+                speed: 0.035 + Math.random() * 0.03,
+                size: 0.8 + Math.random() * 1.5
+            }));
+            const blocks = Array.from({ length: 12 }, (_, index) => ({
+                path: index % paths.length,
+                phase: Math.random(),
+                speed: 0.012 + Math.random() * 0.012,
+                size: 2.5 + Math.random() * 2
+            }));
+
+            let width = 0;
+            let height = 0;
+            let pixelRatio = 1;
+            let animationFrame = 0;
+
+            function resizeCanvas() {
+                const bounds = hero.getBoundingClientRect();
+                width = Math.max(1, bounds.width);
+                height = Math.max(1, bounds.height);
+                pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+                canvas.width = Math.round(width * pixelRatio);
+                canvas.height = Math.round(height * pixelRatio);
+                canvas.style.width = `${width}px`;
+                canvas.style.height = `${height}px`;
+                context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+            }
+
+            function mapSourcePoint(point) {
+                const canvasAspect = width / height;
+                let renderedWidth = width;
+                let renderedHeight = height;
+                let offsetX = 0;
+                let offsetY = 0;
+
+                if (canvasAspect < sourceAspect) {
+                    renderedWidth = height * sourceAspect;
+                    offsetX = (width - renderedWidth) / 2;
+                } else {
+                    renderedHeight = width / sourceAspect;
+                    offsetY = (height - renderedHeight) / 2;
+                }
+
+                return {
+                    x: offsetX + point[0] * renderedWidth,
+                    y: offsetY + point[1] * renderedHeight
+                };
+            }
+
+            function cubicPoint(points, t) {
+                const inverse = 1 - t;
+                const x = inverse ** 3 * points[0][0]
+                    + 3 * inverse ** 2 * t * points[1][0]
+                    + 3 * inverse * t ** 2 * points[2][0]
+                    + t ** 3 * points[3][0];
+                const y = inverse ** 3 * points[0][1]
+                    + 3 * inverse ** 2 * t * points[1][1]
+                    + 3 * inverse * t ** 2 * points[2][1]
+                    + t ** 3 * points[3][1];
+                return mapSourcePoint([x, y]);
+            }
+
+            function drawParticle(particle, seconds) {
+                const path = paths[particle.path];
+                const t = (particle.phase + seconds * particle.speed) % 1;
+                const color = path.color.join(',');
+
+                for (let step = 7; step >= 0; step -= 1) {
+                    const tailT = Math.max(0, t - step * 0.011);
+                    const point = cubicPoint(path.points, tailT);
+                    const alpha = ((8 - step) / 8) * 0.72;
+                    context.beginPath();
+                    context.fillStyle = `rgba(${color}, ${alpha})`;
+                    context.arc(point.x, point.y, particle.size * (0.55 + alpha * 0.45), 0, Math.PI * 2);
+                    context.fill();
+                }
+            }
+
+            function drawBlock(block, seconds, index) {
+                const path = paths[block.path];
+                const t = (block.phase + seconds * block.speed) % 1;
+                const point = cubicPoint(path.points, t);
+                const color = path.color.join(',');
+                const angle = seconds * 0.18 + index * 0.7;
+
+                context.save();
+                context.translate(point.x, point.y);
+                context.rotate(angle);
+                context.fillStyle = `rgba(${color}, 0.58)`;
+                context.fillRect(-block.size / 2, -block.size / 2, block.size, block.size);
+                context.restore();
+            }
+
+            function drawPulse(point, seconds, index) {
+                const mapped = mapSourcePoint(point);
+                const pulse = (Math.sin(seconds * 1.1 + index * 0.9) + 1) / 2;
+                const color = point[2].join(',');
+                const radius = 7 + pulse * 5;
+
+                context.beginPath();
+                context.strokeStyle = `rgba(${color}, ${0.14 + pulse * 0.28})`;
+                context.lineWidth = 1.2;
+                context.arc(mapped.x, mapped.y, radius, 0, Math.PI * 2);
+                context.stroke();
+
+                context.beginPath();
+                context.strokeStyle = `rgba(${color}, ${0.08 + (1 - pulse) * 0.16})`;
+                context.lineWidth = 0.8;
+                context.arc(mapped.x, mapped.y, radius + 6, 0, Math.PI * 2);
+                context.stroke();
+            }
+
+            function render(timestamp) {
+                const seconds = timestamp / 1000;
+                context.clearRect(0, 0, width, height);
+                context.globalCompositeOperation = 'lighter';
+                particles.forEach((particle) => drawParticle(particle, seconds));
+                blocks.forEach((block, index) => drawBlock(block, seconds, index));
+                pulsePoints.forEach((point, index) => drawPulse(point, seconds, index));
+                animationFrame = window.requestAnimationFrame(render);
+            }
+
+            function handleVisibility() {
+                if (document.hidden) {
+                    window.cancelAnimationFrame(animationFrame);
+                    animationFrame = 0;
+                } else if (!animationFrame) {
+                    animationFrame = window.requestAnimationFrame(render);
+                }
+            }
+
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas, { passive: true });
+            document.addEventListener('visibilitychange', handleVisibility);
+            animationFrame = window.requestAnimationFrame(render);
+        }
+
+        function init() {
+            initHeroMotion();
+            setTimeout(() => {
+                const zhBtn = document.querySelectorAll('.lang-option')[1];
+                if (zhBtn && !zhBtn.querySelector('i')) {
+                    const check = document.createElement('i');
+                    check.className = 'fa-solid fa-check text-emerald-400 text-xs ml-auto';
+                    zhBtn.appendChild(check);
+                }
+            }, 300);
+
+            console.log('%c[NarraOps Landing v3] Updated with new HertzFlow-style hero.', 'color:#555');
+        }
+
+        window.onload = init;
+    </script>
+</body>
 </html>
