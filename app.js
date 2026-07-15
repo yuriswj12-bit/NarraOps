@@ -527,6 +527,11 @@ async function submitPonsLaunch(form) {
     showToast(t("请选择一个只包含 1 个钱包的 Cooking 钱包组。", "Select a Cooking wallet group containing exactly one wallet."));
     return;
   }
+  const buyingGroup = state.assets.groups.find((group) => group.groupId === values.buyingWalletGroup && group.purpose !== "cooking" && group.walletCount > 0);
+  if (!buyingGroup) {
+    showToast(t("请选择发射后执行第二笔买入的常规钱包组。", "Select the general wallet group that will place the second buy after launch."));
+    return;
+  }
   if (!state.launchMedia.file && !state.launchMedia.metadataUri) {
     showToast(t("请先上传或生成 Cooking 图片。", "Upload or generate a Cooking image first."));
     return;
@@ -551,12 +556,20 @@ async function submitPonsLaunch(form) {
   try {
     const gas = await window.ethereum.request({ method: "eth_estimateGas", params: [transaction] });
     const confirmed = window.confirm(t(
-      `即将通过 Pons 工厂发射 ${values.tokenSymbol}。总支付 ${values.cookingBuyAmount || "0"} ETH + 0.0005 ETH 发射费，预估 Gas ${Number.parseInt(gas, 16).toLocaleString()}。继续后钱包仍会要求最终确认。`,
-      `Launch ${values.tokenSymbol} through the Pons factory. Total payment is ${values.cookingBuyAmount || "0"} ETH plus the 0.0005 ETH launch fee; estimated gas is ${Number.parseInt(gas, 16).toLocaleString()}. Your wallet will request final confirmation.`,
+      `即将通过 Pons 工厂发射 ${values.tokenSymbol}。Cooking 钱包首笔买入 ${values.cookingBuyAmount || "0"} ETH，发射费 0.0005 ETH；链上确认后，${buyingGroup.name} 计划跟买 ${values.walletGroupBuyAmount || "0"} ETH。预估发射 Gas ${Number.parseInt(gas, 16).toLocaleString()}。`,
+      `Launch ${values.tokenSymbol} through the Pons factory. The Cooking wallet buys ${values.cookingBuyAmount || "0"} ETH first, plus the 0.0005 ETH launch fee. After confirmation, ${buyingGroup.name} is scheduled to follow-buy ${values.walletGroupBuyAmount || "0"} ETH. Estimated launch gas: ${Number.parseInt(gas, 16).toLocaleString()}.`,
     ));
     if (!confirmed) return;
     const hash = await window.ethereum.request({ method: "eth_sendTransaction", params: [{ ...transaction, gas }] });
     sessionStorage.setItem("narraops-last-launch-tx", hash);
+    sessionStorage.setItem("narraops-follow-buy-plan", JSON.stringify({
+      launchTransactionHash: hash,
+      platform: state.selectedPlatform,
+      cookingWalletGroupId: cookingGroup.groupId,
+      buyingWalletGroupId: buyingGroup.groupId,
+      walletGroupBuyAmount: values.walletGroupBuyAmount,
+      status: "awaiting_launch_confirmation",
+    }));
     showToast(t(`发射交易已提交：${hash.slice(0, 12)}…`, `Launch transaction submitted: ${hash.slice(0, 12)}…`));
     window.open(`${ROBINHOOD_CHAIN.blockExplorerUrls[0]}/tx/${hash}`, "_blank", "noopener,noreferrer");
   } catch (error) {
@@ -645,6 +658,8 @@ function renderLaunch() {
     : t("未连接", "Not connected");
   const cookingGroups = state.assets.groups.filter((group) => group.purpose === "cooking" && group.walletCount === 1);
   const cookingOptions = cookingGroups.map((group) => `<option value="${group.groupId}">${escapeHtml(group.name)} · ${t("1 个钱包", "1 wallet")}</option>`).join("");
+  const buyingGroups = state.assets.groups.filter((group) => group.purpose !== "cooking" && group.walletCount > 0);
+  const buyingGroupOptions = buyingGroups.map((group) => `<option value="${group.groupId}">${escapeHtml(group.name)} · ${group.walletCount} ${t("个钱包", "wallets")}</option>`).join("");
   const media = state.launchMedia;
   const platformCards = platforms.map((platform) => `
     <article class="launch-platform ${state.selectedPlatform === platform.id ? "selected" : ""}">
@@ -731,10 +746,25 @@ function renderLaunch() {
             <span>${selected.unit}</span>
           </div>
         </label>
+        <label class="launch-field">
+          <span>${t("跟买钱包组", "Follow-buy wallet group")}</span>
+          <select class="field-select" name="buyingWalletGroup" required>
+            <option value="">${t("选择发射后跟买的钱包组", "Select the post-launch buying group")}</option>
+            ${buyingGroupOptions}
+          </select>
+          ${buyingGroupOptions ? "" : `<small>${t("请先在资产页创建一个常规钱包组。", "Create a general wallet group in Assets first.")}</small>`}
+        </label>
+        <label class="launch-field">
+          <span>${t("钱包组买入金额", "Wallet-group buy amount")}</span>
+          <div class="launch-amount-input">
+            <input class="field-input" name="walletGroupBuyAmount" type="number" min="0" step="0.0001" placeholder="0.00" required />
+            <span>${selected.unit}</span>
+          </div>
+        </label>
 
         <div class="launch-form-actions launch-field-wide">
           <p>${selected.id === "pons" ? t("基础发射费 0.0005 ETH。", "Base launch fee: 0.0005 ETH.") : t("该平台的直连执行适配器仍在接入。", "Direct execution for this platform is still being integrated.")}</p>
-          ${selected.id === "pons" ? `<button class="primary-button" type="button" data-pons-launch><i class="fa-solid fa-rocket" aria-hidden="true"></i>${t("在 NarraOps 发射", "Launch in NarraOps")}</button>` : `<button class="primary-button" type="button" disabled><i class="fa-solid fa-rocket" aria-hidden="true"></i>${t("发射暂未开放", "Launch unavailable")}</button>`}
+          ${selected.id === "pons" ? `<button class="primary-button" type="button" data-pons-launch><i class="fa-solid fa-fire-burner" aria-hidden="true"></i>${t(`Cooking 到 ${selected.name}`, `Cook on ${selected.name}`)}</button>` : `<button class="primary-button" type="button" disabled><i class="fa-solid fa-fire-burner" aria-hidden="true"></i>${t(`Cooking 到 ${selected.name}`, `Cook on ${selected.name}`)}</button>`}
         </div>
       </form>
     </section>
