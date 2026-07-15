@@ -20,6 +20,13 @@ const state = {
   language: storedLanguage === "en" ? "en" : "zh",
   theme: storedTheme === "soft" ? "soft" : "dark",
   selectedPlatform: null,
+  launchWallet: {
+    address: null,
+    chainId: null,
+    balance: null,
+    connecting: false,
+    error: null,
+  },
   settings: {
     x: true,
     tiktok: true,
@@ -438,6 +445,57 @@ function renderGo() {
   renderConversation();
 }
 
+const ROBINHOOD_CHAIN = Object.freeze({
+  chainId: "0x1237",
+  chainName: "Robinhood Chain",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: ["https://rpc.mainnet.chain.robinhood.com"],
+  blockExplorerUrls: ["https://robinhoodchain.blockscout.com"],
+});
+
+function formatWeiBalance(value) {
+  const wei = BigInt(value);
+  const whole = wei / 10n ** 18n;
+  const fraction = (wei % 10n ** 18n).toString().padStart(18, "0").slice(0, 5).replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+async function connectRobinhoodWallet() {
+  if (!window.ethereum?.request) {
+    state.launchWallet.error = t("未检测到 EVM 钱包，请安装 MetaMask 或支持 EIP-1193 的钱包。", "No EVM wallet detected. Install MetaMask or another EIP-1193 wallet.");
+    renderLaunch();
+    return;
+  }
+
+  state.launchWallet.connecting = true;
+  state.launchWallet.error = null;
+  renderLaunch();
+  try {
+    const [address] = await window.ethereum.request({ method: "eth_requestAccounts" });
+    let chainId = await window.ethereum.request({ method: "eth_chainId" });
+    if (chainId.toLowerCase() !== ROBINHOOD_CHAIN.chainId) {
+      try {
+        await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: ROBINHOOD_CHAIN.chainId }] });
+      } catch (error) {
+        if (error.code !== 4902) throw error;
+        await window.ethereum.request({ method: "wallet_addEthereumChain", params: [ROBINHOOD_CHAIN] });
+      }
+      chainId = await window.ethereum.request({ method: "eth_chainId" });
+    }
+    const balance = await window.ethereum.request({ method: "eth_getBalance", params: [address, "latest"] });
+    state.launchWallet.address = address;
+    state.launchWallet.chainId = Number.parseInt(chainId, 16);
+    state.launchWallet.balance = formatWeiBalance(balance);
+  } catch (error) {
+    state.launchWallet.error = error.code === 4001
+      ? t("你取消了钱包授权或网络切换。", "Wallet access or network switching was cancelled.")
+      : (error.message || t("钱包连接失败。", "Wallet connection failed."));
+  } finally {
+    state.launchWallet.connecting = false;
+    renderLaunch();
+  }
+}
+
 function renderLaunch() {
   const platforms = [
     {
@@ -459,17 +517,22 @@ function renderLaunch() {
       descriptionEn: "BSC bonding-curve launch platform",
     },
     {
-      id: "noxa",
+      id: "pons",
       icon: "fa-solid fa-gem",
-      name: "Noxa",
+      name: "Pons",
       chain: "Robinhood",
       unit: "ETH",
       descriptionZh: "Robinhood Chain 发射平台",
       descriptionEn: "Robinhood Chain launch platform",
+      externalUrl: "https://pons.family/launchpad/create",
     },
   ];
 
   const selected = platforms.find((platform) => platform.id === state.selectedPlatform);
+  const launchWallet = state.launchWallet;
+  const walletAddress = launchWallet.address
+    ? `${launchWallet.address.slice(0, 7)}...${launchWallet.address.slice(-5)}`
+    : t("未连接", "Not connected");
   const platformCards = platforms.map((platform) => `
     <article class="launch-platform ${state.selectedPlatform === platform.id ? "selected" : ""}">
       <div class="platform-topline">
@@ -495,6 +558,17 @@ function renderLaunch() {
       </header>
 
       <form class="launch-parameter-form" id="launchParameterForm">
+        <div class="launch-wallet-panel launch-field-wide">
+          <div>
+            <span class="section-kicker">${t("链上钱包", "On-chain wallet")}</span>
+            <strong>${walletAddress}</strong>
+            <small>${launchWallet.balance === null ? t("连接后读取 Robinhood Chain 余额", "Connect to read the Robinhood Chain balance") : `${launchWallet.balance} ETH · Chain ID ${launchWallet.chainId}`}</small>
+            ${launchWallet.error ? `<small class="launch-wallet-error">${escapeHtml(launchWallet.error)}</small>` : ""}
+          </div>
+          <button class="secondary-button" type="button" data-launch-wallet="connect" ${launchWallet.connecting ? "disabled" : ""}>
+            <i class="fa-solid fa-wallet" aria-hidden="true"></i>${launchWallet.connecting ? t("连接中…", "Connecting…") : launchWallet.address ? t("重新连接", "Reconnect") : t("连接钱包", "Connect wallet")}
+          </button>
+        </div>
         <label class="launch-field">
           <span>${t("名称", "Name")}</span>
           <input class="field-input" name="tokenName" maxlength="20" placeholder="${t("填写代币名称", "Token name")}" />
@@ -535,8 +609,8 @@ function renderLaunch() {
         </label>
 
         <div class="launch-form-actions launch-field-wide">
-          <p>${t("钱包连接、签名和真实发射将在后端执行层接入后开放。", "Wallet connection, signing, and live launch will be enabled after backend execution integration.")}</p>
-          <button class="primary-button" type="button" disabled><i class="fa-solid fa-rocket" aria-hidden="true"></i>${t("发射暂未开放", "Launch unavailable")}</button>
+          <p>${selected.id === "pons" ? t("NarraOps 已接入钱包和 Robinhood Chain；最终发射由 Pons 官网展示交易并请求你的钱包确认。", "NarraOps connects your wallet and Robinhood Chain; Pons displays the final transaction for your wallet confirmation.") : t("该平台的直连执行适配器仍在接入。", "Direct execution for this platform is still being integrated.")}</p>
+          ${selected.externalUrl ? `<button class="primary-button" type="button" data-launch-handoff="${selected.externalUrl}"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>${t("前往 Pons 发射", "Continue on Pons")}</button>` : `<button class="primary-button" type="button" disabled><i class="fa-solid fa-rocket" aria-hidden="true"></i>${t("发射暂未开放", "Launch unavailable")}</button>`}
         </div>
       </form>
     </section>
@@ -1135,6 +1209,24 @@ viewRoot.addEventListener("click", async (event) => {
   if (platform) {
     state.selectedPlatform = platform.dataset.platform;
     renderLaunch();
+    return;
+  }
+
+  const launchWalletAction = event.target.closest("[data-launch-wallet]")?.dataset.launchWallet;
+  if (launchWalletAction === "connect") {
+    await connectRobinhoodWallet();
+    return;
+  }
+
+  const launchHandoff = event.target.closest("[data-launch-handoff]");
+  if (launchHandoff) {
+    const form = document.querySelector("#launchParameterForm");
+    if (form) {
+      const draft = Object.fromEntries(new FormData(form).entries());
+      sessionStorage.setItem("narraops-launch-draft", JSON.stringify({ platform: state.selectedPlatform, ...draft }));
+    }
+    window.open(launchHandoff.dataset.launchHandoff, "_blank", "noopener,noreferrer");
+    showToast(t("已打开 Pons。请在官网核对参数，并在钱包中确认每笔交易。", "Pons opened. Verify the parameters and confirm every transaction in your wallet."));
     return;
   }
 
