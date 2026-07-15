@@ -1,39 +1,40 @@
-# NarraOps production readiness
+# NarraOps 生产就绪清单
 
-Status: active implementation plan. Mock behavior remains explicitly labeled until its production gate is complete.
+状态：正在执行中的生产化计划。在对应的生产门槛全部完成之前，所有模拟功能必须继续明确标注为 Mock、模拟或数据缺失状态。
 
-## Local implementation track
+## 可在本地继续完成的工作
 
-- `/api/v1` and SSE frontend integration.
-- Authentication middleware, actor scoping, authorization tests, and session policy.
-- PostgreSQL repositories, migrations, durable idempotency, task storage, and audit storage.
-- Queue workers, retries, reconciliation, and recovery state machines.
-- Isolated signer interface, policy approval, transaction simulation, and secret redaction.
-- Solana/BSC adapters, mocked RPC tests, confirmation/finality logic, and ledger reconciliation.
-- Deployment manifests, health checks, logs, metrics, alerts, backups, and release verification.
+- 完成前端与 `/api/v1`、SSE 实时事件流的集成。
+- 实现认证中间件、用户身份隔离、接口授权测试和会话安全策略。
+- 实现 PostgreSQL 数据仓库、数据库迁移、持久化幂等、任务存储和审计存储。
+- 实现任务队列、后台 Worker、失败重试、链上对账和故障恢复状态机。
+- 实现独立签名服务接口、策略审批、交易模拟和敏感信息脱敏。
+- 实现 Solana、BSC 链适配器、模拟 RPC 测试、交易确认、最终性判断和账本对账。
+- 完成部署配置、健康检查、结构化日志、监控指标、告警、备份和发布验收。
 
-## Owner inputs to collect
+## 后续需要产品所有者统一提供的信息
 
-Never place these values in Git, browser code, chat logs, or ordinary database fields.
+以下内容不得写入 Git、浏览器代码、聊天记录或普通数据库字段，必须通过安全的密钥管理系统提供。
 
-- Production domain, DNS provider, legal/support URLs and contacts.
-- Authentication provider, OAuth client IDs/secrets, callback URLs, and email/SMS provider.
-- Cloud provider, region, deployment account, PostgreSQL, queue/Redis, object storage, monitoring, and alert destinations.
-- Solana and BSC RPC/WebSocket providers for development, staging, and production.
-- Custody provider choice: KMS, HSM, MPC, or external wallet infrastructure.
-- Test signer identities; production signer ceremony, approval roles, spending limits, allowlists, and emergency-pause owners.
-- Finality, fee, retry, and reconciliation policies.
-- GMGN, HertzFlow/Surf, X, Telegram, TikTok, Instagram, launchpad, and analytics credentials for enabled integrations.
+- 正式域名、DNS 服务商、隐私政策、用户协议、客服邮箱和法律联系信息。
+- 认证服务商、OAuth Client ID、OAuth Client Secret、回调地址，以及邮件或短信服务商。
+- 云服务商、部署区域、部署账户、PostgreSQL、任务队列或 Redis、对象存储、监控平台和告警接收渠道。
+- 开发、预发布和生产环境所使用的 Solana RPC、WebSocket 服务商。
+- 开发、预发布和生产环境所使用的 BSC RPC、WebSocket 服务商。
+- 钱包托管及签名方案：KMS、HSM、MPC 或外部钱包基础设施服务商。
+- 测试环境签名身份；生产签名身份创建流程、审批角色、资金限额、地址白名单和紧急暂停负责人。
+- 链上最终性标准、优先费策略、失败重试次数和对账频率。
+- 计划启用的 GMGN、HertzFlow/Surf、X、Telegram、TikTok、Instagram、Launchpad 和数据分析服务凭证。
 
-## Release gates
+## 正式发布必须满足的门槛
 
-1. Every account, wallet, transfer, task, and audit route is actor-scoped and authorized.
-2. Production uses no in-memory state repositories.
-3. Durable unique constraints and transactions enforce idempotency.
-4. Signing is isolated; raw keys never enter API or browser processes.
-5. Policy approval precedes signing; broadcasting precedes submitted state.
-6. Only chain reconciliation at required finality produces confirmed state.
-7. Immutable audit covers intent, approval, signing, broadcast, confirmation, failure, and recovery.
-8. Rate limits, CSRF/CORS/cookies, secret rotation, restore drills, observability, and incident runbooks pass review.
-9. Staging end-to-end tests pass with test funds.
-10. Production execution begins disabled and requires explicit reviewed enablement.
+1. 所有账户、钱包、转账、任务和审计接口都必须绑定已认证用户，并执行权限校验。
+2. 生产环境不得使用任何内存型状态仓库。
+3. 必须通过数据库唯一约束和事务实现持久化幂等。
+4. 签名服务必须与 API 和浏览器进程隔离；原始私钥不得进入 API、浏览器、日志或普通数据库。
+5. 策略审批必须发生在签名之前；只有完成广播后才能进入 `submitted` 状态。
+6. 只有链上对账达到规定最终性后，交易才能进入 `confirmed` 状态。
+7. 不可篡改审计日志必须覆盖：操作意图、审批、签名、广播、确认、失败和恢复。
+8. 限流、CSRF、CORS、Cookie 安全策略、密钥轮换、备份恢复演练、可观测性和事故处理手册必须通过审查。
+9. 必须先在预发布环境使用测试资金完成端到端测试。
+10. 生产链上执行默认保持关闭，只有经过明确审核的启用变更才能打开。
