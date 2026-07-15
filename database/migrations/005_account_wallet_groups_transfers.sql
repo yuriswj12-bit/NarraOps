@@ -19,6 +19,7 @@ CREATE TABLE wallet_groups (
   wallet_group_id UUID PRIMARY KEY,
   actor_id VARCHAR(128) NOT NULL,
   name VARCHAR(80) NOT NULL,
+  purpose VARCHAR(20) NOT NULL DEFAULT 'general' CHECK (purpose IN ('general', 'cooking')),
   status VARCHAR(24) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -41,6 +42,20 @@ CREATE TABLE wallet_group_wallets (
 );
 
 COMMENT ON TABLE wallet_group_wallets IS 'Public/provider wallet references only. Raw private keys, seed phrases, and signing secrets are prohibited.';
+
+CREATE OR REPLACE FUNCTION enforce_cooking_wallet_group_limit() RETURNS TRIGGER AS $$
+BEGIN
+  IF (SELECT purpose FROM wallet_groups WHERE wallet_group_id = NEW.wallet_group_id) = 'cooking'
+     AND EXISTS (SELECT 1 FROM wallet_group_wallets WHERE wallet_group_id = NEW.wallet_group_id AND status = 'active') THEN
+    RAISE EXCEPTION 'A cooking wallet group can contain exactly one active wallet';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER wallet_group_wallets_cooking_limit
+BEFORE INSERT ON wallet_group_wallets
+FOR EACH ROW EXECUTE FUNCTION enforce_cooking_wallet_group_limit();
 
 CREATE TABLE wallet_delete_confirmations (
   operation_id UUID PRIMARY KEY,

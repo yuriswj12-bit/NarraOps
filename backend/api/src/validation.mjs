@@ -216,9 +216,14 @@ function idempotencyKey(value) {
 
 export function validateWalletGroupCreate(body) {
   base(body);
+  const purpose = string(body.purpose || "general", "purpose", { required: true, max: 20 });
+  if (!["general", "cooking"].includes(purpose)) throw new ApiError(400, "VALIDATION_ERROR", "purpose must be general or cooking");
+  const walletCount = integer(body.walletCount, "walletCount", { min: 1, max: 100 });
+  if (purpose === "cooking" && walletCount !== 1) throw new ApiError(400, "COOKING_WALLET_COUNT_INVALID", "A cooking wallet group must contain exactly one wallet");
   return {
     name: string(body.name, "name", { required: true, max: 80 }),
-    walletCount: integer(body.walletCount, "walletCount", { min: 1, max: 100 }),
+    purpose,
+    walletCount,
   };
 }
 

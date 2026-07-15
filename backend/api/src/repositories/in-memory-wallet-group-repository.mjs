@@ -38,11 +38,12 @@ export class InMemoryWalletGroupRepository {
     return group ? this.#publicGroup(group) : null;
   }
 
-  createGroup({ name, walletCount }) {
+  createGroup({ name, walletCount, purpose = "general" }) {
     const now = new Date().toISOString();
     const group = {
       groupId: randomUUID(),
       name,
+      purpose,
       walletIds: [],
       createdAt: now,
       updatedAt: now,
@@ -55,6 +56,9 @@ export class InMemoryWalletGroupRepository {
 
   addWallets(groupId, count) {
     const group = this.#requireGroup(groupId);
+    if (group.purpose === "cooking" && group.walletIds.length + count > 1) {
+      throw new ApiError(400, "COOKING_WALLET_LIMIT_EXCEEDED", "A cooking wallet group can contain exactly one wallet");
+    }
     if (group.walletIds.length + count > 200) {
       throw new ApiError(400, "WALLET_GROUP_LIMIT_EXCEEDED", "A wallet group can contain at most 200 wallets");
     }
@@ -208,6 +212,7 @@ export class InMemoryWalletGroupRepository {
     return {
       groupId: group.groupId,
       name: group.name,
+      purpose: group.purpose,
       walletCount: wallets.length,
       totalBalance: addMoney(wallets.map(({ balance }) => balance)),
       balanceAsset: "USD",
