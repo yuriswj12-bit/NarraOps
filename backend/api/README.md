@@ -69,6 +69,6 @@ These routes are mock/in-memory and unauthenticated in the local prototype. Do n
 
 - GMGN is the only configured meme-market source. Set `GMGN_LIVE_ENABLED=true` only after `gmgn-cli` is configured. Disabled, timeout, unsupported-chain, and unavailable states return empty evidence rather than fabricated wallets.
 - GMGN creator metadata is normalized into Dev-wallet/token records for Solana Pump.fun and BSC FourMeme. A bounded batch enrichment reads 7d/30d wallet stats and stores decimal-string snapshots for date-over-date comparison. Robinhood ingestion remains unsupported by the installed GMGN client.
-- Launch preparation supports Solana/Pump.fun, BSC/FourMeme, and Robinhood/Pons. Pons uses a non-custodial browser-wallet handoff; direct contract execution remains disabled until an official factory address and ABI can be reviewed.
+- Launch preparation supports Solana/Pump.fun, BSC/FourMeme, and Robinhood/Pons. NarraOps directly encodes the observed Pons `launchToken` call and submits it through the user's EIP-1193 browser wallet. Backend signing remains disabled and private keys never enter the API.
 - HertzFlow read-only analysis is wired behind `HERTZFLOW_LIVE_ENABLED`; the available all-meme pipeline currently supports Solana only.
 - External and Privy embedded wallets are represented by provider IDs and public addresses only. The API never accepts or persists raw key material.

@@ -50,7 +50,11 @@ test("narrative URLs reject private network targets", () => {
 test("launch platform mapping is fixed to the product chain choices", () => {
   assert.equal(resolveLaunchPlatform({ chain: "solana" }).id, "pump");
   assert.equal(resolveLaunchPlatform({ chain: "bsc" }).id, "fourmeme");
-  assert.equal(resolveLaunchPlatform({ chain: "robinhood" }).id, "pons");
+  const pons = resolveLaunchPlatform({ chain: "robinhood" });
+  assert.equal(pons.id, "pons");
+  assert.equal(pons.factory_address, "0x0c37a24f5d23a486fa692d1500881d698b1f77a4");
+  assert.equal(pons.launch_fee_wei, "500000000000000");
+  assert.equal(pons.browser_execution_mode, "direct_wallet_confirmation");
   assert.equal(resolveLaunchPlatform({ chain: "bsc", platform: "pump" }).chain, "solana");
 });
 
