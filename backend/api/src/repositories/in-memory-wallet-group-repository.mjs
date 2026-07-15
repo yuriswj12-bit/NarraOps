@@ -1,0 +1,237 @@
+import { randomUUID } from "node:crypto";
+import { ApiError } from "../errors.mjs";
+
+const ZERO_BALANCE_RECOVERY = "archive_zero_balance_wallets";
+
+function clone(value) {
+  return structuredClone(value);
+}
+
+function isZeroAmount(value) {
+  return /^0+(?:\.0+)?$/.test(value);
+}
+
+function addMoney(values) {
+  const cents = values.reduce((sum, value) => {
+    const [whole, fraction = ""] = value.split(".");
+    return sum + (BigInt(whole) * 100n) + BigInt(fraction.padEnd(2, "0").slice(0, 2));
+  }, 0n);
+  return `${cents / 100n}.${String(cents % 100n).padStart(2, "0")}`;
+}
+
+export class InMemoryWalletGroupRepository {
+  #groups = new Map();
+  #wallets = new Map();
+  #deleteConfirmations = new Map();
+  #audit = [];
+
+  constructor({ seed = true } = {}) {
+    if (seed) this.#seed();
+  }
+
+  listGroups() {
+    return [...this.#groups.values()].map((group) => this.#publicGroup(group));
+  }
+
+  getGroup(groupId) {
+    const group = this.#groups.get(groupId);
+    return group ? this.#publicGroup(group) : null;
+  }
+
+  createGroup({ name, walletCount }) {
+    const now = new Date().toISOString();
+    const group = {
+      groupId: randomUUID(),
+      name,
+      walletIds: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.#groups.set(group.groupId, group);
+    this.addWallets(group.groupId, walletCount);
+    this.#recordAudit("wallet_group.created", { groupId: group.groupId, walletCount });
+    return this.getGroup(group.groupId);
+  }
+
+  addWallets(groupId, count) {
+    const group = this.#requireGroup(groupId);
+    if (group.walletIds.length + count > 200) {
+      throw new ApiError(400, "WALLET_GROUP_LIMIT_EXCEEDED", "A wallet group can contain at most 200 wallets");
+    }
+    const created = [];
+    for (let index = 0; index < count; index += 1) {
+      const wallet = this.#createWallet(groupId, group.walletIds.length + 1, "0.00");
+      group.walletIds.push(wallet.walletId);
+      created.push(wallet);
+    }
+    group.updatedAt = new Date().toISOString();
+    this.#recordAudit("wallet_group.wallets_added", { groupId, count });
+    return created.map(clone);
+  }
+
+  listWallets(groupId) {
+    const group = this.#requireGroup(groupId);
+    return group.walletIds.map((walletId) => clone(this.#wallets.get(walletId)));
+  }
+
+  previewBatchDelete(groupId, walletIds, requestId) {
+    const group = this.#requireGroup(groupId);
+    const selected = this.#selectWallets(group, walletIds);
+    const protectedWallets = selected.filter((wallet) => !isZeroAmount(wallet.balance));
+    const deletableWalletIds = selected.filter((wallet) => isZeroAmount(wallet.balance)).map(({ walletId }) => walletId);
+    const now = Date.now();
+    const confirmation = {
+      operationId: randomUUID(),
+      confirmationToken: randomUUID(),
+      groupId,
+      walletIds: [...walletIds].sort(),
+      deletableWalletIds,
+      protectedWalletIds: protectedWallets.map(({ walletId }) => walletId),
+      expiresAt: new Date(now + 5 * 60_000).toISOString(),
+      used: false,
+    };
+    this.#deleteConfirmations.set(confirmation.confirmationToken, confirmation);
+    this.#recordAudit("wallet_group.batch_delete_previewed", {
+      requestId,
+      groupId,
+      operationId: confirmation.operationId,
+      requestedCount: walletIds.length,
+      protectedCount: protectedWallets.length,
+    });
+    return {
+      operationId: confirmation.operationId,
+      status: "requires_user_confirmation",
+      requiresConfirmation: true,
+      confirmationToken: confirmation.confirmationToken,
+      expiresAt: confirmation.expiresAt,
+      deletableWalletIds,
+      protectedWallets: protectedWallets.map(({ walletId, label, balance, balanceAsset }) => ({
+        walletId,
+        label,
+        balance,
+        balanceAsset,
+        reason: "non_zero_balance",
+      })),
+      recoveryPolicy: {
+        requiredStrategy: ZERO_BALANCE_RECOVERY,
+        nonZeroBalanceAction: "protected_no_delete",
+        sweepSupported: false,
+      },
+    };
+  }
+
+  confirmBatchDelete(groupId, input, requestId) {
+    const confirmation = this.#deleteConfirmations.get(input.confirmationToken);
+    if (!confirmation || confirmation.groupId !== groupId) {
+      throw new ApiError(400, "INVALID_CONFIRMATION_TOKEN", "The delete confirmation token is invalid");
+    }
+    if (confirmation.used) throw new ApiError(409, "CONFIRMATION_ALREADY_USED", "The delete confirmation token was already used");
+    if (Date.parse(confirmation.expiresAt) <= Date.now()) {
+      throw new ApiError(410, "CONFIRMATION_EXPIRED", "The delete confirmation token has expired");
+    }
+    if (input.recoveryStrategy !== ZERO_BALANCE_RECOVERY) {
+      throw new ApiError(400, "RECOVERY_STRATEGY_REQUIRED", `recoveryStrategy must be ${ZERO_BALANCE_RECOVERY}`);
+    }
+    if (JSON.stringify([...input.walletIds].sort()) !== JSON.stringify(confirmation.walletIds)) {
+      throw new ApiError(409, "DELETE_SELECTION_CHANGED", "Wallet selection changed after the delete preview");
+    }
+
+    const group = this.#requireGroup(groupId);
+    const deletedWalletIds = [];
+    for (const walletId of confirmation.deletableWalletIds) {
+      const wallet = this.#wallets.get(walletId);
+      if (!wallet || !isZeroAmount(wallet.balance)) continue;
+      this.#wallets.delete(walletId);
+      group.walletIds = group.walletIds.filter((id) => id !== walletId);
+      deletedWalletIds.push(walletId);
+    }
+    confirmation.used = true;
+    group.updatedAt = new Date().toISOString();
+    this.#recordAudit("wallet_group.batch_delete_confirmed", {
+      requestId,
+      groupId,
+      operationId: confirmation.operationId,
+      deletedCount: deletedWalletIds.length,
+      protectedCount: confirmation.protectedWalletIds.length,
+    });
+    return {
+      operationId: confirmation.operationId,
+      status: "completed",
+      deletedWalletIds,
+      protectedWalletIds: confirmation.protectedWalletIds,
+      recoveryStrategy: ZERO_BALANCE_RECOVERY,
+    };
+  }
+
+  recordExportAttempt({ requestId, groupId, outcome }) {
+    this.#requireGroup(groupId);
+    this.#recordAudit("wallet_group.export_attempted", { requestId, groupId, outcome });
+  }
+
+  auditEvents() {
+    return this.#audit.map(clone);
+  }
+
+  loginWalletBalance() {
+    return "8420.00";
+  }
+
+  #seed() {
+    const primary = this.createGroup({ name: "Core Launch", walletCount: 3 });
+    const wallets = this.listWallets(primary.groupId);
+    this.#wallets.get(wallets[1].walletId).balance = "42.50";
+    this.createGroup({ name: "Research", walletCount: 2 });
+    this.#audit = [];
+  }
+
+  #createWallet(groupId, sequence, balance) {
+    const now = new Date().toISOString();
+    const wallet = {
+      walletId: randomUUID(),
+      groupId,
+      label: `Wallet ${sequence}`,
+      publicAddress: `SIM-${randomUUID().replaceAll("-", "").slice(0, 24).toUpperCase()}`,
+      balance,
+      balanceAsset: "USD",
+      custodyMode: "provider_managed_reference",
+      provisioningStatus: "simulation_only",
+      exportEligible: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.#wallets.set(wallet.walletId, wallet);
+    return wallet;
+  }
+
+  #publicGroup(group) {
+    const wallets = group.walletIds.map((walletId) => this.#wallets.get(walletId)).filter(Boolean);
+    return {
+      groupId: group.groupId,
+      name: group.name,
+      walletCount: wallets.length,
+      totalBalance: addMoney(wallets.map(({ balance }) => balance)),
+      balanceAsset: "USD",
+      executionMode: "simulation",
+      createdAt: group.createdAt,
+      updatedAt: group.updatedAt,
+    };
+  }
+
+  #selectWallets(group, walletIds) {
+    const selected = walletIds.map((walletId) => this.#wallets.get(walletId));
+    if (selected.some((wallet) => !wallet || wallet.groupId !== group.groupId)) {
+      throw new ApiError(404, "WALLET_NOT_FOUND", "One or more wallets were not found in the selected group");
+    }
+    return selected;
+  }
+
+  #requireGroup(groupId) {
+    const group = this.#groups.get(groupId);
+    if (!group) throw new ApiError(404, "WALLET_GROUP_NOT_FOUND", "Wallet group was not found");
+    return group;
+  }
+
+  #recordAudit(type, data) {
+    this.#audit.push({ auditId: randomUUID(), type, at: new Date().toISOString(), ...clone(data) });
+  }
+}
