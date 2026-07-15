@@ -1,4 +1,6 @@
 export { ExecutionService } from "./service.js";
+export { PonsFollowBuyService, extractLaunchedTokenAddress } from "./pons-follow-buy-service.js";
+export { RobinhoodReceiptProvider } from "./robinhood-receipt-provider.js";
 export { ExecutionError } from "./errors.js";
 export { InMemoryIdempotencyStore, requestFingerprint } from "./idempotency-store.js";
 export { InMemoryAuditLog } from "./audit-log.js";
