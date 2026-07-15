@@ -61,6 +61,17 @@ test("wallet groups create simulated public references and can add wallets", asy
 
   const listed = await fetch(`${baseUrl}/api/v1/wallet-groups/${group.groupId}/wallets`).then((response) => response.json());
   assert.equal(listed.wallets.length, 5);
+
+  const cookingResponse = await post(baseUrl, "/api/v1/wallet-groups", { name: "Cooking Alpha", purpose: "cooking", walletCount: 1 });
+  assert.equal(cookingResponse.status, 201);
+  const cooking = await cookingResponse.json();
+  assert.equal(cooking.purpose, "cooking");
+  assert.equal(cooking.walletCount, 1);
+  const rejectedExtraWallet = await post(baseUrl, `/api/v1/wallet-groups/${cooking.groupId}/wallets`, { count: 1 });
+  assert.equal(rejectedExtraWallet.status, 400);
+
+  const rejectedCookingGroup = await post(baseUrl, "/api/v1/wallet-groups", { name: "Invalid Cooking", purpose: "cooking", walletCount: 2 });
+  assert.equal(rejectedCookingGroup.status, 400);
 });
 
 test("batch delete requires preview and confirmation while protecting non-zero balances", async (t) => {

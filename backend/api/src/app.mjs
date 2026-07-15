@@ -384,6 +384,10 @@ export function createApplication({ config, logger, repository, conversationRepo
           return;
         }
 
+        if (url.pathname === "/api/v1/launch/images") {
+          throw new ApiError(503, "IMAGE_GENERATION_NOT_CONFIGURED", "AI 生图与 IPFS 固定服务尚未配置；请在生产密钥管理中提供图像模型和对象存储凭证");
+        }
+
         const messageMatch = url.pathname.match(/^\/api\/v1\/agent\/conversations\/([0-9a-f-]{36})\/messages$/i);
         if (messageMatch) {
           const conversation = conversations.get(messageMatch[1]);
