@@ -1130,6 +1130,36 @@ button {
   gap: 20px;
 }
 
+.launch-wallet-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.launch-wallet-panel > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.launch-wallet-panel strong,
+.launch-wallet-panel small {
+  overflow-wrap: anywhere;
+}
+
+.launch-wallet-panel small {
+  color: var(--muted);
+}
+
+.launch-wallet-panel .launch-wallet-error {
+  color: var(--red, #ff6b6b);
+}
+
 .launch-field {
   min-width: 0;
   display: grid;
