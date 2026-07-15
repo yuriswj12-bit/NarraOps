@@ -27,6 +27,12 @@ const state = {
     connecting: false,
     error: null,
   },
+  launchMedia: {
+    file: null,
+    previewUrl: null,
+    metadataUri: null,
+    generating: false,
+  },
   settings: {
     x: true,
     tiktok: true,
@@ -516,18 +522,27 @@ async function submitPonsLaunch(form) {
   }
   if (!form.reportValidity()) return;
   const values = Object.fromEntries(new FormData(form).entries());
-  const creator = values.creatorWallet || state.launchWallet.address;
-  if (!/^0x[0-9a-fA-F]{40}$/.test(creator)) {
-    showToast(t("Creator wallet 不是有效的 EVM 地址。", "Creator wallet is not a valid EVM address."));
+  const cookingGroup = state.assets.groups.find((group) => group.groupId === values.cookingWalletGroup && group.purpose === "cooking" && group.walletCount === 1);
+  if (!cookingGroup) {
+    showToast(t("请选择一个只包含 1 个钱包的 Cooking 钱包组。", "Select a Cooking wallet group containing exactly one wallet."));
     return;
   }
-  const developerBuyWei = parseEthToWei(values.cookieBuyAmount);
+  if (!state.launchMedia.file && !state.launchMedia.metadataUri) {
+    showToast(t("请先上传或生成 Cooking 图片。", "Upload or generate a Cooking image first."));
+    return;
+  }
+  if (!state.launchMedia.metadataUri) {
+    showToast(t("图片已选择；配置 IPFS 固定服务后即可自动生成链上元数据。", "Image selected. Configure the IPFS pinning service to generate on-chain metadata automatically."));
+    return;
+  }
+  const creator = state.launchWallet.address;
+  const developerBuyWei = parseEthToWei(values.cookingBuyAmount);
   const totalValue = PONS_LAUNCH_FEE_WEI + developerBuyWei;
   const data = encodePonsLaunch({
     name: values.tokenName.trim(),
     symbol: values.tokenSymbol.trim(),
-    metadataUri: values.metadataUri.trim(),
-    description: values.description.trim(),
+    metadataUri: state.launchMedia.metadataUri,
+    description: `${values.tokenName.trim()} (${values.tokenSymbol.trim()})`,
     socials: [values.xUrl.trim(), values.telegramUrl.trim(), values.websiteUrl.trim(), "", ""],
     creator,
     salt: randomBytes32(),
@@ -536,8 +551,8 @@ async function submitPonsLaunch(form) {
   try {
     const gas = await window.ethereum.request({ method: "eth_estimateGas", params: [transaction] });
     const confirmed = window.confirm(t(
-      `即将通过 Pons 工厂发射 ${values.tokenSymbol}。总支付 ${values.cookieBuyAmount || "0"} ETH + 0.0005 ETH 发射费，预估 Gas ${Number.parseInt(gas, 16).toLocaleString()}。继续后钱包仍会要求最终确认。`,
-      `Launch ${values.tokenSymbol} through the Pons factory. Total payment is ${values.cookieBuyAmount || "0"} ETH plus the 0.0005 ETH launch fee; estimated gas is ${Number.parseInt(gas, 16).toLocaleString()}. Your wallet will request final confirmation.`,
+      `即将通过 Pons 工厂发射 ${values.tokenSymbol}。总支付 ${values.cookingBuyAmount || "0"} ETH + 0.0005 ETH 发射费，预估 Gas ${Number.parseInt(gas, 16).toLocaleString()}。继续后钱包仍会要求最终确认。`,
+      `Launch ${values.tokenSymbol} through the Pons factory. Total payment is ${values.cookingBuyAmount || "0"} ETH plus the 0.0005 ETH launch fee; estimated gas is ${Number.parseInt(gas, 16).toLocaleString()}. Your wallet will request final confirmation.`,
     ));
     if (!confirmed) return;
     const hash = await window.ethereum.request({ method: "eth_sendTransaction", params: [{ ...transaction, gas }] });
@@ -628,6 +643,9 @@ function renderLaunch() {
   const walletAddress = launchWallet.address
     ? `${launchWallet.address.slice(0, 7)}...${launchWallet.address.slice(-5)}`
     : t("未连接", "Not connected");
+  const cookingGroups = state.assets.groups.filter((group) => group.purpose === "cooking" && group.walletCount === 1);
+  const cookingOptions = cookingGroups.map((group) => `<option value="${group.groupId}">${escapeHtml(group.name)} · ${t("1 个钱包", "1 wallet")}</option>`).join("");
+  const media = state.launchMedia;
   const platformCards = platforms.map((platform) => `
     <article class="launch-platform ${state.selectedPlatform === platform.id ? "selected" : ""}">
       <div class="platform-topline">
@@ -664,6 +682,20 @@ function renderLaunch() {
             <i class="fa-solid fa-wallet" aria-hidden="true"></i>${launchWallet.connecting ? t("连接中…", "Connecting…") : launchWallet.address ? t("重新连接", "Reconnect") : t("连接钱包", "Connect wallet")}
           </button>
         </div>
+        <section class="launch-image-field launch-field-wide" aria-label="${t("Cooking 图片", "Cooking image")}">
+          <div class="launch-image-heading"><div><span>${t("Cooking 图片", "Cooking image")}</span><small>${t("支持上传、图库、文生图和 AI 生图", "Upload, library, text-to-image, or AI generation")}</small></div><strong>${t("必填", "Required")}</strong></div>
+          <div class="launch-image-actions">
+            <label class="launch-image-action launch-image-upload">
+              <input id="launchImageInput" name="launchImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+              ${media.previewUrl ? `<img src="${media.previewUrl}" alt="${t("已选择的 Cooking 图片", "Selected Cooking image")}" />` : `<i class="fa-solid fa-plus" aria-hidden="true"></i><span>${t("上传", "Upload")}</span>`}
+            </label>
+            <div class="launch-image-secondary">
+              <button type="button" data-launch-image="library"><i class="fa-regular fa-images"></i>${t("图库", "Library")}</button>
+              <button type="button" data-launch-image="text"><i class="fa-solid fa-pen-ruler"></i>${t("文生图", "Text to image")}</button>
+            </div>
+            <button class="launch-image-action launch-image-ai" type="button" data-launch-image="ai"><i class="fa-solid fa-wand-magic-sparkles"></i><span>AI</span></button>
+          </div>
+        </section>
         <label class="launch-field">
           <span>${t("名称", "Name")}</span>
           <input class="field-input" name="tokenName" maxlength="20" required placeholder="${t("填写代币名称", "Token name")}" />
@@ -671,14 +703,6 @@ function renderLaunch() {
         <label class="launch-field">
           <span>${t("符号", "Symbol")}</span>
           <input class="field-input" name="tokenSymbol" maxlength="20" required placeholder="${t("例如 PEPE", "For example PEPE")}" />
-        </label>
-        <label class="launch-field launch-field-wide">
-          <span>${t("描述", "Description")}</span>
-          <textarea class="field-input" name="description" maxlength="500" required placeholder="${t("代币叙事与简介", "Token narrative and description")}"></textarea>
-        </label>
-        <label class="launch-field launch-field-wide">
-          <span>${t("IPFS 元数据 URI", "IPFS metadata URI")}</span>
-          <input class="field-input" name="metadataUri" required pattern="(ipfs|https?)://.+" placeholder="ipfs://..." />
         </label>
         <label class="launch-field">
           <span>X</span>
@@ -693,34 +717,23 @@ function renderLaunch() {
           <input class="field-input" name="telegramUrl" type="url" placeholder="https://t.me/..." />
         </label>
         <label class="launch-field">
-          <span>${t("Creator wallet（留空使用当前钱包）", "Creator wallet (current wallet if blank)")}</span>
-          <input class="field-input" name="creatorWallet" placeholder="0x..." />
-        </label>
-        <label class="launch-field">
-          <span>${t("Cookie 钱包买入金额", "Cookie wallet buy amount")}</span>
-          <div class="launch-amount-input">
-            <input class="field-input" name="cookieBuyAmount" type="number" min="0" step="0.0001" placeholder="0.00" />
-            <span>${selected.unit}</span>
-          </div>
-        </label>
-        <label class="launch-field">
-          <span>${t("选择钱包组", "Wallet group")}</span>
-          <select class="field-select" name="walletGroup">
-            <option value="">${t("请选择钱包组", "Select a wallet group")}</option>
-            <option value="group-a">Wallet Group A</option>
-            <option value="group-b">Wallet Group B</option>
+          <span>${t("Cooking 钱包", "Cooking wallet")}</span>
+          <select class="field-select" name="cookingWalletGroup" required>
+            <option value="">${t("选择 Cooking 钱包", "Select a Cooking wallet")}</option>
+            ${cookingOptions}
           </select>
+          ${cookingOptions ? "" : `<small>${t("请先在资产页创建 Cooking 钱包组（1 个钱包）。", "Create a Cooking wallet group with one wallet in Assets first.")}</small>`}
         </label>
-        <label class="launch-field launch-field-wide">
-          <span>${t("钱包组买入金额", "Wallet-group buy amount")}</span>
+        <label class="launch-field">
+          <span>${t("Cooking 钱包买入金额", "Cooking wallet buy amount")}</span>
           <div class="launch-amount-input">
-            <input class="field-input" name="walletGroupBuyAmount" type="number" min="0" step="0.0001" placeholder="0.00" />
+            <input class="field-input" name="cookingBuyAmount" type="number" min="0" step="0.0001" placeholder="0.00" />
             <span>${selected.unit}</span>
           </div>
         </label>
 
         <div class="launch-form-actions launch-field-wide">
-          <p>${selected.id === "pons" ? t("直接调用 Pons 工厂合约；NarraOps 不接触私钥，交易必须由你的浏览器钱包确认。基础发射费 0.0005 ETH。", "Calls the Pons factory directly. NarraOps never handles private keys; your browser wallet must confirm the transaction. Base launch fee: 0.0005 ETH.") : t("该平台的直连执行适配器仍在接入。", "Direct execution for this platform is still being integrated.")}</p>
+          <p>${selected.id === "pons" ? t("基础发射费 0.0005 ETH。", "Base launch fee: 0.0005 ETH.") : t("该平台的直连执行适配器仍在接入。", "Direct execution for this platform is still being integrated.")}</p>
           ${selected.id === "pons" ? `<button class="primary-button" type="button" data-pons-launch><i class="fa-solid fa-rocket" aria-hidden="true"></i>${t("在 NarraOps 发射", "Launch in NarraOps")}</button>` : `<button class="primary-button" type="button" disabled><i class="fa-solid fa-rocket" aria-hidden="true"></i>${t("发射暂未开放", "Launch unavailable")}</button>`}
         </div>
       </form>
@@ -731,8 +744,8 @@ function renderLaunch() {
     ${pageHeading(
       "Launch Studio",
       t("选择发射平台", "Choose a launch platform"),
-      t("选择平台后填写代币、社交资料和钱包组买入参数。", "Choose a platform, then complete token, social, and wallet-group buy parameters."),
-      `<span class="simulation-pill"><i class="fa-solid fa-flask" aria-hidden="true"></i>${t("发射执行已禁用", "Launch execution disabled")}</span>`,
+      t("上传或生成 Cooking 图片，选择 Cooking 钱包后完成发射。", "Upload or generate a Cooking image, select a Cooking wallet, and launch."),
+      `<span class="simulation-pill"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>${t("钱包确认执行", "Wallet-confirmed execution")}</span>`,
     )}
     <section class="launch-grid">${platformCards}</section>
     ${launchForm}
@@ -807,6 +820,16 @@ async function loadAssets({ keepGroup = true } = {}) {
   }
 }
 
+async function loadLaunchGroups() {
+  try {
+    const result = await apiRequest("/api/v1/wallet-groups");
+    state.assets.groups = result.groups || [];
+    if (state.view === "launch") renderLaunch();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 function renderAssetSummary() {
   const portfolio = state.assets.portfolio;
   return [
@@ -847,7 +870,7 @@ function renderTransferPanel() {
 function renderAssets() {
   const selectedGroup = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
   const periods = ["1d", "7d", "30d", "all"].map((period) => `<button class="period-button ${state.assets.period === period ? "active" : ""}" type="button" data-asset-period="${period}">${period === "all" ? t("全部", "All") : period.toUpperCase()}</button>`).join("");
-  const groupCards = state.assets.groups.map((group) => `<button class="wallet-group-card ${group.groupId === state.assets.selectedGroupId ? "active" : ""}" type="button" data-wallet-group="${group.groupId}"><span class="wallet-group-icon"><i class="fa-solid fa-layer-group"></i></span><span><strong>${escapeHtml(group.name)}</strong><small>${group.walletCount} ${t("个钱包", "wallets")}</small></span><b>${money(group.totalBalance, group.balanceAsset)}</b></button>`).join("");
+  const groupCards = state.assets.groups.map((group) => `<button class="wallet-group-card ${group.groupId === state.assets.selectedGroupId ? "active" : ""}" type="button" data-wallet-group="${group.groupId}"><span class="wallet-group-icon"><i class="fa-solid ${group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i></span><span><strong>${escapeHtml(group.name)}</strong><small>${group.purpose === "cooking" ? t("Cooking · 1 个钱包", "Cooking · 1 wallet") : `${group.walletCount} ${t("个钱包", "wallets")}`}</small></span><b>${money(group.totalBalance, group.balanceAsset)}</b></button>`).join("");
   const walletRows = state.assets.wallets.map((wallet) => `<tr><td><span class="wallet-label"><i class="fa-solid fa-wallet"></i><strong>${escapeHtml(wallet.label)}</strong></span></td><td><code>${escapeHtml(shortAddress(wallet.publicAddress))}</code></td><td>${money(wallet.balance, wallet.balanceAsset)}</td><td><span class="state-pill">${t("模拟", "Simulation")}</span></td></tr>`).join("");
   const status = state.assets.loading ? `<div class="asset-state"><i class="fa-solid fa-circle-notch fa-spin"></i>${t("正在读取资产…", "Loading assets…")}</div>` : state.assets.error ? `<div class="asset-state error"><i class="fa-solid fa-triangle-exclamation"></i><div><strong>${t("资产服务未连接", "Asset service unavailable")}</strong><span>${escapeHtml(state.assets.error)}</span></div><button class="secondary-button" type="button" data-action="refresh-assets">${t("重试", "Retry")}</button></div>` : "";
   const totalWallets = state.assets.groups.reduce((sum, group) => sum + group.walletCount, 0);
@@ -859,7 +882,7 @@ function renderAssets() {
     ${renderTransferPanel()}
     <section class="wallet-groups-layout">
       <div class="wallet-groups-panel"><div class="asset-section-heading"><div><span>${t("钱包组资产", "Wallet-group assets")}</span><h2>${t("钱包组", "Wallet groups")}</h2></div><button class="compact-button" type="button" data-action="open-create-group"><i class="fa-solid fa-plus"></i>${t("新建", "New")}</button></div><div class="wallet-group-list">${groupCards || `<div class="empty-state">${t("还没有钱包组", "No wallet groups yet")}</div>`}</div></div>
-      <div class="wallet-detail-panel"><div class="asset-section-heading"><div><span>${t("钱包组管理", "Wallet-group management")}</span><h2>${selectedGroup ? escapeHtml(selectedGroup.name) : t("选择钱包组", "Select a wallet group")}</h2></div>${selectedGroup ? `<button class="compact-button" type="button" data-action="open-add-wallet"><i class="fa-solid fa-plus"></i>${t("添加钱包", "Add wallets")}</button>` : ""}</div>${selectedGroup ? `<div class="wallet-group-metrics"><span><small>${t("钱包数量", "Wallets")}</small><strong>${selectedGroup.walletCount}</strong></span><span><small>${t("组内资产", "Group assets")}</small><strong>${money(selectedGroup.totalBalance, selectedGroup.balanceAsset)}</strong></span><span><small>${t("执行模式", "Execution mode")}</small><strong>${t("仅模拟", "Simulation only")}</strong></span></div><div class="wallet-table-wrap"><table class="wallet-table"><thead><tr><th>${t("钱包", "Wallet")}</th><th>${t("公开地址", "Public address")}</th><th>${t("余额", "Balance")}</th><th>${t("状态", "Status")}</th></tr></thead><tbody>${walletRows || `<tr><td colspan="4" class="empty-state">${t("该组暂无钱包", "No wallets in this group")}</td></tr>`}</tbody></table></div>` : `<div class="empty-state large"><i class="fa-solid fa-layer-group"></i>${t("选择一个钱包组查看明细", "Select a wallet group to view details")}</div>`}</div>
+      <div class="wallet-detail-panel"><div class="asset-section-heading"><div><span>${t("钱包组管理", "Wallet-group management")}</span><h2>${selectedGroup ? escapeHtml(selectedGroup.name) : t("选择钱包组", "Select a wallet group")}</h2></div>${selectedGroup && selectedGroup.purpose !== "cooking" ? `<button class="compact-button" type="button" data-action="open-add-wallet"><i class="fa-solid fa-plus"></i>${t("添加钱包", "Add wallets")}</button>` : ""}</div>${selectedGroup ? `<div class="wallet-group-metrics"><span><small>${t("钱包数量", "Wallets")}</small><strong>${selectedGroup.walletCount}</strong></span><span><small>${t("组内资产", "Group assets")}</small><strong>${money(selectedGroup.totalBalance, selectedGroup.balanceAsset)}</strong></span><span><small>${t("钱包组用途", "Group purpose")}</small><strong>${selectedGroup.purpose === "cooking" ? "Cooking" : t("常规", "General")}</strong></span></div><div class="wallet-table-wrap"><table class="wallet-table"><thead><tr><th>${t("钱包", "Wallet")}</th><th>${t("公开地址", "Public address")}</th><th>${t("余额", "Balance")}</th><th>${t("状态", "Status")}</th></tr></thead><tbody>${walletRows || `<tr><td colspan="4" class="empty-state">${t("该组暂无钱包", "No wallets in this group")}</td></tr>`}</tbody></table></div>` : `<div class="empty-state large"><i class="fa-solid fa-layer-group"></i>${t("选择一个钱包组查看明细", "Select a wallet group to view details")}</div>`}</div>
     </section>`;
   const addWalletButton = viewRoot.querySelector('[data-action="open-add-wallet"]');
   if (addWalletButton) addWalletButton.insertAdjacentHTML("beforebegin", `<button class="compact-button" type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i>${t("转账", "Transfer")}</button>`);
@@ -988,7 +1011,7 @@ function openCreateGroup() {
   openModal({
     kicker: t("钱包组管理", "Wallet-group management"),
     title: t("新建钱包组", "Create wallet group"),
-    content: `<form class="form-stack" id="createWalletGroupForm"><label class="field-label">${t("钱包组名称", "Group name")}<input class="field-input" name="name" maxlength="48" required placeholder="${t("例如：核心发射组", "e.g. Core launch")}" /></label><label class="field-label">${t("初始钱包数量", "Initial wallet count")}<input class="field-input" name="walletCount" type="number" min="0" max="200" value="3" required /></label><p>${t("当前只创建模拟公开钱包引用，不生成、导出或保存私钥。", "This creates simulated public wallet references only. No private keys are generated, exported, or stored.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("创建钱包组", "Create group")}</button></div></form>`,
+    content: `<form class="form-stack" id="createWalletGroupForm"><label class="field-label">${t("钱包组名称", "Group name")}<input class="field-input" name="name" maxlength="48" required placeholder="${t("例如：核心发射组", "e.g. Core launch")}" /></label><label class="field-label">${t("钱包组用途", "Group purpose")}<select class="field-select" name="purpose" id="walletGroupPurpose"><option value="general">${t("常规钱包组", "General wallet group")}</option><option value="cooking">${t("Cooking 钱包组", "Cooking wallet group")}</option></select></label><label class="field-label" id="walletCountField">${t("初始钱包数量", "Initial wallet count")}<input class="field-input" name="walletCount" type="number" min="1" max="100" value="3" required /></label><p id="walletGroupPurposeHint">${t("Cooking 钱包组固定只生成 1 个钱包，可创建多个组并在发射时选择。", "A Cooking group always contains one wallet. Create multiple groups and select one during launch.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("创建钱包组", "Create group")}</button></div></form>`,
   });
 }
 
@@ -998,6 +1021,14 @@ function openAddWallets() {
     kicker: t("钱包组管理", "Wallet-group management"),
     title: t("添加模拟钱包", "Add simulated wallets"),
     content: `<form class="form-stack" id="addWalletsForm"><label class="field-label">${t("添加数量", "Number to add")}<input class="field-input" name="count" type="number" min="1" max="200" value="1" required /></label><p>${t("钱包仅包含模拟公开地址和余额，不包含任何密钥材料。", "Wallets contain simulated public addresses and balances only, with no key material.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("添加钱包", "Add wallets")}</button></div></form>`,
+  });
+}
+
+function openLaunchImageGenerator(mode = "ai") {
+  openModal({
+    kicker: t("Cooking 图片", "Cooking image"),
+    title: mode === "text" ? t("文生图", "Text to image") : t("AI 生图", "AI image generation"),
+    content: `<form class="form-stack" id="launchImageGeneratorForm"><input type="hidden" name="mode" value="${mode}" /><label class="field-label">${t("画面描述", "Image prompt")}<textarea class="field-input" name="prompt" maxlength="1000" required placeholder="${t("描述角色、场景、风格和色彩", "Describe the character, scene, style, and colors")}"></textarea></label><label class="field-label">${t("画面比例", "Aspect ratio")}<select class="field-select" name="aspectRatio"><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="16:9">16:9</option></select></label><p>${t("生成结果会自动进入发射图片，并在提交前完成元数据固定。", "The result will become the launch image and be pinned with token metadata before submission.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit"><i class="fa-solid fa-wand-magic-sparkles"></i>${t("生成图片", "Generate image")}</button></div></form>`,
   });
 }
 
@@ -1223,6 +1254,7 @@ function switchView(view) {
   window.location.hash = view;
   renderCurrentView();
   if (view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
+  if (view === "launch" && !state.assets.groups.length) loadLaunchGroups();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -1335,6 +1367,16 @@ viewRoot.addEventListener("click", async (event) => {
     return;
   }
 
+  const imageAction = event.target.closest("[data-launch-image]")?.dataset.launchImage;
+  if (imageAction === "library") {
+    openModal({ kicker: t("Cooking 图片", "Cooking image"), title: t("图片库", "Image library"), content: `<div class="empty-state large"><i class="fa-regular fa-images"></i>${t("图片库将在对象存储接入后显示已上传和已生成的图片。", "Uploaded and generated images will appear after object storage is configured.")}</div><div class="modal-actions"><button class="primary-button" type="button" data-modal-action="close">${t("知道了", "Done")}</button></div>` });
+    return;
+  }
+  if (imageAction === "text" || imageAction === "ai") {
+    openLaunchImageGenerator(imageAction);
+    return;
+  }
+
   const period = event.target.closest("[data-asset-period]")?.dataset.assetPeriod;
   if (period) {
     state.assets.period = period;
@@ -1440,7 +1482,8 @@ modal.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.target);
     try {
-      const group = await apiRequest("/api/v1/wallet-groups", { method: "POST", body: JSON.stringify({ name: form.get("name"), walletCount: Number(form.get("walletCount")) }) });
+      const purpose = form.get("purpose");
+      const group = await apiRequest("/api/v1/wallet-groups", { method: "POST", body: JSON.stringify({ name: form.get("name"), purpose, walletCount: purpose === "cooking" ? 1 : Number(form.get("walletCount")) }) });
       state.assets.selectedGroupId = group.groupId;
       closeModal();
       await loadAssets();
@@ -1456,6 +1499,31 @@ modal.addEventListener("submit", async (event) => {
       await loadAssets();
       showToast(t("钱包已添加", "Wallets added"));
     } catch (error) { showToast(error.message); }
+  }
+  if (event.target.id === "launchImageGeneratorForm") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    state.launchMedia.generating = true;
+    try {
+      const result = await apiRequest("/api/v1/launch/images", { method: "POST", body: JSON.stringify({ prompt: form.get("prompt"), mode: form.get("mode"), aspectRatio: form.get("aspectRatio") }) });
+      state.launchMedia.previewUrl = result.imageUrl;
+      state.launchMedia.metadataUri = result.metadataUri || null;
+      closeModal();
+      renderLaunch();
+    } catch (error) { showToast(error.message); }
+    finally { state.launchMedia.generating = false; }
+  }
+});
+
+modal.addEventListener("change", (event) => {
+  if (event.target.id !== "walletGroupPurpose") return;
+  const cooking = event.target.value === "cooking";
+  const countField = modal.querySelector("#walletCountField");
+  const countInput = countField?.querySelector("input");
+  if (countField) countField.classList.toggle("hidden", cooking);
+  if (countInput) {
+    countInput.disabled = cooking;
+    if (cooking) countInput.value = "1";
   }
 });
 
@@ -1479,6 +1547,20 @@ viewRoot.addEventListener("input", (event) => {
 });
 
 viewRoot.addEventListener("change", (event) => {
+  if (event.target.id === "launchImageInput") {
+    const [file] = event.target.files || [];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      showToast(t("图片不能超过 10MB。", "Images must be 10MB or smaller."));
+      return;
+    }
+    if (state.launchMedia.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(state.launchMedia.previewUrl);
+    state.launchMedia.file = file;
+    state.launchMedia.previewUrl = URL.createObjectURL(file);
+    state.launchMedia.metadataUri = null;
+    renderLaunch();
+    return;
+  }
   if (event.target.id === "transferSource") {
     state.assets.transferSource = event.target.value;
     if (state.assets.transferDestination === event.target.value) state.assets.transferDestination = event.target.value === "login_wallet" ? state.assets.groups[0]?.groupId : "login_wallet";
@@ -1540,6 +1622,7 @@ window.addEventListener("hashchange", () => {
   state.view = getViewFromHash();
   renderCurrentView();
   if (state.view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
+  if (state.view === "launch" && !state.assets.groups.length) loadLaunchGroups();
 });
 
 let resizeTimer;
@@ -1551,3 +1634,4 @@ window.addEventListener("resize", () => {
 updateTheme();
 renderCurrentView();
 if (state.view === "assets") loadAssets();
+if (state.view === "launch") loadLaunchGroups();
