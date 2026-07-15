@@ -7,5 +7,12 @@
     "start": "node server.js",
     "check": "node --check app.js && node --check server.js && node --check backend/execution/service.js",
     "test:execution": "node --test backend/execution/test/*.test.js"
+  },
+  "dependencies": {
+    "ethers": "^6.15.0",
+    "ws": "^8.21.0"
+  },
+  "overrides": {
+    "ws": "^8.21.0"
   }
 }
