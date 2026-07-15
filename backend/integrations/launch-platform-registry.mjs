@@ -20,10 +20,13 @@ const PLATFORMS = Object.freeze([
     name: "Pons",
     chain: "robinhood",
     chain_id: 4663,
-    launch_url: "https://pons.family/launchpad/create",
+    factory_address: "0x0c37a24f5d23a486fa692d1500881d698b1f77a4",
+    launch_method: "launchToken((string,string,string,string,(string,string,string,string,string),address),uint256,uint256,bytes32)",
+    launch_fee_wei: "500000000000000",
     preparation_status: "ready",
-    integration_status: "wallet_handoff_ready",
+    integration_status: "browser_wallet_ready",
     execution_mode: "disabled",
+    browser_execution_mode: "direct_wallet_confirmation",
   },
 ]);
 

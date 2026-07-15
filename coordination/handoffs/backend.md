@@ -75,7 +75,7 @@ Read-only Meme analysis:
 
 External blockers intentionally left open:
 
-- Pons public factory address/ABI and supported metadata transaction flow for a reviewed direct-execution adapter.
+- Pons image/IPFS pinning provider and an official source-verified factory ABI. The current browser adapter is pinned to the factory and calldata shape verified from successful public transactions.
 - Privy application configuration and authentication policy.
 - Production GMGN credentials/connectivity and confirmation that the deployed API plan permits the requested scan cadence.
 - A production AI/model provider and content-fetch worker for narrative-link enrichment.
