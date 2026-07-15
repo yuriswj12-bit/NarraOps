@@ -453,6 +453,102 @@ const ROBINHOOD_CHAIN = Object.freeze({
   blockExplorerUrls: ["https://robinhoodchain.blockscout.com"],
 });
 
+const PONS_FACTORY = "0x0c37a24f5d23a486fa692d1500881d698b1f77a4";
+const PONS_LAUNCH_FEE_WEI = 500000000000000n;
+const PONS_LAUNCH_SELECTOR = "686399cb";
+
+function abiWord(value) {
+  return BigInt(value).toString(16).padStart(64, "0");
+}
+
+function abiAddress(value) {
+  return value.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+}
+
+function abiString(value) {
+  const bytes = new TextEncoder().encode(value);
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${abiWord(bytes.length)}${hex.padEnd(Math.ceil(hex.length / 64) * 64, "0")}`;
+}
+
+function abiStringTuple(values) {
+  let offset = values.length * 32;
+  const tails = values.map(abiString);
+  const heads = tails.map((tail) => {
+    const head = abiWord(offset);
+    offset += tail.length / 2;
+    return head;
+  });
+  return `${heads.join("")}${tails.join("")}`;
+}
+
+function encodePonsLaunch({ name, symbol, metadataUri, description, socials, creator, salt }) {
+  const strings = [name, symbol, metadataUri, description].map(abiString);
+  const socialTuple = abiStringTuple(socials);
+  let offset = 6 * 32;
+  const tupleHeads = strings.map((tail) => {
+    const head = abiWord(offset);
+    offset += tail.length / 2;
+    return head;
+  });
+  tupleHeads.push(abiWord(offset));
+  tupleHeads.push(abiAddress(creator));
+  const tokenParams = `${tupleHeads.join("")}${strings.join("")}${socialTuple}`;
+  return `0x${PONS_LAUNCH_SELECTOR}${abiWord(128)}${abiWord(0)}${abiWord(0)}${salt.replace(/^0x/, "")}${tokenParams}`;
+}
+
+function parseEthToWei(value) {
+  const normalized = String(value || "0").trim();
+  if (!/^\d+(\.\d{0,18})?$/.test(normalized)) throw new Error(t("ETH 金额格式无效。", "Invalid ETH amount."));
+  const [whole, fraction = ""] = normalized.split(".");
+  return BigInt(whole) * 10n ** 18n + BigInt(fraction.padEnd(18, "0"));
+}
+
+function randomBytes32() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function submitPonsLaunch(form) {
+  if (!state.launchWallet.address) {
+    await connectRobinhoodWallet();
+    if (!state.launchWallet.address) return;
+  }
+  if (!form.reportValidity()) return;
+  const values = Object.fromEntries(new FormData(form).entries());
+  const creator = values.creatorWallet || state.launchWallet.address;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(creator)) {
+    showToast(t("Creator wallet 不是有效的 EVM 地址。", "Creator wallet is not a valid EVM address."));
+    return;
+  }
+  const developerBuyWei = parseEthToWei(values.cookieBuyAmount);
+  const totalValue = PONS_LAUNCH_FEE_WEI + developerBuyWei;
+  const data = encodePonsLaunch({
+    name: values.tokenName.trim(),
+    symbol: values.tokenSymbol.trim(),
+    metadataUri: values.metadataUri.trim(),
+    description: values.description.trim(),
+    socials: [values.xUrl.trim(), values.telegramUrl.trim(), values.websiteUrl.trim(), "", ""],
+    creator,
+    salt: randomBytes32(),
+  });
+  const transaction = { from: state.launchWallet.address, to: PONS_FACTORY, value: `0x${totalValue.toString(16)}`, data };
+  try {
+    const gas = await window.ethereum.request({ method: "eth_estimateGas", params: [transaction] });
+    const confirmed = window.confirm(t(
+      `即将通过 Pons 工厂发射 ${values.tokenSymbol}。总支付 ${values.cookieBuyAmount || "0"} ETH + 0.0005 ETH 发射费，预估 Gas ${Number.parseInt(gas, 16).toLocaleString()}。继续后钱包仍会要求最终确认。`,
+      `Launch ${values.tokenSymbol} through the Pons factory. Total payment is ${values.cookieBuyAmount || "0"} ETH plus the 0.0005 ETH launch fee; estimated gas is ${Number.parseInt(gas, 16).toLocaleString()}. Your wallet will request final confirmation.`,
+    ));
+    if (!confirmed) return;
+    const hash = await window.ethereum.request({ method: "eth_sendTransaction", params: [{ ...transaction, gas }] });
+    sessionStorage.setItem("narraops-last-launch-tx", hash);
+    showToast(t(`发射交易已提交：${hash.slice(0, 12)}…`, `Launch transaction submitted: ${hash.slice(0, 12)}…`));
+    window.open(`${ROBINHOOD_CHAIN.blockExplorerUrls[0]}/tx/${hash}`, "_blank", "noopener,noreferrer");
+  } catch (error) {
+    showToast(error.code === 4001 ? t("你取消了交易。", "Transaction cancelled.") : (error.message || t("发射交易失败。", "Launch transaction failed.")));
+  }
+}
+
 function formatWeiBalance(value) {
   const wei = BigInt(value);
   const whole = wei / 10n ** 18n;
@@ -524,7 +620,6 @@ function renderLaunch() {
       unit: "ETH",
       descriptionZh: "Robinhood Chain 发射平台",
       descriptionEn: "Robinhood Chain launch platform",
-      externalUrl: "https://pons.family/launchpad/create",
     },
   ];
 
@@ -571,11 +666,19 @@ function renderLaunch() {
         </div>
         <label class="launch-field">
           <span>${t("名称", "Name")}</span>
-          <input class="field-input" name="tokenName" maxlength="20" placeholder="${t("填写代币名称", "Token name")}" />
+          <input class="field-input" name="tokenName" maxlength="20" required placeholder="${t("填写代币名称", "Token name")}" />
         </label>
         <label class="launch-field">
           <span>${t("符号", "Symbol")}</span>
-          <input class="field-input" name="tokenSymbol" maxlength="20" placeholder="${t("例如 PEPE", "For example PEPE")}" />
+          <input class="field-input" name="tokenSymbol" maxlength="20" required placeholder="${t("例如 PEPE", "For example PEPE")}" />
+        </label>
+        <label class="launch-field launch-field-wide">
+          <span>${t("描述", "Description")}</span>
+          <textarea class="field-input" name="description" maxlength="500" required placeholder="${t("代币叙事与简介", "Token narrative and description")}"></textarea>
+        </label>
+        <label class="launch-field launch-field-wide">
+          <span>${t("IPFS 元数据 URI", "IPFS metadata URI")}</span>
+          <input class="field-input" name="metadataUri" required pattern="(ipfs|https?)://.+" placeholder="ipfs://..." />
         </label>
         <label class="launch-field">
           <span>X</span>
@@ -584,6 +687,14 @@ function renderLaunch() {
         <label class="launch-field">
           <span>${t("官网", "Website")}</span>
           <input class="field-input" name="websiteUrl" type="url" placeholder="https://..." />
+        </label>
+        <label class="launch-field">
+          <span>Telegram</span>
+          <input class="field-input" name="telegramUrl" type="url" placeholder="https://t.me/..." />
+        </label>
+        <label class="launch-field">
+          <span>${t("Creator wallet（留空使用当前钱包）", "Creator wallet (current wallet if blank)")}</span>
+          <input class="field-input" name="creatorWallet" placeholder="0x..." />
         </label>
         <label class="launch-field">
           <span>${t("Cookie 钱包买入金额", "Cookie wallet buy amount")}</span>
@@ -609,8 +720,8 @@ function renderLaunch() {
         </label>
 
         <div class="launch-form-actions launch-field-wide">
-          <p>${selected.id === "pons" ? t("NarraOps 已接入钱包和 Robinhood Chain；最终发射由 Pons 官网展示交易并请求你的钱包确认。", "NarraOps connects your wallet and Robinhood Chain; Pons displays the final transaction for your wallet confirmation.") : t("该平台的直连执行适配器仍在接入。", "Direct execution for this platform is still being integrated.")}</p>
-          ${selected.externalUrl ? `<button class="primary-button" type="button" data-launch-handoff="${selected.externalUrl}"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>${t("前往 Pons 发射", "Continue on Pons")}</button>` : `<button class="primary-button" type="button" disabled><i class="fa-solid fa-rocket" aria-hidden="true"></i>${t("发射暂未开放", "Launch unavailable")}</button>`}
+          <p>${selected.id === "pons" ? t("直接调用 Pons 工厂合约；NarraOps 不接触私钥，交易必须由你的浏览器钱包确认。基础发射费 0.0005 ETH。", "Calls the Pons factory directly. NarraOps never handles private keys; your browser wallet must confirm the transaction. Base launch fee: 0.0005 ETH.") : t("该平台的直连执行适配器仍在接入。", "Direct execution for this platform is still being integrated.")}</p>
+          ${selected.id === "pons" ? `<button class="primary-button" type="button" data-pons-launch><i class="fa-solid fa-rocket" aria-hidden="true"></i>${t("在 NarraOps 发射", "Launch in NarraOps")}</button>` : `<button class="primary-button" type="button" disabled><i class="fa-solid fa-rocket" aria-hidden="true"></i>${t("发射暂未开放", "Launch unavailable")}</button>`}
         </div>
       </form>
     </section>
@@ -1127,15 +1238,9 @@ viewRoot.addEventListener("click", async (event) => {
     return;
   }
 
-  const launchHandoff = event.target.closest("[data-launch-handoff]");
-  if (launchHandoff) {
+  if (event.target.closest("[data-pons-launch]")) {
     const form = document.querySelector("#launchParameterForm");
-    if (form) {
-      const draft = Object.fromEntries(new FormData(form).entries());
-      sessionStorage.setItem("narraops-launch-draft", JSON.stringify({ platform: state.selectedPlatform, ...draft }));
-    }
-    window.open(launchHandoff.dataset.launchHandoff, "_blank", "noopener,noreferrer");
-    showToast(t("已打开 Pons。请在官网核对参数，并在钱包中确认每笔交易。", "Pons opened. Verify the parameters and confirm every transaction in your wallet."));
+    if (form) await submitPonsLaunch(form);
     return;
   }
 
