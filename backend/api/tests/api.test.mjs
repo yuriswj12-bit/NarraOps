@@ -429,7 +429,7 @@ test("launch drafts map Solana, BSC, and Robinhood to the required platforms", a
   const cases = [
     ["solana", "pump", "Pump.fun"],
     ["bsc", "fourmeme", "FourMeme"],
-    ["robinhood", "noxa", "Noxa.fun"],
+    ["robinhood", "pons", "Pons"],
   ];
   for (const [chain, platform, expectedName] of cases) {
     const response = await post(baseUrl, "/api/v1/launch/drafts", {
@@ -452,12 +452,12 @@ test("Go /launch turns a narrative link into a review-only launch draft card", a
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
   const response = await post(baseUrl, "/api/v1/agent/tasks", {
-    command: "/launch https://example.com/story robinhood noxa",
+    command: "/launch https://example.com/story robinhood pons",
   });
   const accepted = await response.json();
   const completed = await waitForTask(baseUrl, accepted.task_id);
   assert.equal(completed.result.card.type, "launch_draft");
-  assert.equal(completed.result.platform.id, "noxa");
+  assert.equal(completed.result.platform.id, "pons");
   assert.equal(completed.result.narrative.url, "https://example.com/story");
   assert.equal(completed.result.requires_user_confirmation, true);
   assert.equal(completed.result.execution_mode, "disabled");

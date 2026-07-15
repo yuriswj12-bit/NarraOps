@@ -50,7 +50,7 @@ test("narrative URLs reject private network targets", () => {
 test("launch platform mapping is fixed to the product chain choices", () => {
   assert.equal(resolveLaunchPlatform({ chain: "solana" }).id, "pump");
   assert.equal(resolveLaunchPlatform({ chain: "bsc" }).id, "fourmeme");
-  assert.equal(resolveLaunchPlatform({ chain: "robinhood" }).id, "noxa");
+  assert.equal(resolveLaunchPlatform({ chain: "robinhood" }).id, "pons");
   assert.equal(resolveLaunchPlatform({ chain: "bsc", platform: "pump" }).chain, "solana");
 });
 

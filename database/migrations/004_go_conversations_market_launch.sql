@@ -58,7 +58,7 @@ CREATE TABLE launch_drafts (
   launch_draft_id UUID PRIMARY KEY,
   actor_id VARCHAR(128),
   chain VARCHAR(24) NOT NULL CHECK (chain IN ('solana', 'bsc', 'robinhood')),
-  platform_id VARCHAR(32) NOT NULL CHECK (platform_id IN ('pump', 'fourmeme', 'noxa')),
+  platform_id VARCHAR(32) NOT NULL CHECK (platform_id IN ('pump', 'fourmeme', 'pons')),
   narrative_url TEXT,
   narrative_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
   token_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
