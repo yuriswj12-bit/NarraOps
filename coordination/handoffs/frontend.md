@@ -47,3 +47,12 @@
 - The final launch control remains disabled; no wallet connection, signing, launchpad request, or chain execution is performed.
 - Browser QA: all three cards render at 201 px, the selected form contains seven controls, no horizontal overflow was detected, and obsolete draft text is absent.
 
+## 2026-07-15 Agent API and SSE integration
+
+- Replaced the Go workspace's local timeout/mock-response path with the versioned conversation API.
+- The frontend now creates a conversation, posts user messages or slash commands, and subscribes to `/api/v1/events?taskId=...`.
+- Handles queued, running, reconnecting, completed, and failed states; structured `agent.card` payloads render through the existing allowlisted card renderer.
+- Failed tasks expose retry without falling back to fabricated frontend answers.
+- Real execution remains disabled and backend responses remain explicitly labeled mock/data-gap where applicable.
+- Verification: `npm run check`, `git diff --check`, and a live same-origin conversation/task request through port 5188 succeeded with a `recent_summary` card.
+

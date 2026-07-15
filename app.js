@@ -928,12 +928,83 @@ function getAgentResponse(command) {
   };
 }
 
-function submitAgentCommand(value) {
+async function ensureAgentConversation() {
+  if (state.agent.conversationId) return state.agent.conversationId;
+  if (!state.agent.conversationPromise) {
+    state.agent.conversationPromise = apiRequest("/api/v1/agent/conversations", {
+      method: "POST",
+      body: JSON.stringify({ context: { language: state.language, currentView: "go" } }),
+    }).then((conversation) => {
+      state.agent.conversationId = conversation.conversationId;
+      return conversation.conversationId;
+    }).finally(() => { state.agent.conversationPromise = null; });
+  }
+  return state.agent.conversationPromise;
+}
+
+function agentMessage(taskId) {
+  return state.conversation.find((message) => message.taskId === taskId);
+}
+
+function completeAgentMessage(taskId, data = {}) {
+  const message = agentMessage(taskId);
+  if (!message) return;
+  message.lifecycle = "completed";
+  const result = data.result || {};
+  const card = result.card || data.card;
+  if (card && !(message.cards || []).some((item) => JSON.stringify(item) === JSON.stringify(card))) message.cards = [...(message.cards || []), card];
+  message.contentZh = result.mode === "mock" ? "后端 Agent 任务已完成，以下结果来自当前模拟数据与安全工具链。" : "后端 Agent 任务已完成。";
+  message.contentEn = result.mode === "mock" ? "The backend Agent task completed using the current mock data and safety toolchain." : "The backend Agent task completed.";
+  state.agent.submitting = false;
+  renderConversation();
+}
+
+function subscribeAgentTask(taskId) {
+  state.agent.eventSource?.close();
+  const stream = new EventSource(`/api/v1/events?taskId=${encodeURIComponent(taskId)}`);
+  state.agent.eventSource = stream;
+  state.agent.activeTaskId = taskId;
+  stream.addEventListener("agent.started", () => {
+    const message = agentMessage(taskId);
+    if (message) message.lifecycle = "running";
+    renderConversation();
+  });
+  stream.addEventListener("agent.card", (event) => {
+    const data = JSON.parse(event.data);
+    const message = agentMessage(taskId);
+    if (message?.cards && data.card && !message.cards.some((item) => JSON.stringify(item) === JSON.stringify(data.card))) message.cards.push(data.card);
+    renderConversation();
+  });
+  stream.addEventListener("agent.completed", (event) => {
+    completeAgentMessage(taskId, JSON.parse(event.data));
+    stream.close();
+  });
+  stream.addEventListener("agent.failed", (event) => {
+    const data = JSON.parse(event.data);
+    const message = agentMessage(taskId);
+    if (message) {
+      message.lifecycle = "failed";
+      message.error = data.failure?.message || t("Agent 任务失败。", "Agent task failed.");
+    }
+    state.agent.submitting = false;
+    renderConversation();
+    stream.close();
+  });
+  stream.onerror = () => {
+    const message = agentMessage(taskId);
+    if (message && !["completed", "failed"].includes(message.lifecycle)) message.lifecycle = "reconnecting";
+    renderConversation();
+  };
+}
+
+async function submitAgentCommand(value) {
   const command = value.trim();
-  if (!command) return;
-  const pendingId = `pending-${Date.now()}`;
+  if (!command || state.agent.submitting) return;
+  const pendingId = crypto.randomUUID();
+  state.agent.submitting = true;
+  state.agent.retryCommand = command;
   state.conversation.push({ role: "user", content: command, timestamp: getMessageTime() });
-  state.conversation.push({ role: "agent", pending: true, pendingId, timestamp: getMessageTime() });
+  state.conversation.push({ role: "agent", pendingId, lifecycle: "connecting", cards: [], timestamp: getMessageTime() });
   renderConversation();
   const input = document.querySelector("#agentInput");
   if (input) {
@@ -941,11 +1012,24 @@ function submitAgentCommand(value) {
     input.style.height = "";
   }
 
-  window.setTimeout(() => {
-    const pendingIndex = state.conversation.findIndex((message) => message.pendingId === pendingId);
-    if (pendingIndex !== -1) state.conversation.splice(pendingIndex, 1, getAgentResponse(command));
+  try {
+    const conversationId = await ensureAgentConversation();
+    const response = await apiRequest(`/api/v1/agent/conversations/${conversationId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ message: command, ...(command.startsWith("/") ? { command } : {}), context: { language: state.language, currentView: "go" } }),
+    });
+    const message = state.conversation.find((item) => item.pendingId === pendingId);
+    if (message) {
+      message.taskId = response.taskId;
+      message.lifecycle = response.status === "queued" ? "queued" : "running";
+    }
+    subscribeAgentTask(response.taskId);
+  } catch (error) {
+    const message = state.conversation.find((item) => item.pendingId === pendingId);
+    if (message) { message.lifecycle = "failed"; message.error = error.message; }
+    state.agent.submitting = false;
     renderConversation();
-  }, 0);
+  }
 }
 
 function switchView(view) {
@@ -1002,6 +1086,13 @@ themeButton.addEventListener("click", () => {
 });
 
 viewRoot.addEventListener("click", async (event) => {
+  const retry = event.target.closest("[data-agent-retry]");
+  if (retry) {
+    const command = state.agent.retryCommand;
+    state.conversation = state.conversation.filter((message) => message.lifecycle !== "failed");
+    if (command) await submitAgentCommand(command);
+    return;
+  }
   const opportunity = event.target.closest("[data-opportunity]");
   if (opportunity) {
     openOpportunity(opportunity.dataset.opportunity);
