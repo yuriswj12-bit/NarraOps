@@ -1,0 +1,21 @@
+services:
+  frontend:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+  backend:
+    image: narraops/backend:PLACEHOLDER
+    expose:
+      - "5190"
+    env_file:
+      - ../../.env
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+

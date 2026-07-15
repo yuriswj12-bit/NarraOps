@@ -1,8 +1,10 @@
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
 const path = require("path");
 
 const PORT = Number(process.env.PORT || 5188);
+const API_UPSTREAM = process.env.NARRAOPS_API_UPSTREAM || "http://127.0.0.1:5190";
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, "data");
 const WORKSPACE_FILE = path.join(DATA_DIR, "workspace.json");
@@ -28,6 +30,62 @@ function sendJson(res, status, payload) {
     "Access-Control-Allow-Headers": "Content-Type",
   });
   res.end(JSON.stringify(payload));
+}
+
+function proxyApiRequest(req, res, requestUrl) {
+  let target;
+  try {
+    target = new URL(`${requestUrl.pathname}${requestUrl.search}`, API_UPSTREAM);
+  } catch {
+    sendJson(res, 500, {
+      error: {
+        code: "AGENT_UPSTREAM_INVALID",
+        message: "NARRAOPS_API_UPSTREAM is not a valid URL.",
+      },
+    });
+    return;
+  }
+
+  const transport = target.protocol === "https:" ? https : http;
+  const headers = { ...req.headers, host: target.host };
+  delete headers.connection;
+
+  const upstreamRequest = transport.request(
+    {
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || (target.protocol === "https:" ? 443 : 80),
+      method: req.method,
+      path: `${target.pathname}${target.search}`,
+      headers,
+    },
+    (upstreamResponse) => {
+      const responseHeaders = { ...upstreamResponse.headers };
+      if (String(responseHeaders["content-type"] || "").includes("text/event-stream")) {
+        responseHeaders["cache-control"] = "no-cache, no-transform";
+        responseHeaders.connection = "keep-alive";
+        responseHeaders["x-accel-buffering"] = "no";
+      }
+      res.writeHead(upstreamResponse.statusCode || 502, responseHeaders);
+      upstreamResponse.pipe(res);
+    },
+  );
+
+  upstreamRequest.on("error", (error) => {
+    if (res.headersSent) {
+      res.destroy(error);
+      return;
+    }
+    sendJson(res, 502, {
+      error: {
+        code: "AGENT_UPSTREAM_UNAVAILABLE",
+        message: `NarraOps API is unavailable: ${error.message}`,
+      },
+    });
+  });
+
+  req.on("aborted", () => upstreamRequest.destroy());
+  req.pipe(upstreamRequest);
 }
 
 function readBody(req) {
@@ -366,6 +424,10 @@ function serveStatic(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "127.0.0.1"}`);
   try {
+    if (url.pathname === "/api/v1" || url.pathname.startsWith("/api/v1/")) {
+      proxyApiRequest(req, res, url);
+      return;
+    }
     if (url.pathname.startsWith("/api/")) {
       await handleApi(req, res, url.pathname);
       return;
@@ -380,5 +442,6 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`NarraOps local server: http://127.0.0.1:${PORT}`);
+  console.log(`Agent API proxy: ${new URL(API_UPSTREAM).origin}`);
   console.log("Mode: local MVP, no wallet or chain execution");
 });

@@ -1,0 +1,15 @@
+{
+  "name": "@narraops/backend-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs",
+    "check": "node --check src/server.mjs && node --check src/app.mjs && node --check src/validation.mjs && node --check src/security.mjs && node --check src/repositories/in-memory-wallet-group-repository.mjs && node --check src/repositories/in-memory-transfer-repository.mjs && node --check ../agents/task-manager.mjs && node --check ../agents/go-command-parser.mjs && node --check ../agents/execution-simulator.mjs && node --check ../agents/mock-handlers.mjs && node --check ../integrations/registry.mjs && node --check ../integrations/gmgn-market-adapter.mjs && node --check ../integrations/hertzflow-adapter.mjs && node --check ../integrations/narrative-link-adapter.mjs && node --check ../integrations/mock-account-data.mjs",
+    "test": "node --test tests/*.test.mjs"
+  }
+}
