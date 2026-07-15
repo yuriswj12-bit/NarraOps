@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { InMemoryAuditLog } from "./audit-log.js";
 import { ExecutionError } from "./errors.js";
+import { digestBatch } from "./batch-wallet-signer.js";
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const ZERO_TOPIC = `0x${"0".repeat(64)}`;
@@ -64,15 +65,15 @@ export class PonsFollowBuyService {
     this.batchSigner = batchSigner;
     this.auditLog = auditLog;
     this.maxAttempts = maxAttempts;
+    this.plans = new Map();
   }
 
-  async execute(input) {
+  async plan(input) {
     const executionId = randomUUID();
     const launchTransactionHash = requireHexHash(input.launchTransactionHash, "launchTransactionHash");
     const totalAmountWei = requireAmount(input.totalAmountWei);
     const wallets = input.wallets || [];
     if (!wallets.length) throw new ExecutionError("EMPTY_WALLET_GROUP", "The follow-buy wallet group has no wallets");
-    if (!input.confirmationToken) throw new ExecutionError("CONFIRMATION_REQUIRED", "A single batch policy confirmation is required");
     this.auditLog.append({ executionId, type: "follow_buy.planned", launchTransactionHash, walletCount: wallets.length, totalAmountWei: totalAmountWei.toString() });
 
     const launchReceipt = await this.receiptProvider.waitForReceipt(launchTransactionHash);
@@ -87,12 +88,31 @@ export class PonsFollowBuyService {
     );
     if (unsignedTransactions.length !== wallets.length) throw new ExecutionError("QUOTE_COUNT_MISMATCH", "Quote provider did not return one transaction per wallet");
 
+    const transactionDigest = digestBatch(unsignedTransactions);
+    this.plans.set(executionId, { executionId, tokenAddress, launchTransactionHash, wallets, unsignedTransactions });
+    this.auditLog.append({ executionId, type: "follow_buy.awaiting_approval", transactionDigest, walletCount: wallets.length });
+    return {
+      executionId,
+      tokenAddress,
+      launchTransactionHash,
+      transactionDigest,
+      walletCount: wallets.length,
+      totalAmountWei: totalAmountWei.toString(),
+      transactions: unsignedTransactions.map(({ walletReferenceId, from, to, value, quote }) => ({ walletReferenceId, from, to, value, quote })),
+    };
+  }
+
+  async executeApproved({ executionId, confirmationToken }) {
+    if (!confirmationToken) throw new ExecutionError("CONFIRMATION_REQUIRED", "A single batch policy confirmation is required");
+    const plan = this.plans.get(executionId);
+    this.plans.delete(executionId);
+    if (!plan) throw new ExecutionError("FOLLOW_BUY_PLAN_NOT_FOUND", "Follow-buy plan is missing, expired, or already consumed");
+    const { tokenAddress, launchTransactionHash, wallets, unsignedTransactions } = plan;
+
     this.auditLog.append({ executionId, type: "follow_buy.batch_signing_requested", walletCount: wallets.length });
-    const submissions = await withRetries(
-      () => this.batchSigner.signAndBroadcastBatch({ executionId, confirmationToken: input.confirmationToken, transactions: unsignedTransactions }),
-      this.maxAttempts,
-      (attempt, error) => this.auditLog.append({ executionId, type: "follow_buy.signer_retry", attempt, code: error.code || "SIGNER_FAILED" }),
-    );
+    // The approval is intentionally single-use; the signer owns any safe,
+    // idempotent broadcast retry and must never request a second approval.
+    const submissions = await this.batchSigner.signAndBroadcastBatch({ executionId, confirmationToken, transactions: unsignedTransactions });
     const accepted = submissions.filter((item) => /^0x[0-9a-fA-F]{64}$/.test(item.transactionHash || ""));
     this.auditLog.append({ executionId, type: "follow_buy.submitted", submittedCount: accepted.length, failedCount: wallets.length - accepted.length });
 
@@ -109,5 +129,10 @@ export class PonsFollowBuyService {
     const status = confirmedCount === wallets.length ? "confirmed" : confirmedCount > 0 ? "partially_failed" : "failed";
     this.auditLog.append({ executionId, type: "follow_buy.reconciled", status, confirmedCount, failedCount });
     return { executionId, status, tokenAddress, launchTransactionHash, submittedCount: accepted.length, confirmedCount, failedCount, transactions: reconciled };
+  }
+
+  async execute(input) {
+    const plan = await this.plan(input);
+    return this.executeApproved({ executionId: plan.executionId, confirmationToken: input.confirmationToken });
   }
 }

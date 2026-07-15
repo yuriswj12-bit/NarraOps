@@ -17,12 +17,16 @@ Implemented on `feat/execution-integration`:
 - Added a Robinhood Chain EVM adapter using `ethers`: validates signer address and chain ID, obtains pending nonce/gas price/gas estimate over JSON-RPC, applies a gas buffer, signs legacy EIP-155 transactions locally, and rejects broadcasting unless the explicit production execution switch is enabled.
 - Pinned the transitive `ws` dependency to a patched release after npm audit identified vulnerabilities in the version bundled by ethers; dependency install then reported zero vulnerabilities.
 - Verification: 22/22 execution tests pass, including persistent ciphertext checks and signed-transaction decoding; broadcast remains disabled in tests and product defaults.
+- Added a no-API Pons follow-buy builder over the official Robinhood Chain Uniswap V3 deployment: reads the token's public pool configuration and launch limits, verifies the pool against the official factory, quotes through QuoterV2, applies minimum-output slippage protection, and builds payable SwapRouter02 `exactInputSingle` transactions for each wallet.
+- Split Pons follow-buy into plan and approved-execution phases so the one-time wallet approval is bound to the exact quoted transaction digest and cannot be replayed.
+- Read-only mainnet validation against a live Pons token returned a QuoterV2 amount and successful `eth_estimateGas` for the generated SwapRouter02 call; no signature or transaction was submitted.
+- Verification: 25/25 execution tests pass after the public-router integration.
 
 Not production-ready:
 
 - In-memory stores are process-local and are unsafe for multi-instance or crash recovery.
 - No production key-service isolation, multi-process nonce reservation, enabled transaction broadcaster, retry worker, or treasury ledger exists.
 - Real execution deliberately throws and cannot submit funds.
-- Pons post-launch buying still requires a reviewed public on-chain Router path or an official Pons transaction builder; the launch transaction itself is already independent of this blocker.
+- Pons public on-chain follow-buy construction is implemented; production activation still requires durable plan/approval storage, nonce reservation, API mounting, and an explicit reviewed broadcast enablement.
 - Simulation inputs are internal execution-layer contracts only; API/OpenAPI exposure remains for the backend and integration owners because this role cannot modify `shared/` or `backend/api/`.
 

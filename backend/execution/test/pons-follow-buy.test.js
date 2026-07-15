@@ -36,7 +36,7 @@ test("executes one-confirmation batch signing and reconciles every accepted tran
   assert.equal(result.status, "confirmed");
   assert.equal(result.confirmedCount, 2);
   assert.equal(result.tokenAddress, token);
-  assert.deepEqual(auditLog.list(result.executionId).map(({ type }) => type), ["follow_buy.planned", "follow_buy.launch_confirmed", "follow_buy.batch_signing_requested", "follow_buy.submitted", "follow_buy.reconciled"]);
+  assert.deepEqual(auditLog.list(result.executionId).map(({ type }) => type), ["follow_buy.planned", "follow_buy.launch_confirmed", "follow_buy.awaiting_approval", "follow_buy.batch_signing_requested", "follow_buy.submitted", "follow_buy.reconciled"]);
 });
 
 test("retries quote construction with bounded attempts", async () => {
@@ -50,4 +50,18 @@ test("retries quote construction with bounded attempts", async () => {
   const result = await service.execute({ launchTransactionHash: hash("a"), totalAmountWei: "1", slippageBps: 100, confirmationToken: "once", wallets: [{ walletReferenceId: "wallet-1", publicAddress: "0x1" }] });
   assert.equal(attempts, 2);
   assert.equal(result.status, "confirmed");
+});
+
+test("plans first so one-time approval can bind the exact quoted batch", async () => {
+  const service = new PonsFollowBuyService({
+    receiptProvider: { waitForReceipt: async (transactionHash) => transactionHash === hash("a") ? launchReceipt() : { status: "0x1", blockNumber: "0x12", logs: [] } },
+    quoteProvider: { buildPonsBuyBatch: async ({ allocations }) => allocations.map((allocation) => ({ walletReferenceId: allocation.walletReferenceId, chainId: 4663, from: allocation.publicAddress, to: "0x1111111111111111111111111111111111111111", value: allocation.amountWei, data: "0x1234" })) },
+    batchSigner: { signAndBroadcastBatch: async ({ transactions }) => transactions.map((transaction) => ({ walletReferenceId: transaction.walletReferenceId, transactionHash: hash("c") })) },
+  });
+  const plan = await service.plan({ launchTransactionHash: hash("a"), totalAmountWei: "10", slippageBps: 100, wallets: [{ walletReferenceId: "wallet-1", publicAddress: "0x2222222222222222222222222222222222222222" }] });
+  assert.match(plan.transactionDigest, /^[0-9a-f]{64}$/);
+  assert.equal(plan.transactions[0].value, "10");
+  const result = await service.executeApproved({ executionId: plan.executionId, confirmationToken: "one-time" });
+  assert.equal(result.status, "confirmed");
+  await assert.rejects(() => service.executeApproved({ executionId: plan.executionId, confirmationToken: "one-time" }), { code: "FOLLOW_BUY_PLAN_NOT_FOUND" });
 });

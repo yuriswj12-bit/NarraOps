@@ -4,6 +4,7 @@ export { sealWalletSecret, openWalletSecret } from "./encrypted-wallet-vault.js"
 export { EncryptedBatchWalletSigner, OneTimeApprovalStore, digestBatch } from "./batch-wallet-signer.js";
 export { EncryptedWalletRepository } from "./encrypted-wallet-repository.js";
 export { EvmJsonRpcClient, EvmTransactionAdapter } from "./evm-transaction-adapter.js";
+export { PonsUniswapV3QuoteProvider, ROBINHOOD_CHAIN_ID, ROBINHOOD_UNISWAP_V3 } from "./pons-uniswap-v3-quote-provider.js";
 export { RobinhoodReceiptProvider } from "./robinhood-receipt-provider.js";
 export { ExecutionError } from "./errors.js";
 export { InMemoryIdempotencyStore, requestFingerprint } from "./idempotency-store.js";
