@@ -67,6 +67,7 @@ const state = {
     transferPreview: null,
     transferResult: null,
     transferBusy: false,
+    launchGroupsLoading: false,
   },
 };
 
@@ -522,12 +523,12 @@ async function submitPonsLaunch(form) {
   }
   if (!form.reportValidity()) return;
   const values = Object.fromEntries(new FormData(form).entries());
-  const cookingGroup = state.assets.groups.find((group) => group.groupId === values.cookingWalletGroup && group.purpose === "cooking" && group.walletCount === 1);
+  const cookingGroup = state.assets.groups.find((group) => group.groupId === values.cookingWalletGroup && isCookingGroup(group));
   if (!cookingGroup) {
     showToast(t("请选择一个只包含 1 个钱包的 Cooking 钱包组。", "Select a Cooking wallet group containing exactly one wallet."));
     return;
   }
-  const buyingGroup = state.assets.groups.find((group) => group.groupId === values.buyingWalletGroup && group.purpose !== "cooking" && group.walletCount > 0);
+  const buyingGroup = state.assets.groups.find((group) => group.groupId === values.buyingWalletGroup && !isCookingGroup(group) && group.walletCount > 0);
   if (!buyingGroup) {
     showToast(t("请选择发射后执行第二笔买入的常规钱包组。", "Select the general wallet group that will place the second buy after launch."));
     return;
@@ -656,9 +657,9 @@ function renderLaunch() {
   const walletAddress = launchWallet.address
     ? `${launchWallet.address.slice(0, 7)}...${launchWallet.address.slice(-5)}`
     : t("未连接", "Not connected");
-  const cookingGroups = state.assets.groups.filter((group) => group.purpose === "cooking" && group.walletCount === 1);
+  const cookingGroups = state.assets.groups.filter(isCookingGroup);
   const cookingOptions = cookingGroups.map((group) => `<option value="${group.groupId}">${escapeHtml(group.name)} · ${t("1 个钱包", "1 wallet")}</option>`).join("");
-  const buyingGroups = state.assets.groups.filter((group) => group.purpose !== "cooking" && group.walletCount > 0);
+  const buyingGroups = state.assets.groups.filter((group) => !isCookingGroup(group) && group.walletCount > 0);
   const buyingGroupOptions = buyingGroups.map((group) => `<option value="${group.groupId}">${escapeHtml(group.name)} · ${group.walletCount} ${t("个钱包", "wallets")}</option>`).join("");
   const media = state.launchMedia;
   const platformCards = platforms.map((platform) => `
@@ -737,7 +738,6 @@ function renderLaunch() {
             <option value="">${t("选择 Cooking 钱包", "Select a Cooking wallet")}</option>
             ${cookingOptions}
           </select>
-          ${cookingOptions ? "" : `<small>${t("请先在资产页创建 Cooking 钱包组（1 个钱包）。", "Create a Cooking wallet group with one wallet in Assets first.")}</small>`}
         </label>
         <label class="launch-field">
           <span>${t("Cooking 钱包买入金额", "Cooking wallet buy amount")}</span>
@@ -749,7 +749,7 @@ function renderLaunch() {
         <label class="launch-field">
           <span>${t("跟买钱包组", "Follow-buy wallet group")}</span>
           <select class="field-select" name="buyingWalletGroup" required>
-            <option value="">${t("选择发射后跟买的钱包组", "Select the post-launch buying group")}</option>
+            <option value="">${t("选择钱包组", "Select wallet group")}</option>
             ${buyingGroupOptions}
           </select>
           ${buyingGroupOptions ? "" : `<small>${t("请先在资产页创建一个常规钱包组。", "Create a general wallet group in Assets first.")}</small>`}
@@ -851,13 +851,22 @@ async function loadAssets({ keepGroup = true } = {}) {
 }
 
 async function loadLaunchGroups() {
+  if (state.assets.launchGroupsLoading) return;
+  state.assets.launchGroupsLoading = true;
   try {
     const result = await apiRequest("/api/v1/wallet-groups");
     state.assets.groups = result.groups || [];
     if (state.view === "launch") renderLaunch();
   } catch (error) {
     showToast(error.message);
+  } finally {
+    state.assets.launchGroupsLoading = false;
   }
+}
+
+function isCookingGroup(group) {
+  if (group.purpose === "cooking") return group.walletCount === 1;
+  return !group.purpose && group.walletCount === 1;
 }
 
 function renderAssetSummary() {
@@ -1200,7 +1209,7 @@ function switchView(view) {
   window.location.hash = view;
   renderCurrentView();
   if (view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
-  if (view === "launch" && !state.assets.groups.length) loadLaunchGroups();
+  if (view === "launch") loadLaunchGroups();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -1561,7 +1570,7 @@ window.addEventListener("hashchange", () => {
   state.view = getViewFromHash();
   renderCurrentView();
   if (state.view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
-  if (state.view === "launch" && !state.assets.groups.length) loadLaunchGroups();
+  if (state.view === "launch") loadLaunchGroups();
 });
 
 let resizeTimer;
