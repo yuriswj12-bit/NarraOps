@@ -39,7 +39,7 @@
 
 ## 2026-07-12 Launch parameter workspace
 
-- Launch exposes Pump.fun (Solana), Four.Meme (BSC), and Pons (Robinhood Chain). Pons supports EIP-1193 wallet connection, Robinhood Chain switching, live ETH balance reads, and a non-custodial handoff to the official launch page.
+- Launch exposes Pump.fun (Solana), Four.Meme (BSC), and Pons (Robinhood Chain). Pons supports EIP-1193 wallet connection, Robinhood Chain switching, live ETH balance reads, local ABI encoding, gas estimation, explicit confirmation, and direct wallet submission to the Pons factory without leaving NarraOps.
 - Platform cards were shortened and remain mutually exclusive through frontend state.
 - Selecting a platform reveals one consolidated parameter panel for token name, symbol, X, website, Cookie wallet buy amount, wallet group, and wallet-group buy amount.
 - Removed the obsolete current-draft summary and simulated-draft action.
