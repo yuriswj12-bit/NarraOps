@@ -4,7 +4,7 @@ import { createApplication } from "./app.mjs";
 import { LaunchPlanningService } from "./launch-service.mjs";
 import { resolve } from "node:path";
 import { Connection } from "@solana/web3.js";
-import { EncryptedWalletRepository, EvmJsonRpcClient, EvmTransactionAdapter, LaunchSigningService, SolanaTransactionAdapter, WalletProvisioningService } from "../../execution/index.js";
+import { BatchFollowBuyExecutor, EncryptedWalletRepository, EvmJsonRpcClient, EvmTransactionAdapter, FourMemeFollowBuyPlanner, LaunchConfirmationProvider, LaunchSigningService, PumpFollowBuyPlanner, SolanaTransactionAdapter, WalletProvisioningService } from "../../execution/index.js";
 import { InMemoryWalletGroupRepository } from "./repositories/in-memory-wallet-group-repository.mjs";
 import { LaunchExecutionCoordinator } from "./launch-execution-coordinator.mjs";
 
@@ -28,7 +28,18 @@ const launchSigningService = encryptedWalletRepository ? new LaunchSigningServic
   evmAdapter: new EvmTransactionAdapter({ rpcClient: new EvmJsonRpcClient({ rpcUrl: config.bscRpcUrl }), chainId: 56, executionEnabled: config.realExecutionEnabled }),
   solanaAdapter: new SolanaTransactionAdapter({ connection: new Connection(config.solanaRpcUrl, "confirmed"), executionEnabled: config.realExecutionEnabled }),
 }) : null;
-const launchCoordinator = launchSigningService ? new LaunchExecutionCoordinator({ launchService, signingService: launchSigningService, walletGroupRepository, vaultPassword: config.walletVaultPassword }) : null;
+const followBuyRpcClient = new EvmJsonRpcClient({ rpcUrl: config.bscRpcUrl });
+const followBuyEvmAdapter = new EvmTransactionAdapter({ rpcClient: followBuyRpcClient, chainId: 56, executionEnabled: config.realExecutionEnabled });
+const followBuySolanaAdapter = new SolanaTransactionAdapter({ connection: launchService.pump.connection, executionEnabled: config.realExecutionEnabled });
+const followBuyExecutor = encryptedWalletRepository ? new BatchFollowBuyExecutor({
+  walletRepository: encryptedWalletRepository,
+  pumpPlanner: new PumpFollowBuyPlanner({ connection: launchService.pump.connection, onlineSdk: launchService.pump.onlineSdk, offlineSdk: launchService.pump.offlineSdk }),
+  fourMemePlanner: new FourMemeFollowBuyPlanner({ rpcClient: followBuyRpcClient }),
+  solanaAdapter: followBuySolanaAdapter,
+  evmAdapter: followBuyEvmAdapter,
+}) : null;
+const confirmationProvider = new LaunchConfirmationProvider({ solanaConnection: launchService.pump.connection, evmRpcClient: followBuyRpcClient });
+const launchCoordinator = launchSigningService ? new LaunchExecutionCoordinator({ launchService, signingService: launchSigningService, walletGroupRepository, vaultPassword: config.walletVaultPassword, confirmationProvider, followBuyExecutor }) : null;
 const application = createApplication({ config, logger, launchService, walletProvisioningService, walletGroupRepository, launchCoordinator });
 
 application.server.listen(config.port, config.host, () => {
