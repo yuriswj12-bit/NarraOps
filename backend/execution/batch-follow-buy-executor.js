@@ -18,7 +18,7 @@ export class BatchFollowBuyExecutor {
     const results = [];
     for (let index = 0; index < wallets.length; index += 1) {
       const wallet = wallets[index]; const envelope = await this.walletRepository.getEncryptedWallet(wallet.walletReferenceId);
-      if (!envelope) throw new ExecutionError("WALLET_NOT_FOUND", "Follow-buy wallet secret was not found");
+      if (!envelope) { results.push({ walletId: wallet.walletId, status: "failed", errorCode: "WALLET_NOT_FOUND", amountAtomic: amounts[index].toString() }); continue; }
       const privateKey = openWalletSecret(envelope, password);
       try {
         if (platform === "pump") {
@@ -32,6 +32,8 @@ export class BatchFollowBuyExecutor {
           const transactionHash = await this.evmAdapter.broadcastTransaction({ signedTransaction });
           results.push({ walletId: wallet.walletId, status: "submitted", transactionHash, amountAtomic: amounts[index].toString() });
         }
+      } catch (error) {
+        results.push({ walletId: wallet.walletId, status: "failed", errorCode: error.code || "FOLLOW_BUY_FAILED", amountAtomic: amounts[index].toString() });
       } finally { privateKey.fill(0); }
     }
     return results;
