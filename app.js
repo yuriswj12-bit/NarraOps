@@ -579,6 +579,44 @@ async function submitPonsLaunch(form) {
   }
 }
 
+async function fileToBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  return btoa(binary);
+}
+
+async function submitInternalLaunch(form) {
+  if (!form.reportValidity()) return;
+  const values = Object.fromEntries(new FormData(form).entries());
+  const cookingGroup = state.assets.groups.find((group) => group.groupId === values.cookingWalletGroup && isCookingGroup(group));
+  const buyingGroup = state.assets.groups.find((group) => group.groupId === values.buyingWalletGroup && !isCookingGroup(group));
+  if (!cookingGroup || !buyingGroup) return showToast(t("请选择 Cooking 钱包和跟买钱包组。", "Select a Cooking wallet and follow-buy wallet group."));
+  if (!state.launchMedia.file) return showToast(t("请上传 Cooking 图片。", "Upload a Cooking image."));
+  const platform = state.selectedPlatform === "four" ? "fourmeme" : "pump";
+  try {
+    const prepared = await apiRequest("/api/v1/launch/executions/prepare", { method: "POST", body: JSON.stringify({
+      platform,
+      cookingWalletGroupId: cookingGroup.groupId,
+      buyingWalletGroupId: buyingGroup.groupId,
+      walletGroupBuyAmount: values.walletGroupBuyAmount || "0",
+      name: values.tokenName.trim(), symbol: values.tokenSymbol.trim(), description: `${values.tokenName.trim()} (${values.tokenSymbol.trim()})`,
+      imageBase64: await fileToBase64(state.launchMedia.file), imageName: state.launchMedia.file.name, imageType: state.launchMedia.file.type,
+      twitter: values.xUrl.trim(), telegram: values.telegramUrl.trim(), website: values.websiteUrl.trim(), developerBuyAmount: values.cookingBuyAmount || "0",
+    }) });
+    const approved = window.confirm(t(
+      `确认使用 ${cookingGroup.name} 发射 ${values.tokenSymbol}，首买 ${values.cookingBuyAmount || "0"} ${state.selectedPlatform === "pump" ? "SOL" : "BNB"}；确认后将统一签名并广播。`,
+      `Confirm launching ${values.tokenSymbol} with ${cookingGroup.name} and a ${values.cookingBuyAmount || "0"} ${state.selectedPlatform === "pump" ? "SOL" : "BNB"} developer buy. Confirmation signs and broadcasts once.`,
+    ));
+    if (!approved) return;
+    const result = await apiRequest(`/api/v1/launch/executions/${prepared.executionId}/confirm`, { method: "POST", body: JSON.stringify({ confirmationToken: prepared.confirmationToken }) });
+    sessionStorage.setItem("narraops-last-launch-tx", result.transactionHash);
+    showToast(t(`发射交易已提交：${result.transactionHash.slice(0, 12)}…`, `Launch submitted: ${result.transactionHash.slice(0, 12)}…`));
+  } catch (error) {
+    showToast(error.message || t("发射失败。", "Launch failed."));
+  }
+}
+
 function formatWeiBalance(value) {
   const wei = BigInt(value);
   const whole = wei / 10n ** 18n;
@@ -688,7 +726,7 @@ function renderLaunch() {
       </header>
 
       <form class="launch-parameter-form" id="launchParameterForm">
-        <div class="launch-wallet-panel launch-field-wide">
+        ${selected.id === "pons" ? `<div class="launch-wallet-panel launch-field-wide">
           <div>
             <span class="section-kicker">${t("链上钱包", "On-chain wallet")}</span>
             <strong>${walletAddress}</strong>
@@ -698,7 +736,7 @@ function renderLaunch() {
           <button class="secondary-button" type="button" data-launch-wallet="connect" ${launchWallet.connecting ? "disabled" : ""}>
             <i class="fa-solid fa-wallet" aria-hidden="true"></i>${launchWallet.connecting ? t("连接中…", "Connecting…") : launchWallet.address ? t("重新连接", "Reconnect") : t("连接钱包", "Connect wallet")}
           </button>
-        </div>
+        </div>` : `<div class="launch-wallet-panel launch-field-wide"><div><span class="section-kicker">${t("加密 Cooking 钱包", "Encrypted Cooking wallet")}</span><strong>${t("从下方钱包组选择", "Select from the wallet group below")}</strong><small>${t("一次确认完成发射签名，不会逐钱包弹窗。", "One confirmation signs the launch without per-wallet prompts.")}</small></div><i class="fa-solid fa-shield-halved"></i></div>`}
         <section class="launch-image-field launch-field-wide" aria-label="${t("Cooking 图片", "Cooking image")}">
           <div class="launch-image-heading"><div><span>${t("Cooking 图片", "Cooking image")}</span><small>${t("支持上传、图库、文生图和 AI 生图", "Upload, library, text-to-image, or AI generation")}</small></div><strong>${t("必填", "Required")}</strong></div>
           <div class="launch-image-actions">
@@ -765,7 +803,7 @@ function renderLaunch() {
 
         <div class="launch-form-actions launch-field-wide">
           <p>${selected.id === "pons" ? t("基础发射费 0.0005 ETH。", "Base launch fee: 0.0005 ETH.") : t("该平台的直连执行适配器仍在接入。", "Direct execution for this platform is still being integrated.")}</p>
-          ${selected.id === "pons" ? `<button class="primary-button" type="button" data-pons-launch><i class="fa-solid fa-fire-burner" aria-hidden="true"></i>${t(`Cooking 到 ${selected.name}`, `Cook on ${selected.name}`)}</button>` : `<button class="primary-button" type="button" disabled><i class="fa-solid fa-fire-burner" aria-hidden="true"></i>${t(`Cooking 到 ${selected.name}`, `Cook on ${selected.name}`)}</button>`}
+          ${selected.id === "pons" ? `<button class="primary-button" type="button" data-pons-launch><i class="fa-solid fa-fire-burner" aria-hidden="true"></i>${t(`Cooking 到 ${selected.name}`, `Cook on ${selected.name}`)}</button>` : `<button class="primary-button" type="button" data-internal-launch><i class="fa-solid fa-fire-burner" aria-hidden="true"></i>${t(`Cooking 到 ${selected.name}`, `Cook on ${selected.name}`)}</button>`}
         </div>
       </form>
     </section>
@@ -1407,6 +1445,12 @@ viewRoot.addEventListener("click", async (event) => {
   if (event.target.closest("[data-pons-launch]")) {
     const form = document.querySelector("#launchParameterForm");
     if (form) await submitPonsLaunch(form);
+    return;
+  }
+
+  if (event.target.closest("[data-internal-launch]")) {
+    const form = document.querySelector("#launchParameterForm");
+    if (form) await submitInternalLaunch(form);
     return;
   }
 
