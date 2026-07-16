@@ -570,6 +570,7 @@ async function submitPonsLaunch(form) {
       cookingWalletGroupId: cookingGroup.groupId,
       buyingWalletGroupId: buyingGroup.groupId,
       walletGroupBuyAmount: values.walletGroupBuyAmount,
+      buyCondition: values.buyCondition,
       status: "awaiting_launch_confirmation",
     }));
     showToast(t(`发射交易已提交：${hash.slice(0, 12)}…`, `Launch transaction submitted: ${hash.slice(0, 12)}…`));
@@ -600,6 +601,7 @@ async function submitInternalLaunch(form) {
       cookingWalletGroupId: cookingGroup.groupId,
       buyingWalletGroupId: buyingGroup.groupId,
       walletGroupBuyAmount: values.walletGroupBuyAmount || "0",
+      buyCondition: values.buyCondition || "random",
       name: values.tokenName.trim(), symbol: values.tokenSymbol.trim(), description: `${values.tokenName.trim()} (${values.tokenSymbol.trim()})`,
       imageBase64: await fileToBase64(state.launchMedia.file), imageName: state.launchMedia.file.name, imageType: state.launchMedia.file.type,
       twitter: values.xUrl.trim(), telegram: values.telegramUrl.trim(), website: values.websiteUrl.trim(), developerBuyAmount: values.cookingBuyAmount || "0",
@@ -799,6 +801,15 @@ function renderLaunch() {
             <input class="field-input" name="walletGroupBuyAmount" type="number" min="0" step="0.0001" placeholder="0.00" required />
             <span>${selected.unit}</span>
           </div>
+        </label>
+        <label class="launch-field">
+          <span>${t("买入条件", "Buy condition")}</span>
+          <select class="field-select" name="buyCondition" required>
+            <option value="random">${t("随机买入", "Random buy")}</option>
+            <option value="ladder">${t("梯级买入", "Ladder buy")}</option>
+            <option value="equal">${t("等额买入", "Equal buy")}</option>
+          </select>
+          <small>${t("总买入金额保持不变，并分配到钱包组内全部钱包。", "The fixed total is distributed across every wallet in the group.")}</small>
         </label>
 
         <div class="launch-form-actions launch-field-wide">
