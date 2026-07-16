@@ -85,6 +85,80 @@ paths:
       responses:
         '202': { $ref: '#/components/responses/TaskAccepted' }
         '400': { $ref: '#/components/responses/Error' }
+  /launch/auth/fourmeme/nonce:
+    post:
+      operationId: createFourMemeLoginNonce
+      summary: Create the official Four.Meme wallet-login message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [address]
+              properties:
+                address: { type: string, minLength: 42, maxLength: 42 }
+      responses:
+        '200':
+          description: Message that the connected BSC wallet must sign
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [address, nonce, message]
+                properties:
+                  address: { type: string }
+                  nonce: { type: string }
+                  message: { type: string }
+        '400': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /launch/transactions/plan:
+    post:
+      operationId: planLaunchTransaction
+      summary: Build a Pump.fun or Four.Meme launch transaction for the connected wallet to sign
+      description: >-
+        Uploads public token media/metadata and creates a chain transaction payload.
+        NarraOps does not receive the connected wallet private key and does not
+        broadcast this payload; the browser wallet must display and confirm it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [platform, walletAddress, name, symbol, imageBase64, developerBuyAmount]
+              properties:
+                platform: { type: string, enum: [pump, fourmeme] }
+                walletAddress: { type: string, minLength: 32, maxLength: 64 }
+                name: { type: string, minLength: 1, maxLength: 32 }
+                symbol: { type: string, minLength: 1, maxLength: 10 }
+                description: { type: string, maxLength: 1000 }
+                imageBase64: { type: string, maxLength: 8000000 }
+                imageName: { type: string, maxLength: 120 }
+                imageType: { type: string, maxLength: 80 }
+                twitter: { type: string, maxLength: 500 }
+                telegram: { type: string, maxLength: 500 }
+                website: { type: string, maxLength: 500 }
+                developerBuyAmount:
+                  type: string
+                  pattern: '^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,18})?$'
+                loginSignature: { type: string, maxLength: 300 }
+      responses:
+        '201':
+          description: Transaction plan requiring the connected wallet signature
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, broadcastByNarraOps, plan]
+                properties:
+                  status: { const: requires_user_signature }
+                  broadcastByNarraOps: { const: false }
+                  plan: { type: object }
+        '400': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /agent/tasks:
     post:
       operationId: createAgentTask

@@ -1,16 +1,18 @@
 import { loadConfig } from "./config.mjs";
 import { createLogger } from "./security.mjs";
 import { createApplication } from "./app.mjs";
+import { LaunchPlanningService } from "./launch-service.mjs";
 
 const config = loadConfig();
 const logger = createLogger(config.logLevel);
-const application = createApplication({ config, logger });
+const launchService = new LaunchPlanningService(config);
+const application = createApplication({ config, logger, launchService });
 
 application.server.listen(config.port, config.host, () => {
   logger.info("api_started", {
     address: `http://${config.host}:${config.port}`,
     health: "/api/v1/health",
-    mode: "mock-no-execution",
+    mode: "client-signed-launch-planning",
   });
 });
 

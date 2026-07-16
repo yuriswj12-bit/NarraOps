@@ -16,6 +16,8 @@ import {
   validateWalletBatchDelete,
   validateWalletExport,
   validateWalletGroupCreate,
+  validateFourMemeNonce,
+  validateLaunchTransactionPlan,
 } from "./validation.mjs";
 import { InMemoryTaskRepository } from "./repositories/in-memory-task-repository.mjs";
 import { InMemoryConversationRepository } from "./repositories/in-memory-conversation-repository.mjs";
@@ -121,7 +123,7 @@ function toGoTask(task) {
   return payload;
 }
 
-export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager } = {}) {
+export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager, launchService } = {}) {
   const registry = integrations || createIntegrationRegistry(config);
   const repo = repository || new InMemoryTaskRepository();
   const devWallets = devWalletRepository || new InMemoryDevWalletRepository();
@@ -282,6 +284,19 @@ export function createApplication({ config, logger, repository, conversationRepo
         if (url.pathname === "/api/v1/wallet-groups") {
           const input = validateWalletGroupCreate(body);
           sendJson(res, 201, walletGroups.createGroup(input), requestId);
+          return;
+        }
+
+        if (url.pathname === "/api/v1/launch/auth/fourmeme/nonce") {
+          if (!launchService) throw new ApiError(503, "LAUNCH_SERVICE_UNAVAILABLE", "Launch planning service is not configured");
+          sendJson(res, 200, await launchService.requestFourMemeLogin(validateFourMemeNonce(body)), requestId);
+          return;
+        }
+
+        if (url.pathname === "/api/v1/launch/transactions/plan") {
+          if (!launchService) throw new ApiError(503, "LAUNCH_SERVICE_UNAVAILABLE", "Launch planning service is not configured");
+          const plan = await launchService.plan(validateLaunchTransactionPlan(body));
+          sendJson(res, 201, { status: "requires_user_signature", broadcastByNarraOps: false, plan }, requestId);
           return;
         }
 
