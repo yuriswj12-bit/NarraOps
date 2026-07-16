@@ -42,6 +42,7 @@ const followBuyExecutor = encryptedWalletRepository ? new BatchFollowBuyExecutor
 const confirmationProvider = new LaunchConfirmationProvider({ solanaConnection: launchService.pump.connection, evmRpcClient: followBuyRpcClient });
 const launchExecutionRepository = new FileLaunchExecutionRepository({ filePath: resolve(config.launchExecutionStorePath) });
 const launchCoordinator = launchSigningService ? new LaunchExecutionCoordinator({ launchService, signingService: launchSigningService, walletGroupRepository, vaultPassword: config.walletVaultPassword, confirmationProvider, followBuyExecutor, repository: launchExecutionRepository }) : null;
+launchCoordinator?.markInterruptedExecutions();
 const application = createApplication({ config, logger, launchService, walletProvisioningService, walletGroupRepository, launchCoordinator });
 
 application.server.listen(config.port, config.host, () => {

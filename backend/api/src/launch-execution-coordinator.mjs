@@ -61,4 +61,41 @@ export class LaunchExecutionCoordinator {
       throw error;
     }
   }
+
+  getStatus(executionId) {
+    const execution = this.repository.get(executionId);
+    if (!execution) throw new ApiError(404, "LAUNCH_EXECUTION_NOT_FOUND", "Launch execution was not found");
+    const { plan: _plan, tokenHash: _tokenHash, walletReferenceId: _walletReferenceId, ...publicExecution } = execution;
+    return publicExecution;
+  }
+
+  markInterruptedExecutions() {
+    for (const execution of this.repository.recoverable()) {
+      this.repository.update(execution.executionId, { status: "recovery_required", recoveryFromStatus: execution.status }, "launch.recovery_required");
+    }
+  }
+
+  async retryFailedFollowBuys({ executionId, confirmRetry }) {
+    if (confirmRetry !== true) throw new ApiError(400, "RETRY_CONFIRMATION_REQUIRED", "confirmRetry must be true");
+    let execution = this.repository.get(executionId);
+    if (!execution) throw new ApiError(404, "LAUNCH_EXECUTION_NOT_FOUND", "Launch execution was not found");
+    const failed = (execution.followBuys || []).filter(({ status }) => status === "failed");
+    if (!failed.length || !["failed", "partially_failed"].includes(execution.status)) throw new ApiError(409, "NO_RETRYABLE_FOLLOW_BUYS", "No failed follow buys are available for safe retry");
+    const chain = execution.platform === "pump" ? "solana" : "bsc";
+    const wallets = this.walletGroups.getExecutionWallets(execution.buyingWalletGroupId, chain);
+    const retryResults = [];
+    execution = this.repository.update(executionId, { status: "follow_buy_retrying" }, "follow_buys.retry_started");
+    for (const failedBuy of failed) {
+      const wallet = wallets.find(({ walletId }) => walletId === failedBuy.walletId);
+      if (!wallet) continue;
+      const [result] = await this.followBuyExecutor.execute({ platform: execution.platform, tokenAddress: execution.tokenAddress, wallets: [wallet], totalAmountAtomic: failedBuy.amountAtomic, password: this.vaultPassword });
+      retryResults.push(result);
+    }
+    const replacements = new Map(retryResults.map((result) => [result.walletId, result]));
+    const followBuys = execution.followBuys.map((result) => replacements.get(result.walletId) || result);
+    const remainingFailures = followBuys.filter(({ status }) => status === "failed").length;
+    const status = remainingFailures === 0 ? "follow_buys_submitted" : remainingFailures === followBuys.length ? "failed" : "partially_failed";
+    this.repository.update(executionId, { status, followBuys }, "follow_buys.retry_completed");
+    return this.getStatus(executionId);
+  }
 }

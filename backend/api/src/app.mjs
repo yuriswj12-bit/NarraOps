@@ -279,6 +279,13 @@ export function createApplication({ config, logger, repository, conversationRepo
         return;
       }
 
+      const launchExecutionMatch = req.method === "GET" && url.pathname.match(/^\/api\/v1\/launch\/executions\/([0-9a-f-]{36})$/i);
+      if (launchExecutionMatch) {
+        if (!launchCoordinator) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Internal Cooking-wallet launch execution is not configured");
+        sendJson(res, 200, launchCoordinator.getStatus(launchExecutionMatch[1]), requestId);
+        return;
+      }
+
       if (req.method === "POST") {
         const body = await readJson(req, config.bodyLimitBytes);
         let task;
@@ -318,6 +325,14 @@ export function createApplication({ config, logger, repository, conversationRepo
         if (launchConfirmMatch) {
           if (!launchCoordinator) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Internal Cooking-wallet launch execution is not configured");
           sendJson(res, 202, await launchCoordinator.confirm({ executionId: launchConfirmMatch[1], ...validateLaunchConfirm(body) }), requestId);
+          return;
+        }
+
+
+        const launchRetryMatch = url.pathname.match(/^\/api\/v1\/launch\/executions\/([0-9a-f-]{36})\/retry$/i);
+        if (launchRetryMatch) {
+          if (!launchCoordinator) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Internal Cooking-wallet launch execution is not configured");
+          sendJson(res, 202, await launchCoordinator.retryFailedFollowBuys({ executionId: launchRetryMatch[1], confirmRetry: body.confirmRetry }), requestId);
           return;
         }
 

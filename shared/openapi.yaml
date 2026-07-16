@@ -210,6 +210,38 @@ paths:
         '202': { description: Signed launch submitted to the selected chain }
         '403': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
+  /launch/executions/{executionId}:
+    get:
+      operationId: getCookingWalletLaunch
+      parameters:
+        - in: path
+          name: executionId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Durable launch, confirmation, and follow-buy state }
+        '404': { $ref: '#/components/responses/Error' }
+  /launch/executions/{executionId}/retry:
+    post:
+      operationId: retryFailedFollowBuys
+      description: Retries failed wallet entries only; already submitted wallets are never repeated.
+      parameters:
+        - in: path
+          name: executionId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmRetry]
+              properties:
+                confirmRetry: { const: true }
+      responses:
+        '202': { description: Failed follow-buy entries retried }
+        '409': { $ref: '#/components/responses/Error' }
   /agent/tasks:
     post:
       operationId: createAgentTask
