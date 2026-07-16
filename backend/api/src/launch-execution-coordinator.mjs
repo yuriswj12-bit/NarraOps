@@ -5,7 +5,7 @@ import { parseUnits } from "ethers";
 const digest = (value) => createHash("sha256").update(value).digest();
 
 export class LaunchExecutionCoordinator {
-  constructor({ launchService, signingService, walletGroupRepository, vaultPassword, confirmationProvider, followBuyExecutor, now = () => Date.now() }) {
+  constructor({ launchService, signingService, walletGroupRepository, vaultPassword, confirmationProvider, followBuyExecutor, repository, now = () => Date.now() }) {
     this.launchService = launchService;
     this.signingService = signingService;
     this.walletGroups = walletGroupRepository;
@@ -13,7 +13,7 @@ export class LaunchExecutionCoordinator {
     this.now = now;
     this.confirmationProvider = confirmationProvider;
     this.followBuyExecutor = followBuyExecutor;
-    this.executions = new Map();
+    this.repository = repository;
   }
 
   async prepare(input) {
@@ -29,34 +29,35 @@ export class LaunchExecutionCoordinator {
     const executionId = randomUUID();
     const confirmationToken = randomUUID();
     const expiresAt = this.now() + 5 * 60_000;
-    this.executions.set(executionId, { executionId, platform: input.platform, plan, walletReferenceId: cooking.walletReferenceId, buyingWalletGroupId: input.buyingWalletGroupId, walletGroupBuyAmount: input.walletGroupBuyAmount, tokenHash: digest(confirmationToken), expiresAt, status: "requires_user_confirmation" });
+    this.repository.create({ executionId, platform: input.platform, plan, walletReferenceId: cooking.walletReferenceId, buyingWalletGroupId: input.buyingWalletGroupId, walletGroupBuyAmount: input.walletGroupBuyAmount, tokenHash: digest(confirmationToken).toString("hex"), expiresAt, status: "requires_user_confirmation", createdAt: new Date(this.now()).toISOString() });
     return { executionId, platform: input.platform, chain, status: "requires_user_confirmation", confirmationToken, expiresAt: new Date(expiresAt).toISOString(), summary: { name: input.name, symbol: input.symbol, developerBuyAmount: input.developerBuyAmount, cookingWalletGroupId: input.cookingWalletGroupId, buyingWalletGroupId: input.buyingWalletGroupId, walletGroupBuyAmount: input.walletGroupBuyAmount } };
   }
 
   async confirm({ executionId, confirmationToken }) {
-    const execution = this.executions.get(executionId);
+    let execution = this.repository.get(executionId);
     if (!execution) throw new ApiError(404, "LAUNCH_EXECUTION_NOT_FOUND", "Launch execution was not found");
     if (execution.status !== "requires_user_confirmation") throw new ApiError(409, "LAUNCH_EXECUTION_ALREADY_USED", "Launch execution is no longer awaiting confirmation");
     if (execution.expiresAt <= this.now()) throw new ApiError(410, "CONFIRMATION_EXPIRED", "Launch confirmation expired");
     const supplied = digest(String(confirmationToken || ""));
-    if (!timingSafeEqual(supplied, execution.tokenHash)) throw new ApiError(403, "CONFIRMATION_INVALID", "Launch confirmation token is invalid");
-    execution.status = "signing";
+    if (!timingSafeEqual(supplied, Buffer.from(execution.tokenHash, "hex"))) throw new ApiError(403, "CONFIRMATION_INVALID", "Launch confirmation token is invalid");
+    execution = this.repository.update(executionId, { status: "signing" });
     try {
       const result = await this.signingService.signAndBroadcast({ platform: execution.platform, plan: execution.plan, walletReferenceId: execution.walletReferenceId, password: this.vaultPassword });
-      execution.status = "confirming_launch";
-      execution.transactionHash = result.transactionHash;
+      execution = this.repository.update(executionId, { status: "confirming_launch", transactionHash: result.transactionHash, mintAddress: result.mintAddress }, "launch.submitted");
       const confirmation = await this.confirmationProvider.wait({ platform: execution.platform, transactionHash: result.transactionHash, mintAddress: result.mintAddress });
-      execution.status = "launch_confirmed";
+      execution = this.repository.update(executionId, { status: "launch_confirmed", tokenAddress: confirmation.tokenAddress }, "launch.confirmed");
       const chain = execution.platform === "pump" ? "solana" : "bsc";
       const wallets = this.walletGroups.getExecutionWallets(execution.buyingWalletGroupId, chain);
       const decimals = execution.platform === "pump" ? 9 : 18;
       const totalAmountAtomic = parseUnits(execution.walletGroupBuyAmount, decimals).toString();
-      execution.status = "follow_buy_signing";
+      execution = this.repository.update(executionId, { status: "follow_buy_signing" });
       const followBuys = BigInt(totalAmountAtomic) > 0n ? await this.followBuyExecutor.execute({ platform: execution.platform, tokenAddress: confirmation.tokenAddress, wallets, totalAmountAtomic, password: this.vaultPassword }) : [];
-      execution.status = followBuys.length ? "follow_buys_submitted" : "confirmed";
+      const failedCount = followBuys.filter(({ status }) => status === "failed").length;
+      const status = failedCount === 0 ? (followBuys.length ? "follow_buys_submitted" : "confirmed") : failedCount === followBuys.length ? "failed" : "partially_failed";
+      execution = this.repository.update(executionId, { status, followBuys }, "follow_buys.submitted");
       return { executionId, ...result, tokenAddress: confirmation.tokenAddress, status: execution.status, followBuys };
     } catch (error) {
-      execution.status = "failed";
+      this.repository.update(executionId, { status: "failed", failure: { code: error.code || "LAUNCH_EXECUTION_FAILED", message: error.message } }, "launch.failed");
       throw error;
     }
   }

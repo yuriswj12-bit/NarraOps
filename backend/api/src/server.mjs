@@ -7,6 +7,7 @@ import { Connection } from "@solana/web3.js";
 import { BatchFollowBuyExecutor, EncryptedWalletRepository, EvmJsonRpcClient, EvmTransactionAdapter, FourMemeFollowBuyPlanner, LaunchConfirmationProvider, LaunchSigningService, PumpFollowBuyPlanner, SolanaTransactionAdapter, WalletProvisioningService } from "../../execution/index.js";
 import { InMemoryWalletGroupRepository } from "./repositories/in-memory-wallet-group-repository.mjs";
 import { LaunchExecutionCoordinator } from "./launch-execution-coordinator.mjs";
+import { FileLaunchExecutionRepository } from "./repositories/file-launch-execution-repository.mjs";
 
 const config = loadConfig();
 const logger = createLogger(config.logLevel);
@@ -39,7 +40,8 @@ const followBuyExecutor = encryptedWalletRepository ? new BatchFollowBuyExecutor
   evmAdapter: followBuyEvmAdapter,
 }) : null;
 const confirmationProvider = new LaunchConfirmationProvider({ solanaConnection: launchService.pump.connection, evmRpcClient: followBuyRpcClient });
-const launchCoordinator = launchSigningService ? new LaunchExecutionCoordinator({ launchService, signingService: launchSigningService, walletGroupRepository, vaultPassword: config.walletVaultPassword, confirmationProvider, followBuyExecutor }) : null;
+const launchExecutionRepository = new FileLaunchExecutionRepository({ filePath: resolve(config.launchExecutionStorePath) });
+const launchCoordinator = launchSigningService ? new LaunchExecutionCoordinator({ launchService, signingService: launchSigningService, walletGroupRepository, vaultPassword: config.walletVaultPassword, confirmationProvider, followBuyExecutor, repository: launchExecutionRepository }) : null;
 const application = createApplication({ config, logger, launchService, walletProvisioningService, walletGroupRepository, launchCoordinator });
 
 application.server.listen(config.port, config.host, () => {

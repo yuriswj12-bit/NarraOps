@@ -29,5 +29,6 @@ export function loadConfig() {
     walletStorePath: process.env.WALLET_STORE_PATH || "./data/wallet-vault.json",
     walletGroupStorePath: process.env.WALLET_GROUP_STORE_PATH || "./data/wallet-groups.json",
     realExecutionEnabled: process.env.REAL_EXECUTION_ENABLED === "true",
+    launchExecutionStorePath: process.env.LAUNCH_EXECUTION_STORE_PATH || "./data/launch-executions.json",
   });
 }
