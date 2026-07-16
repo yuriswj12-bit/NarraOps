@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Wallet } from "ethers";
 import { BatchFollowBuyExecutor } from "../batch-follow-buy-executor.js";
+import { allocateFollowBuyAmounts } from "../batch-follow-buy-executor.js";
 import { sealWalletSecret } from "../encrypted-wallet-vault.js";
 
 test("one approved password executes an equal Four.Meme follow-buy batch", async () => {
@@ -16,4 +17,15 @@ test("one approved password executes an equal Four.Meme follow-buy batch", async
   const result = await executor.execute({ platform: "fourmeme", tokenAddress: "0x2222222222222222222222222222222222222222", wallets: entries, totalAmountAtomic: "101", password });
   assert.deepEqual(result.map(({ amountAtomic }) => amountAtomic), ["51", "50"]);
   assert.deepEqual(result.map(({ transactionHash }) => transactionHash), ["hash-51", "hash-50"]);
+});
+
+test("random and ladder allocation preserve the exact total", () => {
+  const random = allocateFollowBuyAmounts({ totalAmountAtomic: "10000000000", walletCount: 20, mode: "random", seed: "execution-1" });
+  const repeated = allocateFollowBuyAmounts({ totalAmountAtomic: "10000000000", walletCount: 20, mode: "random", seed: "execution-1" });
+  const ladder = allocateFollowBuyAmounts({ totalAmountAtomic: "10000000000", walletCount: 20, mode: "ladder" });
+  assert.equal(random.reduce((sum, value) => sum + value, 0n), 10000000000n);
+  assert.deepEqual(random, repeated);
+  assert.ok(new Set(random.map(String)).size > 10);
+  assert.equal(ladder.reduce((sum, value) => sum + value, 0n), 10000000000n);
+  assert.ok(ladder.every((value, index) => index === 0 || value >= ladder[index - 1]));
 });

@@ -1,9 +1,26 @@
 import { openWalletSecret } from "./encrypted-wallet-vault.js";
 import { ExecutionError } from "./errors.js";
+import { createHash } from "node:crypto";
 
 function splitAmount(total, count) {
   const base = total / BigInt(count); const remainder = total % BigInt(count);
   return Array.from({ length: count }, (_, index) => base + (BigInt(index) < remainder ? 1n : 0n));
+}
+
+export function allocateFollowBuyAmounts({ totalAmountAtomic, walletCount, mode = "equal", seed = "narraops" }) {
+  const total = BigInt(totalAmountAtomic); const count = Number(walletCount);
+  if (!Number.isInteger(count) || count < 1 || total < BigInt(count)) throw new ExecutionError("FOLLOW_BUY_AMOUNT_TOO_SMALL", "Follow-buy total must allocate at least one atomic unit per wallet");
+  if (mode === "equal") return splitAmount(total, count);
+  const weights = mode === "ladder"
+    ? Array.from({ length: count }, (_, index) => BigInt(index + 1))
+    : mode === "random"
+      ? Array.from({ length: count }, (_, index) => BigInt(`0x${createHash("sha256").update(`${seed}:${index}`).digest("hex").slice(0, 12)}`) + 1n)
+      : (() => { throw new ExecutionError("FOLLOW_BUY_MODE_INVALID", "Follow-buy mode must be equal, random, or ladder"); })();
+  const distributable = total - BigInt(count); const weightTotal = weights.reduce((sum, value) => sum + value, 0n);
+  const amounts = weights.map((weight) => 1n + (distributable * weight) / weightTotal);
+  let remainder = total - amounts.reduce((sum, value) => sum + value, 0n);
+  for (let index = 0; remainder > 0n; index = (index + 1) % count, remainder -= 1n) amounts[index] += 1n;
+  return amounts;
 }
 
 export class BatchFollowBuyExecutor {
@@ -11,9 +28,9 @@ export class BatchFollowBuyExecutor {
     Object.assign(this, { walletRepository, pumpPlanner, fourMemePlanner, solanaAdapter, evmAdapter });
   }
 
-  async execute({ platform, tokenAddress, wallets, totalAmountAtomic, password, slippageBps = 500 }) {
+  async execute({ platform, tokenAddress, wallets, totalAmountAtomic, password, slippageBps = 500, distributionMode = "equal", distributionSeed = "narraops" }) {
     if (!Array.isArray(wallets) || !wallets.length) throw new ExecutionError("FOLLOW_BUY_WALLETS_REQUIRED", "Follow-buy wallet group is empty");
-    const amounts = splitAmount(BigInt(totalAmountAtomic), wallets.length);
+    const amounts = allocateFollowBuyAmounts({ totalAmountAtomic, walletCount: wallets.length, mode: distributionMode, seed: distributionSeed });
     if (amounts.some((amount) => amount <= 0n)) throw new ExecutionError("FOLLOW_BUY_AMOUNT_TOO_SMALL", "Follow-buy amount is too small for the selected wallet count");
     const results = [];
     for (let index = 0; index < wallets.length; index += 1) {
