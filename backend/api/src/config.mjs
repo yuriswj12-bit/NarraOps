@@ -25,5 +25,8 @@ export function loadConfig() {
     solanaRpcUrl: process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
     bscRpcUrl: process.env.BSC_RPC_URL || "https://bsc-dataseed.binance.org",
     pumpMetadataUploadUrl: process.env.PUMP_METADATA_UPLOAD_URL || "https://pump.fun/api/ipfs",
+    walletVaultPassword: process.env.WALLET_VAULT_PASSWORD || undefined,
+    walletStorePath: process.env.WALLET_STORE_PATH || "./data/wallet-vault.json",
+    walletGroupStorePath: process.env.WALLET_GROUP_STORE_PATH || "./data/wallet-groups.json",
   });
 }

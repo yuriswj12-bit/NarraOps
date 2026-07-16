@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { ApiError } from "../errors.mjs";
 
 const ZERO_BALANCE_RECOVERY = "archive_zero_balance_wallets";
@@ -24,9 +26,11 @@ export class InMemoryWalletGroupRepository {
   #wallets = new Map();
   #deleteConfirmations = new Map();
   #audit = [];
+  #filePath;
 
-  constructor({ seed = true } = {}) {
-    if (seed) this.#seed();
+  constructor({ seed = true, filePath } = {}) {
+    this.#filePath = filePath;
+    if (!this.#load() && seed) this.#seed();
   }
 
   listGroups() {
@@ -51,6 +55,7 @@ export class InMemoryWalletGroupRepository {
     this.#groups.set(group.groupId, group);
     this.addWallets(group.groupId, walletCount);
     this.#recordAudit("wallet_group.created", { groupId: group.groupId, walletCount });
+    this.#save();
     return this.getGroup(group.groupId);
   }
 
@@ -70,12 +75,31 @@ export class InMemoryWalletGroupRepository {
     }
     group.updatedAt = new Date().toISOString();
     this.#recordAudit("wallet_group.wallets_added", { groupId, count });
+    this.#save();
     return created.map(clone);
   }
 
   listWallets(groupId) {
     const group = this.#requireGroup(groupId);
-    return group.walletIds.map((walletId) => clone(this.#wallets.get(walletId)));
+    return group.walletIds.map((walletId) => this.#publicWallet(this.#wallets.get(walletId)));
+  }
+
+  activateWallet(walletId, provisioning) {
+    const wallet = this.#wallets.get(walletId);
+    if (!wallet) throw new ApiError(404, "WALLET_NOT_FOUND", "Wallet was not found");
+    wallet.publicAddress = provisioning.publicAddress;
+    wallet.addresses = clone(provisioning.addresses);
+    wallet.signerReferences = clone(provisioning.signerReferences);
+    wallet.custodyMode = provisioning.custodyMode;
+    wallet.provisioningStatus = provisioning.provisioningStatus;
+    wallet.updatedAt = new Date().toISOString();
+    this.#recordAudit("wallet.provisioned", { walletId, groupId: wallet.groupId, custodyMode: wallet.custodyMode });
+    this.#save();
+    return this.#publicWallet(wallet);
+  }
+
+  mode() {
+    return [...this.#wallets.values()].some(({ provisioningStatus }) => provisioningStatus === "active") ? "encrypted_vault" : "mock";
   }
 
   previewBatchDelete(groupId, walletIds, requestId) {
@@ -158,6 +182,7 @@ export class InMemoryWalletGroupRepository {
       deletedCount: deletedWalletIds.length,
       protectedCount: confirmation.protectedWalletIds.length,
     });
+    this.#save();
     return {
       operationId: confirmation.operationId,
       status: "completed",
@@ -216,10 +241,15 @@ export class InMemoryWalletGroupRepository {
       walletCount: wallets.length,
       totalBalance: addMoney(wallets.map(({ balance }) => balance)),
       balanceAsset: "USD",
-      executionMode: "simulation",
+      executionMode: wallets.length && wallets.every(({ provisioningStatus }) => provisioningStatus === "active") ? "encrypted_vault" : "simulation",
       createdAt: group.createdAt,
       updatedAt: group.updatedAt,
     };
+  }
+
+  #publicWallet(wallet) {
+    const { signerReferences: _signerReferences, ...publicWallet } = wallet;
+    return clone(publicWallet);
   }
 
   #selectWallets(group, walletIds) {
@@ -238,5 +268,26 @@ export class InMemoryWalletGroupRepository {
 
   #recordAudit(type, data) {
     this.#audit.push({ auditId: randomUUID(), type, at: new Date().toISOString(), ...clone(data) });
+  }
+
+  #load() {
+    if (!this.#filePath || !existsSync(this.#filePath)) return false;
+    try {
+      const payload = JSON.parse(readFileSync(this.#filePath, "utf8"));
+      if (payload?.format !== "narraops-wallet-groups-v1" || !Array.isArray(payload.groups) || !Array.isArray(payload.wallets)) return false;
+      this.#groups = new Map(payload.groups.map((group) => [group.groupId, group]));
+      this.#wallets = new Map(payload.wallets.map((wallet) => [wallet.walletId, wallet]));
+      return true;
+    } catch {
+      throw new ApiError(500, "WALLET_GROUP_STORE_CORRUPTED", "Wallet group metadata store cannot be read safely");
+    }
+  }
+
+  #save() {
+    if (!this.#filePath) return;
+    mkdirSync(dirname(this.#filePath), { recursive: true });
+    const temporaryPath = `${this.#filePath}.${process.pid}.tmp`;
+    writeFileSync(temporaryPath, `${JSON.stringify({ format: "narraops-wallet-groups-v1", groups: [...this.#groups.values()], wallets: [...this.#wallets.values()] })}\n`, { encoding: "utf8", mode: 0o600 });
+    renameSync(temporaryPath, this.#filePath);
   }
 }

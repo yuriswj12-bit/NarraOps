@@ -123,13 +123,13 @@ function toGoTask(task) {
   return payload;
 }
 
-export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager, launchService } = {}) {
+export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager, launchService, walletProvisioningService } = {}) {
   const registry = integrations || createIntegrationRegistry(config);
   const repo = repository || new InMemoryTaskRepository();
   const devWallets = devWalletRepository || new InMemoryDevWalletRepository();
   const conversations = conversationRepository || new InMemoryConversationRepository();
   const launchDrafts = launchDraftRepository || new InMemoryLaunchDraftRepository();
-  const walletGroups = walletGroupRepository || new InMemoryWalletGroupRepository();
+  const walletGroups = walletGroupRepository || new InMemoryWalletGroupRepository({ seed: !walletProvisioningService });
   const transfers = transferRepository || new InMemoryTransferRepository({ walletGroupRepository: walletGroups });
   const manager = taskManager || new TaskManager({
     repository: repo,
@@ -204,7 +204,7 @@ export function createApplication({ config, logger, repository, conversationRepo
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/wallet-groups") {
-        sendJson(res, 200, { mode: "mock", groups: walletGroups.listGroups() }, requestId);
+        sendJson(res, 200, { mode: walletGroups.mode(), groups: walletGroups.listGroups() }, requestId);
         return;
       }
 
@@ -212,7 +212,7 @@ export function createApplication({ config, logger, repository, conversationRepo
       if (groupWalletsMatch) {
         const group = walletGroups.getGroup(groupWalletsMatch[1]);
         if (!group) throw new ApiError(404, "WALLET_GROUP_NOT_FOUND", "Wallet group was not found");
-        sendJson(res, 200, { mode: "mock", group, wallets: walletGroups.listWallets(group.groupId) }, requestId);
+        sendJson(res, 200, { mode: walletGroups.mode(), group, wallets: walletGroups.listWallets(group.groupId) }, requestId);
         return;
       }
 
@@ -283,7 +283,13 @@ export function createApplication({ config, logger, repository, conversationRepo
 
         if (url.pathname === "/api/v1/wallet-groups") {
           const input = validateWalletGroupCreate(body);
-          sendJson(res, 201, walletGroups.createGroup(input), requestId);
+          const group = walletGroups.createGroup(input);
+          if (walletProvisioningService) {
+            for (const wallet of walletGroups.listWallets(group.groupId)) {
+              walletGroups.activateWallet(wallet.walletId, await walletProvisioningService.provision({ walletId: wallet.walletId }));
+            }
+          }
+          sendJson(res, 201, walletGroups.getGroup(group.groupId), requestId);
           return;
         }
 
@@ -304,10 +310,13 @@ export function createApplication({ config, logger, repository, conversationRepo
         if (addWalletsMatch) {
           const input = validateWalletAdd(body);
           const created = walletGroups.addWallets(addWalletsMatch[1], input.count);
+          if (walletProvisioningService) {
+            for (const wallet of created) walletGroups.activateWallet(wallet.walletId, await walletProvisioningService.provision({ walletId: wallet.walletId }));
+          }
           sendJson(res, 201, {
-            mode: "mock",
+            mode: walletGroups.mode(),
             group: walletGroups.getGroup(addWalletsMatch[1]),
-            wallets: created,
+            wallets: walletGroups.listWallets(addWalletsMatch[1]).filter(({ walletId }) => created.some((wallet) => wallet.walletId === walletId)),
           }, requestId);
           return;
         }
