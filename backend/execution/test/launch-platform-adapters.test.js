@@ -20,6 +20,20 @@ test("Pump adapter builds a mint-partially-signed transaction for the browser wa
   assert.ok(transaction.signatures.some(({ signature }) => !signature));
 });
 
+test("Pump adapter uploads image metadata before building the launch", async () => {
+  const user = Keypair.generate();
+  let uploadBody;
+  const adapter = new PumpLaunchAdapter({
+    connection: { getLatestBlockhash: async () => ({ blockhash: Keypair.generate().publicKey.toBase58(), lastValidBlockHeight: 101 }) },
+    offlineSdk: { createV2Instruction: async ({ mint }) => new TransactionInstruction({ programId: Keypair.generate().publicKey, keys: [{ pubkey: user.publicKey, isSigner: true, isWritable: true }, { pubkey: mint, isSigner: true, isWritable: true }], data: Buffer.alloc(0) }) },
+    fetchImpl: async (_url, options) => { uploadBody = options.body; return { ok: true, json: async () => ({ metadataUri: "ipfs://narra" }) }; },
+  });
+  const result = await adapter.buildLaunch({ userAddress: user.publicKey.toBase58(), name: "Narra", symbol: "NARRA", metadata: { image: Buffer.from("png"), description: "Agent meme" } });
+  assert.equal(uploadBody.get("name"), "Narra");
+  assert.equal(uploadBody.get("symbol"), "NARRA");
+  assert.equal(result.metadataUri, "ipfs://narra");
+});
+
 test("Four.Meme adapter uses wallet login and builds TokenManager2 createToken calldata", async () => {
   const manager = new Interface(["function createToken(bytes,bytes) payable", "function _launchFee() view returns(uint256)", "function _tradingFeeRate() view returns(uint256)"]);
   const address = "0x2222222222222222222222222222222222222222";
