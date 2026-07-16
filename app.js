@@ -53,6 +53,7 @@ const state = {
     reconnects: 0,
   },
   assets: {
+    mode: "mock",
     period: "7d",
     portfolio: null,
     groups: [],
@@ -836,6 +837,7 @@ async function loadAssets({ keepGroup = true } = {}) {
       apiRequest("/api/v1/wallet-groups"),
     ]);
     state.assets.portfolio = portfolio;
+    state.assets.mode = groupsResult.mode || "mock";
     state.assets.groups = groupsResult.groups || [];
     if (!keepGroup || !state.assets.groups.some((group) => group.groupId === state.assets.selectedGroupId)) state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
     if (state.assets.selectedGroupId) {
@@ -855,6 +857,7 @@ async function loadLaunchGroups() {
   state.assets.launchGroupsLoading = true;
   try {
     const result = await apiRequest("/api/v1/wallet-groups");
+    state.assets.mode = result.mode || "mock";
     state.assets.groups = result.groups || [];
     if (state.view === "launch") renderLaunch();
   } catch (error) {
@@ -907,15 +910,16 @@ function renderTransferPanel() {
 }
 
 function renderAssets() {
+  const liveWallets = state.assets.mode === "encrypted_vault";
   const selectedGroup = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
   const periods = ["1d", "7d", "30d", "all"].map((period) => `<button class="period-button ${state.assets.period === period ? "active" : ""}" type="button" data-asset-period="${period}">${period === "all" ? t("全部", "All") : period.toUpperCase()}</button>`).join("");
   const groupCards = state.assets.groups.map((group) => `<button class="wallet-group-card ${group.groupId === state.assets.selectedGroupId ? "active" : ""}" type="button" data-wallet-group="${group.groupId}"><span class="wallet-group-icon"><i class="fa-solid ${group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i></span><span><strong>${escapeHtml(group.name)}</strong><small>${group.purpose === "cooking" ? t("Cooking · 1 个钱包", "Cooking · 1 wallet") : `${group.walletCount} ${t("个钱包", "wallets")}`}</small></span><b>${money(group.totalBalance, group.balanceAsset)}</b></button>`).join("");
-  const walletRows = state.assets.wallets.map((wallet) => `<tr><td><span class="wallet-label"><i class="fa-solid fa-wallet"></i><strong>${escapeHtml(wallet.label)}</strong></span></td><td><code>${escapeHtml(shortAddress(wallet.publicAddress))}</code></td><td>${money(wallet.balance, wallet.balanceAsset)}</td><td><span class="state-pill">${t("模拟", "Simulation")}</span></td></tr>`).join("");
+  const walletRows = state.assets.wallets.map((wallet) => `<tr><td><span class="wallet-label"><i class="fa-solid fa-wallet"></i><strong>${escapeHtml(wallet.label)}</strong></span></td><td><code title="${escapeHtml(wallet.addresses?.solana || wallet.publicAddress)}">SOL ${escapeHtml(shortAddress(wallet.addresses?.solana || wallet.publicAddress))}</code><br><code title="${escapeHtml(wallet.addresses?.bsc || wallet.publicAddress)}">EVM ${escapeHtml(shortAddress(wallet.addresses?.bsc || wallet.publicAddress))}</code></td><td>${money(wallet.balance, wallet.balanceAsset)}</td><td><span class="state-pill">${wallet.provisioningStatus === "active" ? t("已加密", "Encrypted") : t("模拟", "Simulation")}</span></td></tr>`).join("");
   const status = state.assets.loading ? `<div class="asset-state"><i class="fa-solid fa-circle-notch fa-spin"></i>${t("正在读取资产…", "Loading assets…")}</div>` : state.assets.error ? `<div class="asset-state error"><i class="fa-solid fa-triangle-exclamation"></i><div><strong>${t("资产服务未连接", "Asset service unavailable")}</strong><span>${escapeHtml(state.assets.error)}</span></div><button class="secondary-button" type="button" data-action="refresh-assets">${t("重试", "Retry")}</button></div>` : "";
   const totalWallets = state.assets.groups.reduce((sum, group) => sum + group.walletCount, 0);
   const portfolio = state.assets.portfolio;
   viewRoot.innerHTML = `
-    ${pageHeading("Assets", t("个人资产与钱包组", "Personal assets and wallet groups"), t("统一查看账户表现、钱包组资产与模拟钱包。", "Review account performance, wallet-group assets, and simulated wallets."), `<span class="simulation-pill"><i class="fa-solid fa-shield-halved"></i>${t("模拟资产 · 真实执行关闭", "Mock assets · Live execution off")}</span><button class="secondary-button" type="button" data-action="refresh-assets"><i class="fa-solid fa-arrows-rotate"></i>${t("刷新", "Refresh")}</button>`)}
+    ${pageHeading("Assets", t("个人资产与钱包组", "Personal assets and wallet groups"), liveWallets ? t("真实多链钱包已在本地加密仓中创建。", "Real multi-chain wallets are stored in the encrypted vault.") : t("统一查看账户表现、钱包组资产与模拟钱包。", "Review account performance, wallet-group assets, and simulated wallets."), `<span class="simulation-pill"><i class="fa-solid fa-shield-halved"></i>${liveWallets ? t("真实钱包 · 加密保存", "Real wallets · Encrypted") : t("模拟资产 · 真实执行关闭", "Mock assets · Live execution off")}</span><button class="secondary-button" type="button" data-action="refresh-assets"><i class="fa-solid fa-arrows-rotate"></i>${t("刷新", "Refresh")}</button>`)}
     ${status}
     <section class="asset-overview-panel account-wallet-card"><div class="account-wallet-tabs"><strong>${t("钱包", "Wallets")} (${totalWallets})</strong><div class="period-switcher">${periods}</div><button class="calendar-button" type="button"><i class="fa-regular fa-calendar"></i>${t("盈亏日历", "P&L calendar")}</button></div><div class="account-balance"><span>${t("总余额", "Total balance")}</span><strong>${portfolio ? money(portfolio.totalBalance, portfolio.currency) : "—"}</strong></div><div class="account-profit-grid"><span><small>${t("总成交额", "Total turnover")}</small><strong>${portfolio ? money(portfolio.turnover, portfolio.currency) : "—"}</strong></span><span><small>${t("总盈亏", "Total P&L")}</small><strong class="positive">${portfolio ? money(Number(portfolio.realizedPnl) + Number(portfolio.unrealizedPnl), portfolio.currency) : "—"} (${portfolio?.pnlPercent || "0"}%)</strong></span><span><small>${t("已实现利润", "Realized P&L")}</small><strong>${portfolio ? money(portfolio.realizedPnl, portfolio.currency) : "—"}</strong></span><span><small>${t("未实现利润", "Unrealized P&L")}</small><strong>${portfolio ? money(portfolio.unrealizedPnl, portfolio.currency) : "—"}</strong></span></div><div class="account-wallet-actions"><button type="button" data-action="deposit-disabled"><i class="fa-solid fa-arrow-down"></i><span>${t("充值", "Deposit")}</span></button><button type="button" data-action="withdraw-disabled"><i class="fa-solid fa-arrow-up"></i><span>${t("提取", "Withdraw")}</span></button><button type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i><span>${t("转账", "Transfer")}</span></button></div></section>
     ${renderTransferPanel()}
