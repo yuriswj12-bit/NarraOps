@@ -1,5 +1,6 @@
 import { openWalletSecret } from "./encrypted-wallet-vault.js";
 import { ExecutionError } from "./errors.js";
+import { Wallet } from "ethers";
 
 export class LaunchSigningService {
   constructor({ walletRepository, evmAdapter, solanaAdapter }) {
@@ -24,6 +25,17 @@ export class LaunchSigningService {
         return { platform, chain: "bsc", status: "submitted", transactionHash };
       }
       throw new ExecutionError("UNSUPPORTED_LAUNCH_PLATFORM", "Launch signing supports Pump.fun and Four.Meme only");
+    } finally {
+      privateKey.fill(0);
+    }
+  }
+
+  async signEvmMessage({ walletReferenceId, password, message }) {
+    const envelope = await this.walletRepository.getEncryptedWallet(walletReferenceId);
+    if (!envelope) throw new ExecutionError("WALLET_NOT_FOUND", "Cooking wallet signing reference was not found");
+    const privateKey = openWalletSecret(envelope, password);
+    try {
+      return new Wallet(privateKey.toString("utf8")).signMessage(message);
     } finally {
       privateKey.fill(0);
     }
