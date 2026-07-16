@@ -169,13 +169,12 @@ paths:
           application/json:
             schema:
               type: object
-              required: [platform, cookingWalletGroupId, buyingWalletGroupId, walletGroupBuyAmount, name, symbol, imageBase64, developerBuyAmount]
+              required: [platform, cookingWalletGroupId, boundBuy, name, symbol, imageBase64, developerBuyAmount]
               properties:
                 platform: { enum: [pump, fourmeme] }
                 cookingWalletGroupId: { type: string }
-                buyingWalletGroupId: { type: string }
-                walletGroupBuyAmount: { type: string }
-                buyCondition: { type: string, enum: [equal, random, ladder], default: equal }
+                boundBuy:
+                  $ref: '#/components/schemas/LaunchBoundBuy'
                 name: { type: string }
                 symbol: { type: string }
                 description: { type: string }
@@ -220,12 +219,12 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '200': { description: Durable launch, confirmation, and follow-buy state }
+        '200': { description: Durable launch, confirmation, and launch-bound-buy state }
         '404': { $ref: '#/components/responses/Error' }
   /launch/executions/{executionId}/retry:
     post:
-      operationId: retryFailedFollowBuys
-      description: Retries failed wallet entries only; already submitted wallets are never repeated.
+      operationId: retryFailedBoundBuys
+      description: Retries failed launch-bound-buy wallet entries only; already submitted wallets are never repeated.
       parameters:
         - in: path
           name: executionId
@@ -241,7 +240,7 @@ paths:
               properties:
                 confirmRetry: { const: true }
       responses:
-        '202': { description: Failed follow-buy entries retried }
+        '202': { description: Failed launch-bound-buy entries retried }
         '409': { $ref: '#/components/responses/Error' }
   /agent/tasks:
     post:
@@ -347,6 +346,38 @@ components:
         application/json:
           schema: { $ref: './schemas/error.schema.json' }
   schemas:
+    LaunchBoundBuy:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+        walletGroupId: { type: string, minLength: 1, maxLength: 64 }
+        timing:
+          type: object
+          additionalProperties: false
+          required: [mode, blockOffset]
+          properties:
+            mode: { type: string, enum: [T0_BUNDLE, BLOCK_OFFSET] }
+            blockOffset: { type: integer, minimum: 0, maximum: 5 }
+        allocation:
+          type: object
+          additionalProperties: false
+          required: [mode]
+          properties:
+            mode: { type: string, enum: [PER_WALLET_EQUAL, PER_WALLET_CUSTOM] }
+            amountPerWallet: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
+            customAmounts:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [walletId, amount]
+                properties:
+                  walletId: { type: string, minLength: 1, maxLength: 128 }
+                  amount: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
+        slippageBps: { type: integer, minimum: 1, maximum: 5000, default: 500 }
+        deadlineBlocks: { type: integer, minimum: 1, maximum: 20, default: 5 }
     ExecutionRequest:
       type: object
       additionalProperties: false
