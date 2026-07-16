@@ -147,11 +147,14 @@ export function validateInternalLaunchPrepare(body) {
   const input = validateLaunchTransactionPlan({ ...body, walletAddress: body.walletAddress || (body.platform === "pump" ? "11111111111111111111111111111111" : "0x0000000000000000000000000000000000000000"), ...(body.platform === "fourmeme" ? { loginSignature: body.loginSignature || "internal" } : {}) });
   delete input.walletAddress;
   delete input.loginSignature;
+  const buyCondition = string(body.buyCondition || "equal", "buyCondition", { required: true, max: 20 });
+  if (!["equal", "random", "ladder"].includes(buyCondition)) throw new ApiError(400, "VALIDATION_ERROR", "buyCondition must be equal, random, or ladder");
   return {
     ...input,
     cookingWalletGroupId: string(body.cookingWalletGroupId, "cookingWalletGroupId", { required: true, max: 64 }),
     buyingWalletGroupId: string(body.buyingWalletGroupId, "buyingWalletGroupId", { required: true, max: 64 }),
     walletGroupBuyAmount: string(body.walletGroupBuyAmount ?? "0", "walletGroupBuyAmount", { required: true, max: 40 }),
+    buyCondition,
   };
 }
 

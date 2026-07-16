@@ -29,8 +29,8 @@ export class LaunchExecutionCoordinator {
     const executionId = randomUUID();
     const confirmationToken = randomUUID();
     const expiresAt = this.now() + 5 * 60_000;
-    this.repository.create({ executionId, platform: input.platform, plan, walletReferenceId: cooking.walletReferenceId, buyingWalletGroupId: input.buyingWalletGroupId, walletGroupBuyAmount: input.walletGroupBuyAmount, tokenHash: digest(confirmationToken).toString("hex"), expiresAt, status: "requires_user_confirmation", createdAt: new Date(this.now()).toISOString() });
-    return { executionId, platform: input.platform, chain, status: "requires_user_confirmation", confirmationToken, expiresAt: new Date(expiresAt).toISOString(), summary: { name: input.name, symbol: input.symbol, developerBuyAmount: input.developerBuyAmount, cookingWalletGroupId: input.cookingWalletGroupId, buyingWalletGroupId: input.buyingWalletGroupId, walletGroupBuyAmount: input.walletGroupBuyAmount } };
+    this.repository.create({ executionId, platform: input.platform, plan, walletReferenceId: cooking.walletReferenceId, buyingWalletGroupId: input.buyingWalletGroupId, walletGroupBuyAmount: input.walletGroupBuyAmount, buyCondition: input.buyCondition, tokenHash: digest(confirmationToken).toString("hex"), expiresAt, status: "requires_user_confirmation", createdAt: new Date(this.now()).toISOString() });
+    return { executionId, platform: input.platform, chain, status: "requires_user_confirmation", confirmationToken, expiresAt: new Date(expiresAt).toISOString(), summary: { name: input.name, symbol: input.symbol, developerBuyAmount: input.developerBuyAmount, cookingWalletGroupId: input.cookingWalletGroupId, buyingWalletGroupId: input.buyingWalletGroupId, walletGroupBuyAmount: input.walletGroupBuyAmount, buyCondition: input.buyCondition } };
   }
 
   async confirm({ executionId, confirmationToken }) {
@@ -51,7 +51,7 @@ export class LaunchExecutionCoordinator {
       const decimals = execution.platform === "pump" ? 9 : 18;
       const totalAmountAtomic = parseUnits(execution.walletGroupBuyAmount, decimals).toString();
       execution = this.repository.update(executionId, { status: "follow_buy_signing" });
-      const followBuys = BigInt(totalAmountAtomic) > 0n ? await this.followBuyExecutor.execute({ platform: execution.platform, tokenAddress: confirmation.tokenAddress, wallets, totalAmountAtomic, password: this.vaultPassword }) : [];
+      const followBuys = BigInt(totalAmountAtomic) > 0n ? await this.followBuyExecutor.execute({ platform: execution.platform, tokenAddress: confirmation.tokenAddress, wallets, totalAmountAtomic, password: this.vaultPassword, distributionMode: execution.buyCondition, distributionSeed: execution.executionId }) : [];
       const failedCount = followBuys.filter(({ status }) => status === "failed").length;
       const status = failedCount === 0 ? (followBuys.length ? "follow_buys_submitted" : "confirmed") : failedCount === followBuys.length ? "failed" : "partially_failed";
       execution = this.repository.update(executionId, { status, followBuys }, "follow_buys.submitted");

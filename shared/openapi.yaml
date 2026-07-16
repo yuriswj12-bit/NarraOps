@@ -175,6 +175,7 @@ paths:
                 cookingWalletGroupId: { type: string }
                 buyingWalletGroupId: { type: string }
                 walletGroupBuyAmount: { type: string }
+                buyCondition: { type: string, enum: [equal, random, ladder], default: equal }
                 name: { type: string }
                 symbol: { type: string }
                 description: { type: string }
