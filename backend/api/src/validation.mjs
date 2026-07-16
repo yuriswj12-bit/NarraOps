@@ -143,6 +143,23 @@ export function validateLaunchTransactionPlan(body) {
   return result;
 }
 
+export function validateInternalLaunchPrepare(body) {
+  const input = validateLaunchTransactionPlan({ ...body, walletAddress: body.walletAddress || (body.platform === "pump" ? "11111111111111111111111111111111" : "0x0000000000000000000000000000000000000000"), ...(body.platform === "fourmeme" ? { loginSignature: body.loginSignature || "internal" } : {}) });
+  delete input.walletAddress;
+  delete input.loginSignature;
+  return {
+    ...input,
+    cookingWalletGroupId: string(body.cookingWalletGroupId, "cookingWalletGroupId", { required: true, max: 64 }),
+    buyingWalletGroupId: string(body.buyingWalletGroupId, "buyingWalletGroupId", { required: true, max: 64 }),
+    walletGroupBuyAmount: string(body.walletGroupBuyAmount ?? "0", "walletGroupBuyAmount", { required: true, max: 40 }),
+  };
+}
+
+export function validateLaunchConfirm(body) {
+  base(body);
+  return { confirmationToken: string(body.confirmationToken, "confirmationToken", { required: true, max: 100 }) };
+}
+
 export function validateAgentTask(body) {
   base(body);
   const goText = typeof body.command === "string"

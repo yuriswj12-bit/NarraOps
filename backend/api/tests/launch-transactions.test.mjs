@@ -5,8 +5,8 @@ import { createLogger } from "../src/security.mjs";
 
 const config = { bodyLimitBytes: 9_000_000, taskStepDelayMs: 0, sseHeartbeatMs: 1_000 };
 
-async function start(launchService) {
-  const application = createApplication({ config, logger: createLogger("silent"), launchService });
+async function start(launchService, overrides = {}) {
+  const application = createApplication({ config, logger: createLogger("silent"), launchService, ...overrides });
   await new Promise((resolve) => application.server.listen(0, "127.0.0.1", resolve));
   return { application, baseUrl: `http://127.0.0.1:${application.server.address().port}` };
 }
@@ -22,6 +22,22 @@ test("Four.Meme nonce is returned for browser-wallet login signing", async (t) =
   const response = await post(baseUrl, "/api/v1/launch/auth/fourmeme/nonce", { address: "0x2222222222222222222222222222222222222222" });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).message, "You are sign in Meme 42");
+});
+
+test("internal Cooking-wallet launch uses prepare then explicit confirmation", async (t) => {
+  const calls = [];
+  const launchCoordinator = {
+    prepare: async (input) => { calls.push(["prepare", input]); return { executionId: "11111111-1111-4111-8111-111111111111", status: "requires_user_confirmation", confirmationToken: "confirm-token" }; },
+    confirm: async (input) => { calls.push(["confirm", input]); return { executionId: input.executionId, status: "submitted", transactionHash: "0xhash" }; },
+  };
+  const { application, baseUrl } = await start(null, { launchCoordinator });
+  t.after(() => application.close());
+  const prepared = await post(baseUrl, "/api/v1/launch/executions/prepare", { platform: "pump", cookingWalletGroupId: "cook-group", buyingWalletGroupId: "buy-group", walletGroupBuyAmount: "1", name: "Narra", symbol: "NARRA", imageBase64: Buffer.from("image").toString("base64"), developerBuyAmount: "0.1" });
+  assert.equal(prepared.status, 201);
+  const confirmed = await post(baseUrl, "/api/v1/launch/executions/11111111-1111-4111-8111-111111111111/confirm", { confirmationToken: "confirm-token" });
+  assert.equal(confirmed.status, 202);
+  assert.equal((await confirmed.json()).status, "submitted");
+  assert.deepEqual(calls.map(([name]) => name), ["prepare", "confirm"]);
 });
 
 test("launch plan returns an unsigned client-confirmation payload", async (t) => {

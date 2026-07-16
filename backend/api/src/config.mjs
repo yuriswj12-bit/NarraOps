@@ -28,5 +28,6 @@ export function loadConfig() {
     walletVaultPassword: process.env.WALLET_VAULT_PASSWORD || undefined,
     walletStorePath: process.env.WALLET_STORE_PATH || "./data/wallet-vault.json",
     walletGroupStorePath: process.env.WALLET_GROUP_STORE_PATH || "./data/wallet-groups.json",
+    realExecutionEnabled: process.env.REAL_EXECUTION_ENABLED === "true",
   });
 }

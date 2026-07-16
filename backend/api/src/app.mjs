@@ -18,6 +18,8 @@ import {
   validateWalletGroupCreate,
   validateFourMemeNonce,
   validateLaunchTransactionPlan,
+  validateInternalLaunchPrepare,
+  validateLaunchConfirm,
 } from "./validation.mjs";
 import { InMemoryTaskRepository } from "./repositories/in-memory-task-repository.mjs";
 import { InMemoryConversationRepository } from "./repositories/in-memory-conversation-repository.mjs";
@@ -123,7 +125,7 @@ function toGoTask(task) {
   return payload;
 }
 
-export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager, launchService, walletProvisioningService } = {}) {
+export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager, launchService, walletProvisioningService, launchCoordinator } = {}) {
   const registry = integrations || createIntegrationRegistry(config);
   const repo = repository || new InMemoryTaskRepository();
   const devWallets = devWalletRepository || new InMemoryDevWalletRepository();
@@ -303,6 +305,19 @@ export function createApplication({ config, logger, repository, conversationRepo
           if (!launchService) throw new ApiError(503, "LAUNCH_SERVICE_UNAVAILABLE", "Launch planning service is not configured");
           const plan = await launchService.plan(validateLaunchTransactionPlan(body));
           sendJson(res, 201, { status: "requires_user_signature", broadcastByNarraOps: false, plan }, requestId);
+          return;
+        }
+
+        if (url.pathname === "/api/v1/launch/executions/prepare") {
+          if (!launchCoordinator) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Internal Cooking-wallet launch execution is not configured");
+          sendJson(res, 201, await launchCoordinator.prepare(validateInternalLaunchPrepare(body)), requestId);
+          return;
+        }
+
+        const launchConfirmMatch = url.pathname.match(/^\/api\/v1\/launch\/executions\/([0-9a-f-]{36})\/confirm$/i);
+        if (launchConfirmMatch) {
+          if (!launchCoordinator) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Internal Cooking-wallet launch execution is not configured");
+          sendJson(res, 202, await launchCoordinator.confirm({ executionId: launchConfirmMatch[1], ...validateLaunchConfirm(body) }), requestId);
           return;
         }
 

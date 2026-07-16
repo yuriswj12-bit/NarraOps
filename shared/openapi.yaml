@@ -159,6 +159,57 @@ paths:
                   plan: { type: object }
         '400': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
+  /launch/executions/prepare:
+    post:
+      operationId: prepareCookingWalletLaunch
+      summary: Prepare a Cooking-wallet launch requiring one explicit confirmation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, cookingWalletGroupId, buyingWalletGroupId, walletGroupBuyAmount, name, symbol, imageBase64, developerBuyAmount]
+              properties:
+                platform: { enum: [pump, fourmeme] }
+                cookingWalletGroupId: { type: string }
+                buyingWalletGroupId: { type: string }
+                walletGroupBuyAmount: { type: string }
+                name: { type: string }
+                symbol: { type: string }
+                description: { type: string }
+                imageBase64: { type: string }
+                imageName: { type: string }
+                imageType: { type: string }
+                twitter: { type: string }
+                telegram: { type: string }
+                website: { type: string }
+                developerBuyAmount: { type: string }
+      responses:
+        '201': { description: Launch prepared and awaiting confirmation }
+        '400': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /launch/executions/{executionId}/confirm:
+    post:
+      operationId: confirmCookingWalletLaunch
+      parameters:
+        - in: path
+          name: executionId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmationToken]
+              properties:
+                confirmationToken: { type: string }
+      responses:
+        '202': { description: Signed launch submitted to the selected chain }
+        '403': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /agent/tasks:
     post:
       operationId: createAgentTask

@@ -247,6 +247,17 @@ export class InMemoryWalletGroupRepository {
     };
   }
 
+  getSigningWallet(groupId, chain) {
+    const group = this.#requireGroup(groupId);
+    if (group.purpose !== "cooking" || group.walletIds.length !== 1) throw new ApiError(400, "COOKING_WALLET_REQUIRED", "A Cooking group with exactly one wallet is required");
+    const wallet = this.#wallets.get(group.walletIds[0]);
+    const referenceType = chain === "solana" ? "solana" : "evm";
+    const walletReferenceId = wallet?.signerReferences?.[referenceType];
+    const publicAddress = wallet?.addresses?.[chain];
+    if (!walletReferenceId || !publicAddress || wallet.provisioningStatus !== "active") throw new ApiError(409, "COOKING_WALLET_NOT_PROVISIONED", "The selected Cooking wallet is not provisioned for this chain");
+    return { walletReferenceId, publicAddress };
+  }
+
   #publicWallet(wallet) {
     const { signerReferences: _signerReferences, ...publicWallet } = wallet;
     return clone(publicWallet);
