@@ -529,7 +529,7 @@ async function submitPonsLaunch(form) {
     showToast(t("请选择一个只包含 1 个钱包的 Cooking 钱包组。", "Select a Cooking wallet group containing exactly one wallet."));
     return;
   }
-  const boundBuyEnabled = values.boundBuyTiming !== "disabled";
+  const boundBuyEnabled = Boolean(values.buyingWalletGroup);
   const buyingGroup = state.assets.groups.find((group) => group.groupId === values.buyingWalletGroup && !isCookingGroup(group) && group.walletCount > 0);
   if (boundBuyEnabled && !buyingGroup) {
     showToast(t("请选择发射绑定买入的钱包组。", "Select the wallet group for launch-bound buying."));
@@ -560,8 +560,8 @@ async function submitPonsLaunch(form) {
   try {
     const gas = await window.ethereum.request({ method: "eth_estimateGas", params: [transaction] });
     const confirmed = window.confirm(t(
-      `即将通过 Pons 工厂发射 ${values.tokenSymbol}。Cooking 钱包首笔买入 ${values.cookingBuyAmount || "0"} ETH，发射费 0.0005 ETH。${boundBuyEnabled ? `${buyingGroup.name} 将在 ${values.boundBuyTiming} 以每钱包 ${values.boundBuyAmountPerWallet || "0"} ETH 执行发射绑定买入。` : ""}预估发射 Gas ${Number.parseInt(gas, 16).toLocaleString()}。`,
-      `Launch ${values.tokenSymbol} through the Pons factory. The Cooking wallet buys ${values.cookingBuyAmount || "0"} ETH first, plus the 0.0005 ETH launch fee. ${boundBuyEnabled ? `${buyingGroup.name} will make a launch-bound buy of ${values.boundBuyAmountPerWallet || "0"} ETH per wallet at ${values.boundBuyTiming}. ` : ""}Estimated launch gas: ${Number.parseInt(gas, 16).toLocaleString()}.`,
+      `即将通过 Pons 工厂发射 ${values.tokenSymbol}。Cooking 钱包首笔买入 ${values.cookingBuyAmount || "0"} ETH，发射费 0.0005 ETH。${boundBuyEnabled ? `${buyingGroup.name} 将在 T1-T5 窗口以每钱包 ${values.boundBuyAmountPerWallet || "0"} ETH 执行买入。` : ""}预估发射 Gas ${Number.parseInt(gas, 16).toLocaleString()}。`,
+      `Launch ${values.tokenSymbol} through the Pons factory. The Cooking wallet buys ${values.cookingBuyAmount || "0"} ETH first, plus the 0.0005 ETH launch fee. ${boundBuyEnabled ? `${buyingGroup.name} will buy ${values.boundBuyAmountPerWallet || "0"} ETH per wallet during the T1-T5 window. ` : ""}Estimated launch gas: ${Number.parseInt(gas, 16).toLocaleString()}.`,
     ));
     if (!confirmed) return;
     const hash = await window.ethereum.request({ method: "eth_sendTransaction", params: [{ ...transaction, gas }] });
@@ -570,7 +570,7 @@ async function submitPonsLaunch(form) {
       launchTransactionHash: hash,
       platform: state.selectedPlatform,
       cookingWalletGroupId: cookingGroup.groupId,
-      boundBuy: boundBuyEnabled ? { enabled: true, walletGroupId: buyingGroup.groupId, timing: values.boundBuyTiming, allocation: { mode: "PER_WALLET_EQUAL", amountPerWallet: values.boundBuyAmountPerWallet } } : { enabled: false },
+      boundBuy: boundBuyEnabled ? { enabled: true, walletGroupId: buyingGroup.groupId, window: { earliestBlockOffset: 1, latestBlockOffset: 5 }, allocation: { mode: "PER_WALLET_EQUAL", amountPerWallet: values.boundBuyAmountPerWallet } } : { enabled: false },
       status: "awaiting_launch_confirmation",
     }));
     showToast(t(`发射交易已提交：${hash.slice(0, 12)}…`, `Launch transaction submitted: ${hash.slice(0, 12)}…`));
@@ -591,7 +591,7 @@ async function submitInternalLaunch(form) {
   if (!form.reportValidity()) return;
   const values = Object.fromEntries(new FormData(form).entries());
   const cookingGroup = state.assets.groups.find((group) => group.groupId === values.cookingWalletGroup && isCookingGroup(group));
-  const boundBuyEnabled = values.boundBuyTiming !== "disabled";
+  const boundBuyEnabled = Boolean(values.buyingWalletGroup);
   const buyingGroup = state.assets.groups.find((group) => group.groupId === values.buyingWalletGroup && !isCookingGroup(group));
   if (!cookingGroup || (boundBuyEnabled && !buyingGroup)) return showToast(t("请选择 Cooking 钱包和发射绑定买入钱包组。", "Select a Cooking wallet and launch-bound-buy wallet group."));
   if (boundBuyEnabled && !(Number(values.boundBuyAmountPerWallet) > 0)) return showToast(t("请输入大于 0 的每钱包买入金额。", "Enter a per-wallet buy amount greater than zero."));
@@ -604,10 +604,8 @@ async function submitInternalLaunch(form) {
       boundBuy: boundBuyEnabled ? {
         enabled: true,
         walletGroupId: buyingGroup.groupId,
-        timing: { mode: "BLOCK_OFFSET", blockOffset: Number(values.boundBuyTiming.slice(1)) },
         allocation: { mode: "PER_WALLET_EQUAL", amountPerWallet: values.boundBuyAmountPerWallet || "0" },
         slippageBps: 500,
-        deadlineBlocks: 5,
       } : { enabled: false },
       name: values.tokenName.trim(), symbol: values.tokenSymbol.trim(), description: `${values.tokenName.trim()} (${values.tokenSymbol.trim()})`,
       imageBase64: await fileToBase64(state.launchMedia.file), imageName: state.launchMedia.file.name, imageType: state.launchMedia.file.type,
@@ -616,8 +614,8 @@ async function submitInternalLaunch(form) {
     const unit = state.selectedPlatform === "pump" ? "SOL" : "BNB";
     const boundBuyTotal = boundBuyEnabled ? (Number(values.boundBuyAmountPerWallet) * buyingGroup.walletCount).toFixed(6) : "0";
     const approved = window.confirm(t(
-      `确认使用 ${cookingGroup.name} 发射 ${values.tokenSymbol}，Cooking 首买 ${values.cookingBuyAmount || "0"} ${unit}${boundBuyEnabled ? `；${buyingGroup.name} 在 ${values.boundBuyTiming} 每钱包买入 ${values.boundBuyAmountPerWallet} ${unit}，绑定买入总预算 ${boundBuyTotal} ${unit}` : ""}。本次确认将统一签名并执行该发射计划。`,
-      `Confirm launching ${values.tokenSymbol} with ${cookingGroup.name} and a ${values.cookingBuyAmount || "0"} ${unit} Cooking buy.${boundBuyEnabled ? ` ${buyingGroup.name} buys ${values.boundBuyAmountPerWallet} ${unit} per wallet at ${values.boundBuyTiming}; total bound-buy budget ${boundBuyTotal} ${unit}.` : ""}`,
+      `确认使用 ${cookingGroup.name} 发射 ${values.tokenSymbol}，Cooking 首买 ${values.cookingBuyAmount || "0"} ${unit}${boundBuyEnabled ? `；${buyingGroup.name} 在 T1-T5 窗口每钱包买入 ${values.boundBuyAmountPerWallet} ${unit}，总预算 ${boundBuyTotal} ${unit}` : ""}。本次确认将统一签名并执行该发射计划。`,
+      `Confirm launching ${values.tokenSymbol} with ${cookingGroup.name} and a ${values.cookingBuyAmount || "0"} ${unit} Cooking buy.${boundBuyEnabled ? ` ${buyingGroup.name} buys ${values.boundBuyAmountPerWallet} ${unit} per wallet during T1-T5; total budget ${boundBuyTotal} ${unit}.` : ""}`,
     ));
     if (!approved) return;
     const result = await apiRequest(`/api/v1/launch/executions/${prepared.executionId}/confirm`, { method: "POST", body: JSON.stringify({ confirmationToken: prepared.confirmationToken }) });
@@ -797,11 +795,12 @@ function renderLaunch() {
           </div>
         </label>
         <label class="launch-field">
-          <span>${t("发射绑定买入钱包组", "Launch-bound-buy wallet group")}</span>
+          <span>${t("T1-T5 买入钱包组", "T1-T5 buy wallet group")}</span>
           <select class="field-select" name="buyingWalletGroup">
             <option value="">${t("选择钱包组", "Select wallet group")}</option>
             ${buyingGroupOptions}
           </select>
+          <small>${t("发射确认后立即提交钱包组买入，目标在随后 1-5 个区块内完成；实际落块由链上状态决定。", "Wallet-group buys are submitted immediately after launch confirmation and target the following 1-5 blocks; actual inclusion depends on chain conditions.")}</small>
           ${buyingGroupOptions ? "" : `<small>${t("请先在资产页创建一个常规钱包组。", "Create a general wallet group in Assets first.")}</small>`}
         </label>
         <label class="launch-field">
@@ -811,18 +810,6 @@ function renderLaunch() {
             <span>${selected.unit}</span>
           </div>
           <small>${t("所选钱包组内每个钱包使用相同金额。总预算将在确认页计算。", "Every selected wallet uses this amount. The total budget is calculated in the confirmation preview.")}</small>
-        </label>
-        <label class="launch-field">
-          <span>${t("发射绑定买入时机", "Launch-bound-buy timing")}</span>
-          <select class="field-select" name="boundBuyTiming" required>
-            <option value="disabled">${t("不启用", "Disabled")}</option>
-            <option value="T1">T1</option>
-            <option value="T2">T2</option>
-            <option value="T3">T3</option>
-            <option value="T4">T4</option>
-            <option value="T5">T5</option>
-          </select>
-          <small>${t("T1-T5 表示发射确认区块后的第 1 至第 5 个区块。T0 需要 Bundle Relay，当前不会伪装成普通 RPC 执行。", "T1-T5 means 1-5 blocks after the confirmed launch block. T0 requires a bundle relay and is not exposed as ordinary RPC execution.")}</small>
         </label>
 
         <div class="launch-form-actions launch-field-wide">
