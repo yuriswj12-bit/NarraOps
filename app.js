@@ -1135,7 +1135,7 @@ async function openAuth(mode) {
     showToast(t("已退出登录", "Signed out"));
     return;
   }
-  openModal({ kicker: t("无 Gas 签名认证", "Gas-free signature authentication"), title: t("连接钱包", "Connect wallet"), content: `<p>${t("选择一个钱包。连接后仅签署一次性登录消息，不会创建交易或花费 Gas。", "Choose a wallet. You will only sign a one-time login message; no transaction or gas is involved.")}</p><div class="wallet-connect-list"><span>${t("已支持", "Supported")}</span><button type="button" data-web3-login="okx"><b class="wallet-brand okx">OKX</b><strong>OKX Wallet</strong><small>EVM</small><i class="fa-solid fa-chevron-right"></i></button><button type="button" data-web3-login="phantom"><b class="wallet-brand phantom">P</b><strong>Phantom</strong><small>Solana</small><i class="fa-solid fa-chevron-right"></i></button><button type="button" data-web3-login="metamask"><b class="wallet-brand metamask">M</b><strong>MetaMask</strong><small>EVM</small><i class="fa-solid fa-chevron-right"></i></button><button type="button" data-web3-login="solflare"><b class="wallet-brand solflare">S</b><strong>Solflare</strong><small>Solana</small><i class="fa-solid fa-chevron-right"></i></button></div><div class="wallet-connect-note"><i class="fa-solid fa-shield-halved"></i>${t("NarraOps 不会读取助记词或私钥。", "NarraOps never reads your seed phrase or private key.")}</div>` });
+  openModal({ kicker: t("安全连接", "Secure connection"), title: t("连接钱包", "Connect wallet"), content: `<p>${t("选择你常用的钱包。连接后仅签署一次性登录消息，不会创建交易或产生费用。", "Choose your wallet. You will only sign a one-time login message; no transaction or fee is involved.")}</p><div class="wallet-connect-list"><span>${t("钱包", "Wallets")}</span><button type="button" data-web3-login="okx"><b class="wallet-brand okx">OKX</b><strong>OKX Wallet</strong><small>${t("连接", "Connect")}</small><i class="fa-solid fa-chevron-right"></i></button><button type="button" data-web3-login="phantom"><b class="wallet-brand phantom">P</b><strong>Phantom</strong><small>${t("连接", "Connect")}</small><i class="fa-solid fa-chevron-right"></i></button><button type="button" data-web3-login="metamask"><b class="wallet-brand metamask">M</b><strong>MetaMask</strong><small>${t("连接", "Connect")}</small><i class="fa-solid fa-chevron-right"></i></button><button type="button" data-web3-login="solflare"><b class="wallet-brand solflare">S</b><strong>Solflare</strong><small>${t("连接", "Connect")}</small><i class="fa-solid fa-chevron-right"></i></button></div><div class="wallet-connect-note"><i class="fa-solid fa-shield-halved"></i>${t("NarraOps 不会读取助记词或私钥。", "NarraOps never reads your seed phrase or private key.")}</div>` });
 }
 
 function updateAuthButtons() {
@@ -1143,7 +1143,7 @@ function updateAuthButtons() {
   const identity = state.auth.session?.user?.identities?.[0];
   if (identity) {
     primary.dataset.auth = "logout";
-    primary.innerHTML = `<i class="fa-solid fa-wallet"></i>${identity.chain.toUpperCase()} ${shortAddress(identity.address)}`;
+    primary.innerHTML = `<i class="fa-solid fa-wallet"></i>${shortAddress(identity.address)}`;
   } else {
     primary.dataset.auth = "web3";
     primary.innerHTML = `<i class="fa-solid fa-wallet"></i>${t("连接", "Connect")}`;
@@ -1181,7 +1181,7 @@ async function web3Login(walletId) {
     let address; let chainId; let signature;
     if (chain === "evm") {
       const provider = selection.provider;
-      if (!provider) throw new Error(t("未检测到 EVM 钱包扩展", "No EVM wallet extension was detected"));
+      if (!provider) throw new Error(t("未检测到该钱包，请确认扩展已安装并启用。", "Wallet not detected. Make sure the extension is installed and enabled."));
       [address] = await provider.request({ method: "eth_requestAccounts" });
       chainId = Number.parseInt(await provider.request({ method: "eth_chainId" }), 16);
       const challenge = await apiRequest("/api/v1/auth/web3/challenge", { method: "POST", body: JSON.stringify({ chain, address, chainId }) });
@@ -1189,7 +1189,7 @@ async function web3Login(walletId) {
       state.auth.session = await apiRequest("/api/v1/auth/web3/verify", { method: "POST", body: JSON.stringify({ challengeId: challenge.challengeId, signature }) });
     } else {
       const provider = selection.provider;
-      if (!provider?.connect || !provider?.signMessage) throw new Error(t("未检测到支持消息签名的 Solana 钱包", "No Solana wallet with message signing was detected"));
+      if (!provider?.connect || !provider?.signMessage) throw new Error(t("未检测到该钱包，请确认扩展已安装并启用。", "Wallet not detected. Make sure the extension is installed and enabled."));
       const connection = await provider.connect();
       address = (connection.publicKey || provider.publicKey).toString();
       const challenge = await apiRequest("/api/v1/auth/web3/challenge", { method: "POST", body: JSON.stringify({ chain, address }) });
