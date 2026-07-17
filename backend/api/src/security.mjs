@@ -1,4 +1,5 @@
-const SECRET_KEY_PATTERN = /^(authorization|cookie|set-cookie|token|access_?token|refresh_?token|api_?key|private_?key|secret_?key|mnemonic|seed|seed_?phrase)$/i;
+const FORBIDDEN_SECRET_KEY_PATTERN = /^(authorization|cookie|set-cookie|token|access_?token|refresh_?token|api_?key|private_?key|secret_?key|mnemonic|seed|seed_?phrase)$/i;
+const REDACT_KEY_PATTERN = /^(authorization|cookie|set-cookie|token|access_?token|refresh_?token|preview_?token|confirmation_?token|download_?token|api_?key|private_?key|secret_?key|mnemonic|seed|seed_?phrase)$/i;
 
 export function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
@@ -6,7 +7,7 @@ export function redact(value) {
   return Object.fromEntries(
     Object.entries(value).map(([key, entry]) => [
       key,
-      SECRET_KEY_PATTERN.test(key) ? "[REDACTED]" : redact(entry),
+      REDACT_KEY_PATTERN.test(key) && !(key.toLowerCase() === "token" && entry && typeof entry === "object") ? "[REDACTED]" : redact(entry),
     ]),
   );
 }
@@ -15,7 +16,9 @@ export function containsForbiddenSecret(value) {
   if (Array.isArray(value)) return value.some(containsForbiddenSecret);
   if (!value || typeof value !== "object") return false;
   return Object.entries(value).some(
-    ([key, entry]) => SECRET_KEY_PATTERN.test(key) || containsForbiddenSecret(entry),
+    ([key, entry]) => (
+      FORBIDDEN_SECRET_KEY_PATTERN.test(key) && !(key.toLowerCase() === "token" && entry && typeof entry === "object")
+    ) || containsForbiddenSecret(entry),
   );
 }
 

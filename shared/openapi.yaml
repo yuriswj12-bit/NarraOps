@@ -85,6 +85,163 @@ paths:
       responses:
         '202': { $ref: '#/components/responses/TaskAccepted' }
         '400': { $ref: '#/components/responses/Error' }
+  /launch/auth/fourmeme/nonce:
+    post:
+      operationId: createFourMemeLoginNonce
+      summary: Create the official Four.Meme wallet-login message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [address]
+              properties:
+                address: { type: string, minLength: 42, maxLength: 42 }
+      responses:
+        '200':
+          description: Message that the connected BSC wallet must sign
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [address, nonce, message]
+                properties:
+                  address: { type: string }
+                  nonce: { type: string }
+                  message: { type: string }
+        '400': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /launch/transactions/plan:
+    post:
+      operationId: planLaunchTransaction
+      summary: Build a Pump.fun or Four.Meme launch transaction for the connected wallet to sign
+      description: >-
+        Uploads public token media/metadata and creates a chain transaction payload.
+        NarraOps does not receive the connected wallet private key and does not
+        broadcast this payload; the browser wallet must display and confirm it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [platform, walletAddress, name, symbol, imageBase64, developerBuyAmount]
+              properties:
+                platform: { type: string, enum: [pump, fourmeme] }
+                walletAddress: { type: string, minLength: 32, maxLength: 64 }
+                name: { type: string, minLength: 1, maxLength: 32 }
+                symbol: { type: string, minLength: 1, maxLength: 10 }
+                description: { type: string, maxLength: 1000 }
+                imageBase64: { type: string, maxLength: 8000000 }
+                imageName: { type: string, maxLength: 120 }
+                imageType: { type: string, maxLength: 80 }
+                twitter: { type: string, maxLength: 500 }
+                telegram: { type: string, maxLength: 500 }
+                website: { type: string, maxLength: 500 }
+                developerBuyAmount:
+                  type: string
+                  pattern: '^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,18})?$'
+                loginSignature: { type: string, maxLength: 300 }
+      responses:
+        '201':
+          description: Transaction plan requiring the connected wallet signature
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, broadcastByNarraOps, plan]
+                properties:
+                  status: { const: requires_user_signature }
+                  broadcastByNarraOps: { const: false }
+                  plan: { type: object }
+        '400': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /launch/executions/prepare:
+    post:
+      operationId: prepareCookingWalletLaunch
+      summary: Prepare a Cooking-wallet launch requiring one explicit confirmation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, cookingWalletGroupId, boundBuy, name, symbol, imageBase64, developerBuyAmount]
+              properties:
+                platform: { enum: [pump, fourmeme] }
+                cookingWalletGroupId: { type: string }
+                boundBuy:
+                  $ref: '#/components/schemas/LaunchBoundBuy'
+                name: { type: string }
+                symbol: { type: string }
+                description: { type: string }
+                imageBase64: { type: string }
+                imageName: { type: string }
+                imageType: { type: string }
+                twitter: { type: string }
+                telegram: { type: string }
+                website: { type: string }
+                developerBuyAmount: { type: string }
+      responses:
+        '201': { description: Launch prepared and awaiting confirmation }
+        '400': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /launch/executions/{executionId}/confirm:
+    post:
+      operationId: confirmCookingWalletLaunch
+      parameters:
+        - in: path
+          name: executionId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmationToken]
+              properties:
+                confirmationToken: { type: string }
+      responses:
+        '202': { description: Signed launch submitted to the selected chain }
+        '403': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /launch/executions/{executionId}:
+    get:
+      operationId: getCookingWalletLaunch
+      parameters:
+        - in: path
+          name: executionId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Durable launch, confirmation, and launch-bound-buy state }
+        '404': { $ref: '#/components/responses/Error' }
+  /launch/executions/{executionId}/retry:
+    post:
+      operationId: retryFailedBoundBuys
+      description: Retries failed launch-bound-buy wallet entries only; already submitted wallets are never repeated.
+      parameters:
+        - in: path
+          name: executionId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmRetry]
+              properties:
+                confirmRetry: { const: true }
+      responses:
+        '202': { description: Failed launch-bound-buy entries retried }
+        '409': { $ref: '#/components/responses/Error' }
   /agent/tasks:
     post:
       operationId: createAgentTask
@@ -189,6 +346,38 @@ components:
         application/json:
           schema: { $ref: './schemas/error.schema.json' }
   schemas:
+    LaunchBoundBuy:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+        walletGroupId: { type: string, minLength: 1, maxLength: 64 }
+        timing:
+          type: object
+          additionalProperties: false
+          required: [mode, blockOffset]
+          properties:
+            mode: { type: string, enum: [T0_BUNDLE, BLOCK_OFFSET] }
+            blockOffset: { type: integer, minimum: 0, maximum: 5 }
+        allocation:
+          type: object
+          additionalProperties: false
+          required: [mode]
+          properties:
+            mode: { type: string, enum: [PER_WALLET_EQUAL, PER_WALLET_CUSTOM] }
+            amountPerWallet: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
+            customAmounts:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [walletId, amount]
+                properties:
+                  walletId: { type: string, minLength: 1, maxLength: 128 }
+                  amount: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
+        slippageBps: { type: integer, minimum: 1, maximum: 5000, default: 500 }
+        deadlineBlocks: { type: integer, minimum: 1, maximum: 20, default: 5 }
     ExecutionRequest:
       type: object
       additionalProperties: false

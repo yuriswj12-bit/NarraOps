@@ -12,7 +12,7 @@
         body {
             font-family: 'Inter', system_ui, sans-serif;
         }
-        
+
         .font-display {
             font-family: 'Space Grotesk', 'Inter', sans-serif;
             font-weight: 600;
@@ -140,7 +140,7 @@
         .feature-card {
             transition: all 0.4s cubic-bezier(0.23, 1.0, 0.32, 1);
         }
-        
+
         .feature-card:hover {
             transform: translateY(-6px);
             border-color: #3f3f46;
@@ -157,12 +157,12 @@
     </style>
 </head>
 <body class="dark-bg text-white">
-    
+
     <!-- Top Navigation -->
     <nav class="fixed top-0 left-0 right-0 z-50 border-b border-zinc-800 bg-[#0a0a0f]/95 backdrop-blur-xl">
         <div class="max-w-screen-2xl mx-auto px-8">
             <div class="flex items-center justify-between h-16">
-                
+
                 <!-- Logo -->
                 <div class="flex items-center gap-x-3">
                     <div class="flex items-center gap-x-2.5">
@@ -175,7 +175,7 @@
 
                 <!-- Right Actions -->
                 <div class="flex items-center gap-x-2">
-                    
+
                     <!-- Social Icons -->
                     <div class="hidden md:flex items-center gap-x-1 mr-2">
                         <a href="#" class="w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-2xl transition-colors">
@@ -191,21 +191,21 @@
 
                     <!-- Language Switcher (HertzFlow Style) -->
                     <div class="relative">
-                        <button onclick="toggleLanguageDropdown()" 
+                        <button onclick="toggleLanguageDropdown()"
                                 class="w-9 h-9 flex items-center justify-center rounded-2xl border border-zinc-700 hover:bg-zinc-900 transition-colors">
                             <i class="fa-solid fa-globe text-lg text-zinc-300"></i>
                         </button>
-                        
+
                         <div id="lang-dropdown" class="lang-dropdown hidden absolute right-0 top-11 w-44 glass rounded-2xl py-1 shadow-2xl border border-zinc-700 z-50 text-sm">
                             <button onclick="selectLanguage('en')" class="lang-option w-full px-4 py-2.5 text-left flex items-center justify-between hover:bg-white/5 rounded-xl mx-1 text-zinc-300 hover:text-white">
                                 <span>English</span>
                             </button>
-                            
+
                             <button onclick="selectLanguage('zh')" class="lang-option w-full px-4 py-2.5 text-left flex items-center justify-between hover:bg-white/5 rounded-xl mx-1 text-white">
                                 <span>简体中文</span>
                                 <i class="fa-solid fa-check text-emerald-400 text-xs ml-auto" id="check-zh"></i>
                             </button>
-                            
+
                             <button onclick="selectLanguage('zh-tw')" class="lang-option w-full px-4 py-2.5 text-left flex items-center justify-between hover:bg-white/5 rounded-xl mx-1 text-zinc-300 hover:text-white">
                                 <span>繁体中文</span>
                             </button>
@@ -213,7 +213,7 @@
                     </div>
 
                     <!-- Enter App Button -->
-                    <button onclick="enterApp()" 
+                    <button onclick="enterApp()"
                             class="ml-1 px-4 sm:px-6 py-2 bg-white text-black font-semibold text-sm rounded-3xl flex items-center gap-x-2 active:scale-[0.985] transition-all hover:bg-zinc-100">
                         <span>进入应用</span>
                     </button>
@@ -268,7 +268,7 @@
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-            
+
             <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
                 <div class="w-10 h-10 rounded-2xl bg-emerald-400/10 flex items-center justify-center mb-5">
                     <i class="fa-solid fa-search text-emerald-400 text-xl"></i>
@@ -316,7 +316,7 @@
                 <div class="font-semibold text-xl tracking-tight">Launch OS</div>
                 <div class="text-sm text-zinc-400 mt-3 leading-snug">一站式配置与执行发射流程，包含合约部署、流动性与初始做市策略。</div>
             </div>
-            
+
         </div>
     </section>
 
@@ -357,7 +357,7 @@
                                 </div>
                             </div>
                         </div>
-                        
+
                         <div class="lg:col-span-7">
                             <div class="text-xs text-zinc-500 mb-3">推荐动作</div>
                             <div class="grid grid-cols-2 gap-3 text-sm">
@@ -381,11 +381,11 @@
     <section class="max-w-screen-2xl mx-auto px-8 py-20 text-center">
         <div class="max-w-lg mx-auto">
             <h2 class="font-display text-5xl tracking-[-1.5px] leading-none">准备好用专业级工具<br>完成你的链上资产发行了吗？</h2>
-            
+
             <button onclick="enterApp()" class="mt-9 px-10 py-4 bg-white text-black font-semibold text-lg rounded-3xl inline-flex items-center gap-x-3 active:scale-[0.985] transition-all">
                 <span>进入 NarraOps 工作台</span>
             </button>
-            
+
             <div class="mt-4 text-xs text-zinc-500">连接钱包即可开始 • 支持 Solana 与 BSC</div>
         </div>
     </section>
@@ -406,7 +406,7 @@
             const dropdown = document.getElementById('lang-dropdown');
             dropdown.classList.toggle('hidden');
             dropdown.classList.toggle('flex');
-            
+
             setTimeout(() => {
                 document.addEventListener('click', function handler(e) {
                     if (!dropdown.contains(e.target)) {

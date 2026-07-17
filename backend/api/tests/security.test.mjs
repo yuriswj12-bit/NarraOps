@@ -11,6 +11,9 @@ test("redaction recursively filters credentials and authorization metadata", () 
   assert.equal(output.nested.apiKey, "[REDACTED]");
   assert.equal(output.nested.Cookie, "[REDACTED]");
   assert.equal(output.nested.safe, "visible");
+  const capabilityTokens = redact({ previewToken: "preview-secret", confirmationToken: "confirm-secret" });
+  assert.equal(capabilityTokens.previewToken, "[REDACTED]");
+  assert.equal(capabilityTokens.confirmationToken, "[REDACTED]");
 });
 
 test("request guard rejects wallet secrets", () => {
