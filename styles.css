@@ -29,6 +29,8 @@
 .asset-primary-tabs button.active { color:var(--text); border-color:var(--green); }
 .asset-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:18px; min-height:42px; }
 .compact-select,.balance-chip { height:42px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--text); padding:0 14px; font:inherit; }
+.compact-select { color-scheme:dark; }
+.compact-select option { background:var(--surface); color:var(--text); }
 .balance-chip { display:flex; align-items:center; gap:6px; }
 .toolbar-spacer { flex:1; }
 .primary-button.compact { min-height:42px; padding:0 15px; }
@@ -42,6 +44,7 @@
 .compact-asset-table td { padding:15px 18px; border-top:1px solid var(--line); vertical-align:middle; }
 .compact-asset-table tbody tr:hover,.compact-asset-table .selected-row { background:rgba(80,230,139,.055); }
 .compact-token,.group-name-button { display:flex; align-items:center; gap:10px; }
+.compact-token img { width:30px; height:30px; border-radius:50%; object-fit:cover; }
 .compact-token i,.group-name-button>i { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; color:var(--green); background:rgba(80,230,139,.12); }
 .group-name-button { border:0; background:none; color:var(--text); text-align:left; cursor:pointer; padding:0; }
 .group-name-button span { display:flex; flex-direction:column; gap:3px; }
