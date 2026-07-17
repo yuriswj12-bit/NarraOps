@@ -38,7 +38,7 @@ import { buildDraftMetadata, prepareNarrativeLink } from "../../integrations/nar
 import { walletCapabilities } from "../../integrations/wallet-provider-registry.mjs";
 import { mockAccountPortfolio } from "../../integrations/mock-account-data.mjs";
 
-function sendJson(res, statusCode, payload, requestId) {
+function sendJson(res, statusCode, payload, requestId, extraHeaders = {}) {
   const body = statusCode === 204 ? "" : JSON.stringify(payload);
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
@@ -46,6 +46,7 @@ function sendJson(res, statusCode, payload, requestId) {
     "cache-control": "no-store",
     "x-request-id": requestId,
     "x-content-type-options": "nosniff",
+    ...extraHeaders,
   });
   res.end(body);
 }
@@ -137,7 +138,7 @@ function toGoTask(task) {
   return payload;
 }
 
-export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager, launchService, walletProvisioningService, launchCoordinator, assetService } = {}) {
+export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager, launchService, walletProvisioningService, launchCoordinator, assetService, authService } = {}) {
   const registry = integrations || createIntegrationRegistry(config);
   const repo = repository || new InMemoryTaskRepository();
   const devWallets = devWalletRepository || new InMemoryDevWalletRepository();
@@ -324,6 +325,23 @@ export function createApplication({ config, logger, repository, conversationRepo
         return;
       }
 
+      if (req.method === "GET" && url.pathname === "/api/v1/auth/session") {
+        const session = authService?.authenticate(req.headers.cookie);
+        sendJson(res, 200, session || { authenticated: false, user: null }, requestId);
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/v1/account/login-wallet-assets") {
+        const session = authService?.authenticate(req.headers.cookie);
+        if (!session) throw new ApiError(401, "AUTHENTICATION_REQUIRED", "Sign in with a Web3 wallet to view login-wallet assets");
+        const wallets = await Promise.all(session.user.identities.map(async (identity) => {
+          const addresses = identity.chain === "solana" ? { solana: identity.address } : { bsc: identity.address };
+          return { chain: identity.chain, address: identity.address, balances: assetService ? await assetService.balances({ addresses }) : {} };
+        }));
+        sendJson(res, 200, { mode: assetService ? "live" : "unavailable", wallets }, requestId);
+        return;
+      }
+
       const launchExecutionMatch = req.method === "GET" && url.pathname.match(/^\/api\/v1\/launch\/executions\/([0-9a-f-]{36})$/i);
       if (launchExecutionMatch) {
         if (!launchCoordinator) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Internal Cooking-wallet launch execution is not configured");
@@ -334,6 +352,26 @@ export function createApplication({ config, logger, repository, conversationRepo
       if (req.method === "POST") {
         const body = await readJson(req, config.bodyLimitBytes);
         let task;
+
+        if (url.pathname === "/api/v1/auth/web3/challenge") {
+          if (!authService) throw new ApiError(503, "AUTH_UNAVAILABLE", "Web3 authentication is not configured");
+          sendJson(res, 201, authService.createChallenge({ chain: body.chain, address: body.address, chainId: body.chainId == null ? undefined : Number(body.chainId) }), requestId);
+          return;
+        }
+
+        if (url.pathname === "/api/v1/auth/web3/verify") {
+          if (!authService) throw new ApiError(503, "AUTH_UNAVAILABLE", "Web3 authentication is not configured");
+          const result = authService.verify({ challengeId: body.challengeId, signature: body.signature });
+          const secure = config.secureCookies ? "; Secure" : "";
+          sendJson(res, 200, result.session, requestId, { "set-cookie": `narraops_session=${encodeURIComponent(result.token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${result.maxAge}${secure}` });
+          return;
+        }
+
+        if (url.pathname === "/api/v1/auth/logout") {
+          authService?.logout(req.headers.cookie);
+          sendJson(res, 200, { authenticated: false }, requestId, { "set-cookie": `narraops_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${config.secureCookies ? "; Secure" : ""}` });
+          return;
+        }
 
         if (url.pathname === "/api/v1/wallet-groups") {
           const input = validateWalletGroupCreate(body);

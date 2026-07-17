@@ -30,5 +30,8 @@ export function loadConfig() {
     walletGroupStorePath: process.env.WALLET_GROUP_STORE_PATH || "./data/wallet-groups.json",
     realExecutionEnabled: process.env.REAL_EXECUTION_ENABLED === "true",
     launchExecutionStorePath: process.env.LAUNCH_EXECUTION_STORE_PATH || "./data/launch-executions.json",
+    authStorePath: process.env.AUTH_STORE_PATH || "./data/web3-auth.json",
+    appOrigin: process.env.APP_ORIGIN || "http://127.0.0.1:5188",
+    secureCookies: process.env.SECURE_COOKIES === "true",
   });
 }

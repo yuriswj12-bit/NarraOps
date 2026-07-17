@@ -1789,6 +1789,12 @@ select:focus-visible {
 }
 
 /* Assets workspace */
+.login-wallet-list { display: grid; gap: 10px; margin-top: 18px; }
+.login-wallet-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); }
+.login-wallet-row > span { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.login-wallet-row i { color: var(--green); }
+.login-wallet-row code { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.login-wallet-row b { white-space: nowrap; }
 .account-wallet-card { padding: 0; overflow: hidden; }
 .account-wallet-tabs { display: flex; align-items: center; gap: 18px; min-height: 72px; padding: 14px 24px; border-bottom: 1px solid var(--line); }
 .account-wallet-tabs > strong { font-size: 20px; margin-right: 4px; }

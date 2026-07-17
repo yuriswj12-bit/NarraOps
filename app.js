@@ -52,11 +52,13 @@ const state = {
     seenCards: new Set(),
     reconnects: 0,
   },
+  auth: { loading: true, session: null, busy: false },
   assets: {
     mode: "mock",
     period: "7d",
     portfolio: null,
     groups: [],
+    loginWallets: [],
     selectedGroupId: null,
     wallets: [],
     loading: false,
@@ -905,13 +907,15 @@ async function loadAssets({ keepGroup = true } = {}) {
   state.assets.error = null;
   renderAssets();
   try {
-    const [portfolio, groupsResult] = await Promise.all([
+    const [portfolio, groupsResult, loginWalletResult] = await Promise.all([
       apiRequest(`/api/v1/account/portfolio?period=${state.assets.period}`),
       apiRequest("/api/v1/wallet-groups"),
+      state.auth.session ? apiRequest("/api/v1/account/login-wallet-assets") : Promise.resolve({ wallets: [] }),
     ]);
     state.assets.portfolio = portfolio;
     state.assets.mode = groupsResult.mode || "mock";
     state.assets.groups = groupsResult.groups || [];
+    state.assets.loginWallets = loginWalletResult.wallets || [];
     if (!keepGroup || !state.assets.groups.some((group) => group.groupId === state.assets.selectedGroupId)) state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
     if (state.assets.selectedGroupId) {
       const detail = await apiRequest(`/api/v1/wallet-groups/${state.assets.selectedGroupId}/wallets`);
@@ -997,9 +1001,17 @@ function renderAssets() {
   const status = state.assets.loading ? `<div class="asset-state"><i class="fa-solid fa-circle-notch fa-spin"></i>${t("正在读取资产…", "Loading assets…")}</div>` : state.assets.error ? `<div class="asset-state error"><i class="fa-solid fa-triangle-exclamation"></i><div><strong>${t("资产服务未连接", "Asset service unavailable")}</strong><span>${escapeHtml(state.assets.error)}</span></div><button class="secondary-button" type="button" data-action="refresh-assets">${t("重试", "Retry")}</button></div>` : "";
   const totalWallets = state.assets.groups.reduce((sum, group) => sum + group.walletCount, 0);
   const portfolio = state.assets.portfolio;
+  const loginWalletRows = state.assets.loginWallets.map((wallet) => {
+    const balances = Object.values(wallet.balances || {}).map((balance) => balance.status === "live" ? `${escapeHtml(balance.amount)} ${escapeHtml(balance.asset)}` : `${escapeHtml(balance.asset)} ${t("暂不可用", "unavailable")}`).join(" · ") || t("未读取到余额", "Balance unavailable");
+    return `<div class="login-wallet-row"><span><i class="fa-solid fa-link"></i><strong>${wallet.chain === "solana" ? "Solana" : "EVM / BSC"}</strong><code title="${escapeHtml(wallet.address)}">${escapeHtml(shortAddress(wallet.address))}</code></span><b>${balances}</b></div>`;
+  }).join("");
+  const loginWalletCard = state.auth.session
+    ? `<section class="asset-overview-panel"><div class="asset-section-heading"><div><span>${t("个人资产", "Personal assets")}</span><h2>${t("登录钱包", "Login wallet")}</h2></div><span class="state-pill">${t("链上实时", "Live on-chain")}</span></div><div class="login-wallet-list">${loginWalletRows || `<div class="empty-state">${t("未发现登录钱包", "No login wallet found")}</div>`}</div></section>`
+    : `<section class="asset-overview-panel"><div class="asset-section-heading"><div><span>${t("个人资产", "Personal assets")}</span><h2>${t("登录钱包", "Login wallet")}</h2></div><button class="compact-button" type="button" data-action="login-web3">${t("Web3 登录", "Web3 sign in")}</button></div><div class="empty-state">${t("登录后显示钱包地址及真实 SOL / BNB 余额。", "Sign in to display your wallet address and live SOL / BNB balance.")}</div></section>`;
   viewRoot.innerHTML = `
     ${pageHeading("Assets", t("个人资产与钱包组", "Personal assets and wallet groups"), liveWallets ? t("真实多链钱包已在本地加密仓中创建。", "Real multi-chain wallets are stored in the encrypted vault.") : t("统一查看账户表现、钱包组资产与模拟钱包。", "Review account performance, wallet-group assets, and simulated wallets."), `<span class="simulation-pill"><i class="fa-solid fa-shield-halved"></i>${liveWallets ? t("真实钱包 · 加密保存", "Real wallets · Encrypted") : t("模拟资产 · 真实执行关闭", "Mock assets · Live execution off")}</span><button class="secondary-button" type="button" data-action="refresh-assets"><i class="fa-solid fa-arrows-rotate"></i>${t("刷新", "Refresh")}</button>`)}
     ${status}
+    ${loginWalletCard}
     <section class="asset-overview-panel account-wallet-card"><div class="account-wallet-tabs"><strong>${t("钱包", "Wallets")} (${totalWallets})</strong><div class="period-switcher">${periods}</div></div><div class="account-balance"><span>${t("链上总余额", "Total on-chain balances")}</span><strong>${portfolio ? escapeHtml(nativeBalances(portfolio.balances)) : "—"}</strong></div><div class="account-profit-grid"><span><small>${t("数据来源", "Data source")}</small><strong>${portfolio?.dataStatus === "live_native_balances" ? t("链上 RPC 实时读取", "Live chain RPC") : "—"}</strong></span><span><small>${t("成交额", "Turnover")}</small><strong>—</strong></span><span><small>${t("已实现盈亏", "Realized P&L")}</small><strong>—</strong></span><span><small>${t("未实现盈亏", "Unrealized P&L")}</small><strong>—</strong></span></div><div class="account-wallet-actions"><button type="button" data-action="deposit-disabled"><i class="fa-solid fa-arrow-down"></i><span>${t("充值", "Deposit")}</span></button><button type="button" data-action="withdraw-disabled"><i class="fa-solid fa-arrow-up"></i><span>${t("提取", "Withdraw")}</span></button><button type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i><span>${t("转账", "Transfer")}</span></button></div></section>
     ${renderTransferPanel()}
     <section class="wallet-groups-layout">
@@ -1113,20 +1125,75 @@ function openOpportunity(id) {
   });
 }
 
-function openAuth(mode) {
-  const isLogin = mode === "login";
-  openModal({
-    kicker: "NarraOps Account",
-    title: isLogin ? t("登录", "Log in") : t("创建账户", "Create account"),
-    content: `
-      <p>${t("认证服务尚未接入，此表单仅用于界面验证。", "Authentication is not connected; this form is for interface validation only.")}</p>
-      <form class="form-stack" id="authForm">
-        <label class="field-label">${t("邮箱", "Email")}<input class="field-input" type="email" autocomplete="email" required placeholder="name@example.com" /></label>
-        <label class="field-label">${t("密码", "Password")}<input class="field-input" type="password" autocomplete="current-password" required placeholder="••••••••" /></label>
-        <div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${isLogin ? t("登录演示", "Demo login") : t("注册演示", "Demo registration")}</button></div>
-      </form>
-    `,
-  });
+async function openAuth(mode) {
+  if (mode === "logout") {
+    await apiRequest("/api/v1/auth/logout", { method: "POST", body: "{}" });
+    state.auth.session = null;
+    state.assets.loginWallets = [];
+    updateAuthButtons();
+    if (state.view === "assets") await loadAssets();
+    showToast(t("已退出登录", "Signed out"));
+    return;
+  }
+  if (mode === "email") {
+    openModal({ kicker: "NarraOps Account", title: t("邮箱登录", "Email login"), content: `<div class="empty-state large"><i class="fa-regular fa-envelope"></i>${t("邮箱注册与登录将在下一阶段接入。", "Email registration and login will be added in the next phase.")}</div><div class="modal-actions"><button class="primary-button" type="button" data-modal-action="close">${t("知道了", "Done")}</button></div>` });
+    return;
+  }
+  openModal({ kicker: t("无 Gas 签名认证", "Gas-free signature authentication"), title: t("Web3 钱包登录", "Sign in with a Web3 wallet"), content: `<p>${t("钱包只签署一次性登录消息，不会创建交易或花费 Gas。", "Your wallet signs a one-time login message. This creates no transaction and costs no gas.")}</p><div class="form-stack"><button class="primary-button" type="button" data-web3-login="evm"><i class="fa-brands fa-ethereum"></i>${t("使用 EVM 钱包登录", "Continue with an EVM wallet")}</button><button class="secondary-button" type="button" data-web3-login="solana"><i class="fa-solid fa-s"></i>${t("使用 Solana 钱包登录", "Continue with a Solana wallet")}</button></div>` });
+}
+
+function updateAuthButtons() {
+  const [quiet, primary] = document.querySelectorAll("[data-auth]");
+  const identity = state.auth.session?.user?.identities?.[0];
+  if (identity) {
+    quiet.dataset.auth = "logout";
+    quiet.textContent = t("退出", "Log out");
+    primary.dataset.auth = "web3";
+    primary.textContent = `${identity.chain.toUpperCase()} ${shortAddress(identity.address)}`;
+  } else {
+    quiet.dataset.auth = "email";
+    quiet.textContent = t("邮箱登录", "Email login");
+    primary.dataset.auth = "web3";
+    primary.textContent = "Web3 登录";
+  }
+}
+
+async function loadAuthSession() {
+  try { const result = await apiRequest("/api/v1/auth/session"); state.auth.session = result.authenticated ? result : null; }
+  catch { state.auth.session = null; }
+  finally { state.auth.loading = false; updateAuthButtons(); }
+}
+
+async function web3Login(chain) {
+  if (state.auth.busy) return;
+  state.auth.busy = true;
+  try {
+    let address; let chainId; let signature;
+    if (chain === "evm") {
+      const provider = window.ethereum;
+      if (!provider) throw new Error(t("未检测到 EVM 钱包扩展", "No EVM wallet extension was detected"));
+      [address] = await provider.request({ method: "eth_requestAccounts" });
+      chainId = Number.parseInt(await provider.request({ method: "eth_chainId" }), 16);
+      const challenge = await apiRequest("/api/v1/auth/web3/challenge", { method: "POST", body: JSON.stringify({ chain, address, chainId }) });
+      signature = await provider.request({ method: "personal_sign", params: [challenge.message, address] });
+      state.auth.session = await apiRequest("/api/v1/auth/web3/verify", { method: "POST", body: JSON.stringify({ challengeId: challenge.challengeId, signature }) });
+    } else {
+      const provider = window.phantom?.solana || window.solflare || window.solana;
+      if (!provider?.connect || !provider?.signMessage) throw new Error(t("未检测到支持消息签名的 Solana 钱包", "No Solana wallet with message signing was detected"));
+      const connection = await provider.connect();
+      address = (connection.publicKey || provider.publicKey).toString();
+      const challenge = await apiRequest("/api/v1/auth/web3/challenge", { method: "POST", body: JSON.stringify({ chain, address }) });
+      const signed = await provider.signMessage(new TextEncoder().encode(challenge.message), "utf8");
+      const bytes = signed.signature || signed;
+      signature = btoa(Array.from(bytes, (value) => String.fromCharCode(value)).join(""));
+      state.auth.session = await apiRequest("/api/v1/auth/web3/verify", { method: "POST", body: JSON.stringify({ challengeId: challenge.challengeId, signature }) });
+    }
+    closeModal();
+    updateAuthButtons();
+    if (state.view === "assets") await loadAssets();
+    showToast(t("钱包登录成功", "Wallet sign-in successful"));
+  } catch (error) { showToast(error.message); }
+  finally { state.auth.busy = false; }
 }
 
 function openCreateGroup() {
@@ -1463,6 +1530,8 @@ viewRoot.addEventListener("click", async (event) => {
     renderCurrentView();
   } else if (action === "refresh-assets") {
     await loadAssets();
+  } else if (action === "login-web3") {
+    await openAuth("web3");
   } else if (action === "open-create-group") {
     openCreateGroup();
   } else if (action === "open-add-wallet") {
@@ -1648,6 +1717,11 @@ viewRoot.addEventListener("change", (event) => {
 });
 
 modal.addEventListener("click", async (event) => {
+  const web3Chain = event.target.closest("[data-web3-login]")?.dataset.web3Login;
+  if (web3Chain) {
+    await web3Login(web3Chain);
+    return;
+  }
   const copyAddress = event.target.closest("[data-copy-address]")?.dataset.copyAddress;
   if (copyAddress) {
     await navigator.clipboard.writeText(copyAddress);
@@ -1711,5 +1785,6 @@ window.addEventListener("resize", () => {
 
 updateTheme();
 renderCurrentView();
+loadAuthSession();
 if (state.view === "assets") loadAssets();
 if (state.view === "launch") loadLaunchGroups();

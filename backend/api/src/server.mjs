@@ -8,6 +8,7 @@ import { BatchFollowBuyExecutor, EncryptedWalletRepository, EvmJsonRpcClient, Ev
 import { InMemoryWalletGroupRepository } from "./repositories/in-memory-wallet-group-repository.mjs";
 import { LaunchExecutionCoordinator } from "./launch-execution-coordinator.mjs";
 import { FileLaunchExecutionRepository } from "./repositories/file-launch-execution-repository.mjs";
+import { Web3AuthService } from "./web3-auth-service.mjs";
 
 const config = loadConfig();
 const logger = createLogger(config.logLevel);
@@ -49,8 +50,9 @@ const assetService = encryptedWalletRepository ? new NativeAssetService({
   evmChains: { bsc: { rpcClient: followBuyRpcClient, chainId: 56, asset: "BNB" } },
   executionEnabled: config.realExecutionEnabled,
 }) : null;
+const authService = new Web3AuthService({ filePath: resolve(config.authStorePath), origin: config.appOrigin });
 launchCoordinator?.markInterruptedExecutions();
-const application = createApplication({ config, logger, launchService, walletProvisioningService, walletGroupRepository, launchCoordinator, assetService });
+const application = createApplication({ config, logger, launchService, walletProvisioningService, walletGroupRepository, launchCoordinator, assetService, authService });
 
 application.server.listen(config.port, config.host, () => {
   logger.info("api_started", {
