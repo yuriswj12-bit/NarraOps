@@ -16,6 +16,10 @@ import {
   validateWalletBatchDelete,
   validateWalletExport,
   validateWalletGroupCreate,
+  validateFourMemeNonce,
+  validateLaunchTransactionPlan,
+  validateInternalLaunchPrepare,
+  validateLaunchConfirm,
 } from "./validation.mjs";
 import { InMemoryTaskRepository } from "./repositories/in-memory-task-repository.mjs";
 import { InMemoryConversationRepository } from "./repositories/in-memory-conversation-repository.mjs";
@@ -121,13 +125,13 @@ function toGoTask(task) {
   return payload;
 }
 
-export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager } = {}) {
+export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager, launchService, walletProvisioningService, launchCoordinator } = {}) {
   const registry = integrations || createIntegrationRegistry(config);
   const repo = repository || new InMemoryTaskRepository();
   const devWallets = devWalletRepository || new InMemoryDevWalletRepository();
   const conversations = conversationRepository || new InMemoryConversationRepository();
   const launchDrafts = launchDraftRepository || new InMemoryLaunchDraftRepository();
-  const walletGroups = walletGroupRepository || new InMemoryWalletGroupRepository();
+  const walletGroups = walletGroupRepository || new InMemoryWalletGroupRepository({ seed: !walletProvisioningService });
   const transfers = transferRepository || new InMemoryTransferRepository({ walletGroupRepository: walletGroups });
   const manager = taskManager || new TaskManager({
     repository: repo,
@@ -202,7 +206,7 @@ export function createApplication({ config, logger, repository, conversationRepo
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/wallet-groups") {
-        sendJson(res, 200, { mode: "mock", groups: walletGroups.listGroups() }, requestId);
+        sendJson(res, 200, { mode: walletGroups.mode(), groups: walletGroups.listGroups() }, requestId);
         return;
       }
 
@@ -210,7 +214,7 @@ export function createApplication({ config, logger, repository, conversationRepo
       if (groupWalletsMatch) {
         const group = walletGroups.getGroup(groupWalletsMatch[1]);
         if (!group) throw new ApiError(404, "WALLET_GROUP_NOT_FOUND", "Wallet group was not found");
-        sendJson(res, 200, { mode: "mock", group, wallets: walletGroups.listWallets(group.groupId) }, requestId);
+        sendJson(res, 200, { mode: walletGroups.mode(), group, wallets: walletGroups.listWallets(group.groupId) }, requestId);
         return;
       }
 
@@ -275,13 +279,60 @@ export function createApplication({ config, logger, repository, conversationRepo
         return;
       }
 
+      const launchExecutionMatch = req.method === "GET" && url.pathname.match(/^\/api\/v1\/launch\/executions\/([0-9a-f-]{36})$/i);
+      if (launchExecutionMatch) {
+        if (!launchCoordinator) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Internal Cooking-wallet launch execution is not configured");
+        sendJson(res, 200, launchCoordinator.getStatus(launchExecutionMatch[1]), requestId);
+        return;
+      }
+
       if (req.method === "POST") {
         const body = await readJson(req, config.bodyLimitBytes);
         let task;
 
         if (url.pathname === "/api/v1/wallet-groups") {
           const input = validateWalletGroupCreate(body);
-          sendJson(res, 201, walletGroups.createGroup(input), requestId);
+          const group = walletGroups.createGroup(input);
+          if (walletProvisioningService) {
+            for (const wallet of walletGroups.listWallets(group.groupId)) {
+              walletGroups.activateWallet(wallet.walletId, await walletProvisioningService.provision({ walletId: wallet.walletId }));
+            }
+          }
+          sendJson(res, 201, walletGroups.getGroup(group.groupId), requestId);
+          return;
+        }
+
+        if (url.pathname === "/api/v1/launch/auth/fourmeme/nonce") {
+          if (!launchService) throw new ApiError(503, "LAUNCH_SERVICE_UNAVAILABLE", "Launch planning service is not configured");
+          sendJson(res, 200, await launchService.requestFourMemeLogin(validateFourMemeNonce(body)), requestId);
+          return;
+        }
+
+        if (url.pathname === "/api/v1/launch/transactions/plan") {
+          if (!launchService) throw new ApiError(503, "LAUNCH_SERVICE_UNAVAILABLE", "Launch planning service is not configured");
+          const plan = await launchService.plan(validateLaunchTransactionPlan(body));
+          sendJson(res, 201, { status: "requires_user_signature", broadcastByNarraOps: false, plan }, requestId);
+          return;
+        }
+
+        if (url.pathname === "/api/v1/launch/executions/prepare") {
+          if (!launchCoordinator) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Internal Cooking-wallet launch execution is not configured");
+          sendJson(res, 201, await launchCoordinator.prepare(validateInternalLaunchPrepare(body)), requestId);
+          return;
+        }
+
+        const launchConfirmMatch = url.pathname.match(/^\/api\/v1\/launch\/executions\/([0-9a-f-]{36})\/confirm$/i);
+        if (launchConfirmMatch) {
+          if (!launchCoordinator) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Internal Cooking-wallet launch execution is not configured");
+          sendJson(res, 202, await launchCoordinator.confirm({ executionId: launchConfirmMatch[1], ...validateLaunchConfirm(body) }), requestId);
+          return;
+        }
+
+
+        const launchRetryMatch = url.pathname.match(/^\/api\/v1\/launch\/executions\/([0-9a-f-]{36})\/retry$/i);
+        if (launchRetryMatch) {
+          if (!launchCoordinator) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Internal Cooking-wallet launch execution is not configured");
+          sendJson(res, 202, await launchCoordinator.retryFailedFollowBuys({ executionId: launchRetryMatch[1], confirmRetry: body.confirmRetry }), requestId);
           return;
         }
 
@@ -289,10 +340,13 @@ export function createApplication({ config, logger, repository, conversationRepo
         if (addWalletsMatch) {
           const input = validateWalletAdd(body);
           const created = walletGroups.addWallets(addWalletsMatch[1], input.count);
+          if (walletProvisioningService) {
+            for (const wallet of created) walletGroups.activateWallet(wallet.walletId, await walletProvisioningService.provision({ walletId: wallet.walletId }));
+          }
           sendJson(res, 201, {
-            mode: "mock",
+            mode: walletGroups.mode(),
             group: walletGroups.getGroup(addWalletsMatch[1]),
-            wallets: created,
+            wallets: walletGroups.listWallets(addWalletsMatch[1]).filter(({ walletId }) => created.some((wallet) => wallet.walletId === walletId)),
           }, requestId);
           return;
         }

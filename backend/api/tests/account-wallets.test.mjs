@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createApplication } from "../src/app.mjs";
 import { createLogger } from "../src/security.mjs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { InMemoryWalletGroupRepository } from "../src/repositories/in-memory-wallet-group-repository.mjs";
 
 const testConfig = {
   bodyLimitBytes: 100_000,
@@ -9,12 +13,48 @@ const testConfig = {
   sseHeartbeatMs: 1_000,
 };
 
-async function startApi() {
-  const application = createApplication({ config: testConfig, logger: createLogger("silent") });
+async function startApi(overrides = {}) {
+  const application = createApplication({ config: testConfig, logger: createLogger("silent"), ...overrides });
   await new Promise((resolve) => application.server.listen(0, "127.0.0.1", resolve));
   const { port } = application.server.address();
   return { application, baseUrl: `http://127.0.0.1:${port}` };
 }
+
+test("wallet provisioning replaces simulated references with real multi-chain public addresses", async (t) => {
+  const walletProvisioningService = {
+    provision: async ({ walletId }) => ({
+      walletId,
+      publicAddress: "0x2222222222222222222222222222222222222222",
+      addresses: { bsc: "0x2222222222222222222222222222222222222222", robinhood: "0x2222222222222222222222222222222222222222", solana: "11111111111111111111111111111111" },
+      signerReferences: { evm: `${walletId}:evm`, solana: `${walletId}:solana` },
+      custodyMode: "narraops_encrypted_vault",
+      provisioningStatus: "active",
+    }),
+  };
+  const { application, baseUrl } = await startApi({ walletProvisioningService });
+  t.after(() => application.close());
+  const group = await post(baseUrl, "/api/v1/wallet-groups", { name: "Cooking Alpha", purpose: "cooking", walletCount: 1 }).then((response) => response.json());
+  assert.equal(group.executionMode, "encrypted_vault");
+  const result = await fetch(`${baseUrl}/api/v1/wallet-groups/${group.groupId}/wallets`).then((response) => response.json());
+  assert.equal(result.mode, "encrypted_vault");
+  assert.equal(result.wallets[0].provisioningStatus, "active");
+  assert.equal(result.wallets[0].addresses.solana, "11111111111111111111111111111111");
+  assert.doesNotMatch(JSON.stringify(result), /signerReferences|privateKey|secretKey/i);
+});
+
+test("wallet group metadata and public addresses survive an API restart", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "narraops-wallet-groups-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const filePath = join(directory, "groups.json");
+  const first = new InMemoryWalletGroupRepository({ seed: false, filePath });
+  const group = first.createGroup({ name: "Persistent", purpose: "cooking", walletCount: 1 });
+  const wallet = first.listWallets(group.groupId)[0];
+  first.activateWallet(wallet.walletId, { publicAddress: "0x2222222222222222222222222222222222222222", addresses: { bsc: "0x2222222222222222222222222222222222222222", solana: "11111111111111111111111111111111" }, signerReferences: { evm: `${wallet.walletId}:evm`, solana: `${wallet.walletId}:solana` }, custodyMode: "narraops_encrypted_vault", provisioningStatus: "active" });
+  const restored = new InMemoryWalletGroupRepository({ seed: false, filePath });
+  assert.equal(restored.listGroups()[0].name, "Persistent");
+  assert.equal(restored.listWallets(group.groupId)[0].addresses.solana, "11111111111111111111111111111111");
+  assert.doesNotMatch(JSON.stringify(restored.listWallets(group.groupId)), /signerReferences/);
+});
 
 async function post(baseUrl, path, body, headers = {}) {
   return fetch(`${baseUrl}${path}`, {

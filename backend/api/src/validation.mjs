@@ -109,6 +109,60 @@ export function validateLaunchDraft(body) {
   };
 }
 
+const LAUNCH_PLATFORMS = new Set(["pump", "fourmeme"]);
+const BASE64_IMAGE_PATTERN = /^(?:data:image\/[a-zA-Z0-9.+-]+;base64,)?[A-Za-z0-9+/]+={0,2}$/;
+
+export function validateFourMemeNonce(body) {
+  base(body);
+  return { address: string(body.address, "address", { required: true, max: 42 }) };
+}
+
+export function validateLaunchTransactionPlan(body) {
+  base(body);
+  const platform = string(body.platform, "platform", { required: true, max: 20 });
+  if (!LAUNCH_PLATFORMS.has(platform)) throw new ApiError(400, "VALIDATION_ERROR", "platform must be pump or fourmeme");
+  const imageBase64 = string(body.imageBase64, "imageBase64", { required: true, max: 8_000_000 });
+  if (!BASE64_IMAGE_PATTERN.test(imageBase64)) throw new ApiError(400, "VALIDATION_ERROR", "imageBase64 must contain a base64-encoded image");
+  const developerBuyAmount = string(body.developerBuyAmount ?? "0", "developerBuyAmount", { required: true, max: 40 });
+  if (!MONEY_PATTERN.test(developerBuyAmount)) throw new ApiError(400, "VALIDATION_ERROR", "developerBuyAmount must be a non-negative decimal string");
+  const result = {
+    platform,
+    walletAddress: string(body.walletAddress, "walletAddress", { required: true, max: 64 }),
+    name: string(body.name, "name", { required: true, max: 32 }),
+    symbol: string(body.symbol, "symbol", { required: true, max: 10 }),
+    description: string(body.description, "description", { max: 1_000 }) || "",
+    imageBase64,
+    imageName: string(body.imageName, "imageName", { max: 120 }) || "cooking.png",
+    imageType: string(body.imageType, "imageType", { max: 80 }) || "image/png",
+    twitter: string(body.twitter, "twitter", { max: 500 }) || "",
+    telegram: string(body.telegram, "telegram", { max: 500 }) || "",
+    website: string(body.website, "website", { max: 500 }) || "",
+    developerBuyAmount,
+  };
+  if (platform === "fourmeme") result.loginSignature = string(body.loginSignature, "loginSignature", { required: true, max: 300 });
+  return result;
+}
+
+export function validateInternalLaunchPrepare(body) {
+  const input = validateLaunchTransactionPlan({ ...body, walletAddress: body.walletAddress || (body.platform === "pump" ? "11111111111111111111111111111111" : "0x0000000000000000000000000000000000000000"), ...(body.platform === "fourmeme" ? { loginSignature: body.loginSignature || "internal" } : {}) });
+  delete input.walletAddress;
+  delete input.loginSignature;
+  const buyCondition = string(body.buyCondition || "equal", "buyCondition", { required: true, max: 20 });
+  if (!["equal", "random", "ladder"].includes(buyCondition)) throw new ApiError(400, "VALIDATION_ERROR", "buyCondition must be equal, random, or ladder");
+  return {
+    ...input,
+    cookingWalletGroupId: string(body.cookingWalletGroupId, "cookingWalletGroupId", { required: true, max: 64 }),
+    buyingWalletGroupId: string(body.buyingWalletGroupId, "buyingWalletGroupId", { required: true, max: 64 }),
+    walletGroupBuyAmount: string(body.walletGroupBuyAmount ?? "0", "walletGroupBuyAmount", { required: true, max: 40 }),
+    buyCondition,
+  };
+}
+
+export function validateLaunchConfirm(body) {
+  base(body);
+  return { confirmationToken: string(body.confirmationToken, "confirmationToken", { required: true, max: 100 }) };
+}
+
 export function validateAgentTask(body) {
   base(body);
   const goText = typeof body.command === "string"
