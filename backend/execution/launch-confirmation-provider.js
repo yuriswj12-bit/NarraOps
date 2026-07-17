@@ -32,19 +32,18 @@ export class LaunchConfirmationProvider {
     throw new ExecutionError("CONFIRMATION_TIMEOUT", "Launch transaction was not confirmed within the polling limit", { transactionHash });
   }
 
-  async waitForBoundBuyBlock({ platform, launchBlockNumber, blockOffset, deadlineBlocks = 5 }) {
-    if (!Number.isInteger(blockOffset) || blockOffset < 1 || blockOffset > 5) throw new ExecutionError("BOUND_BUY_BLOCK_OFFSET_INVALID", "Bound-buy block offset must be between T1 and T5");
+  async waitForBoundBuyWindow({ platform, launchBlockNumber }) {
     if (launchBlockNumber === null || launchBlockNumber === undefined) throw new ExecutionError("LAUNCH_BLOCK_UNKNOWN", "Launch block is required for delayed bound buys");
-    const targetBlock = BigInt(launchBlockNumber) + BigInt(blockOffset);
-    const finalBlock = targetBlock + BigInt(deadlineBlocks);
+    const earliestBlock = BigInt(launchBlockNumber) + 1n;
+    const latestBlock = BigInt(launchBlockNumber) + 5n;
     for (let attempt = 1; attempt <= this.maxPolls; attempt += 1) {
       const current = platform === "pump"
         ? BigInt(await this.solanaConnection.getSlot("confirmed"))
         : BigInt(await this.evmRpcClient.request("eth_blockNumber", []));
-      if (current > finalBlock) throw new ExecutionError("BOUND_BUY_WINDOW_EXPIRED", "Launch-bound-buy block window expired", { targetBlock: targetBlock.toString(), currentBlock: current.toString() });
-      if (current >= targetBlock) return { targetBlock: targetBlock.toString(), observedBlock: current.toString() };
+      if (current > latestBlock) throw new ExecutionError("BOUND_BUY_WINDOW_EXPIRED", "The T1-T5 launch-bound-buy window expired", { earliestBlock: earliestBlock.toString(), latestBlock: latestBlock.toString(), currentBlock: current.toString() });
+      if (current >= earliestBlock) return { earliestBlock: earliestBlock.toString(), latestBlock: latestBlock.toString(), observedBlock: current.toString(), actualOffset: Number(current - BigInt(launchBlockNumber)) };
       if (attempt < this.maxPolls) await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
     }
-    throw new ExecutionError("BOUND_BUY_BLOCK_TIMEOUT", "Target block was not reached within the polling limit", { targetBlock: targetBlock.toString() });
+    throw new ExecutionError("BOUND_BUY_BLOCK_TIMEOUT", "The T1-T5 launch-bound-buy window was not reached within the polling limit", { earliestBlock: earliestBlock.toString(), latestBlock: latestBlock.toString() });
   }
 }
