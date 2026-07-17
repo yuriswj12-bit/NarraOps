@@ -16,3 +16,4 @@
 | Execution | KMS/HSM signer and policy service | Blocked by provider/design choice |
 | Execution | Chain adapters and confirmation reconciler | Pending; real funds disabled |
 | Frontend | Render distinct execution states | Pending |
+| Integration | Live native SOL/BNB balances, deposits, withdrawals, and wallet-group transfers | Done locally; production auth/audit hardening pending |

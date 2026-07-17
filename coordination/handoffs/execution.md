@@ -1,5 +1,17 @@
 # Execution handoff
 
+## 2026-07-17 native asset execution
+
+- Added live SOL and BNB balance reads for encrypted NarraOps wallets with per-chain failure isolation.
+- Added native SOL/BNB transfer construction, encrypted-vault signing, RPC broadcast, and confirmation reconciliation.
+- Wallet-group transfers now use exact native atomic units, 1:1 wallet pairing, preview tokens, idempotency keys, and explicit final confirmation.
+- Assets UI now exposes real deposit addresses, withdrawal to an external address, wallet-group transfers, live balances, and confirmed/submitted/failed states.
+- Removed simulated USD totals and P&L from the live asset view; unavailable analytics render as unavailable instead of fabricated values.
+- Local real execution is enabled only in the ignored `.env`; repository defaults remain disabled. No test moved funds.
+- Verification: execution 41/41, API 40/40, syntax and proxy smoke checks passed.
+
+Remaining production hardening: authenticated actor scoping, durable transfer/idempotency storage, immutable audit persistence, token (SPL/ERC-20) inventory/transfers, and managed production RPC endpoints.
+
 Implemented on `feat/execution-integration`:
 
 - Platform-neutral request/result contracts and status vocabulary.

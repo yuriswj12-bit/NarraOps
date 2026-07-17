@@ -13,6 +13,7 @@ export { BatchFollowBuyExecutor, resolveBoundBuyAmounts } from "./batch-follow-b
 export { PonsUniswapV3QuoteProvider, ROBINHOOD_CHAIN_ID, ROBINHOOD_UNISWAP_V3 } from "./pons-uniswap-v3-quote-provider.js";
 export { PumpLaunchAdapter, PUMP_METADATA_UPLOAD_URL } from "./pump-launch-adapter.js";
 export { FourMemeLaunchAdapter, FOURMEME_TOKEN_MANAGER2 } from "./fourmeme-launch-adapter.js";
+export { NativeAssetService, decimalToLamports, lamportsToDecimal } from "./native-asset-service.js";
 export { RobinhoodReceiptProvider } from "./robinhood-receipt-provider.js";
 export { ExecutionError } from "./errors.js";
 export { InMemoryIdempotencyStore, requestFingerprint } from "./idempotency-store.js";

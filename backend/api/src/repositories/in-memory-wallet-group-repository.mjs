@@ -271,6 +271,20 @@ export class InMemoryWalletGroupRepository {
     });
   }
 
+  getAssetWallets(groupId, chain) {
+    const group = this.#requireGroup(groupId);
+    const referenceType = chain === "solana" ? "solana" : "evm";
+    return group.walletIds.map((walletId) => {
+      const wallet = this.#wallets.get(walletId);
+      const walletReferenceId = wallet?.signerReferences?.[referenceType];
+      const publicAddress = wallet?.addresses?.[chain];
+      if (!walletReferenceId || !publicAddress || wallet.provisioningStatus !== "active") {
+        throw new ApiError(409, "ASSET_WALLET_NOT_PROVISIONED", `Every wallet must be provisioned for ${chain}`);
+      }
+      return { walletId, walletReferenceId, publicAddress, label: wallet.label, addresses: clone(wallet.addresses) };
+    });
+  }
+
   #publicWallet(wallet) {
     const { signerReferences: _signerReferences, ...publicWallet } = wallet;
     return clone(publicWallet);

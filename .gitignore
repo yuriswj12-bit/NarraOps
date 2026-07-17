@@ -10,6 +10,7 @@ design-qa.md
 
 data/workspace.json
 data/*.local.json
+backend/api/data/*.json
 
 *.log
 npm-debug.log*

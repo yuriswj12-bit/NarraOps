@@ -186,6 +186,7 @@ test("transfer preview is idempotent and transfer submission stays planned and d
   const groups = await fetch(`${baseUrl}/api/v1/wallet-groups`).then((response) => response.json());
   const destination = groups.groups.find(({ name }) => name === "Research");
   const input = {
+    chain: "solana",
     source: { type: "login_wallet" },
     destination: { type: "wallet_group", id: destination.groupId },
     amountMode: "fraction",
@@ -233,6 +234,7 @@ test("wallet-group transfers pair wallets by index and support the login wallet 
   const source = groups.groups[0];
   const destination = groups.groups[1];
   const groupPreview = await post(baseUrl, "/api/v1/transfers/preview", {
+    chain: "solana",
     source: { type: "wallet_group", id: source.groupId }, destination: { type: "wallet_group", id: destination.groupId },
     amountMode: "fraction", fractionBps: 5000, distribution: "equal", idempotencyKey: "group-pair-preview",
   });
@@ -244,7 +246,8 @@ test("wallet-group transfers pair wallets by index and support the login wallet 
   assert.ok(paired.allocations.every((item) => item.sourceWalletId && item.destinationWalletId));
 
   const loginDestination = await post(baseUrl, "/api/v1/transfers/preview", {
-    source: { type: "wallet_group", id: source.groupId }, destination: { type: "login_wallet" },
+    chain: "solana",
+    source: { type: "wallet_group", id: source.groupId }, destination: { type: "login_wallet", address: "external-test-address" },
     amountMode: "fraction", fractionBps: 2500, distribution: "equal", idempotencyKey: "group-login-preview",
   });
   assert.equal(loginDestination.status, 201);

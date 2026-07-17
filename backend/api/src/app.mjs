@@ -50,6 +50,18 @@ function sendJson(res, statusCode, payload, requestId) {
   res.end(body);
 }
 
+function addDecimalStrings(left, right) {
+  const decimals = Math.max((String(left).split(".")[1] || "").length, (String(right).split(".")[1] || "").length);
+  const scale = 10n ** BigInt(decimals);
+  const atomic = (value) => {
+    const [whole, fraction = ""] = String(value).split(".");
+    return (BigInt(whole) * scale) + BigInt(fraction.padEnd(decimals, "0"));
+  };
+  const total = atomic(left) + atomic(right);
+  const fraction = String(total % scale).padStart(decimals, "0").replace(/0+$/, "");
+  return `${total / scale}${fraction ? `.${fraction}` : ""}`;
+}
+
 function readJson(req, limit) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -125,14 +137,46 @@ function toGoTask(task) {
   return payload;
 }
 
-export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager, launchService, walletProvisioningService, launchCoordinator } = {}) {
+export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager, launchService, walletProvisioningService, launchCoordinator, assetService } = {}) {
   const registry = integrations || createIntegrationRegistry(config);
   const repo = repository || new InMemoryTaskRepository();
   const devWallets = devWalletRepository || new InMemoryDevWalletRepository();
   const conversations = conversationRepository || new InMemoryConversationRepository();
   const launchDrafts = launchDraftRepository || new InMemoryLaunchDraftRepository();
   const walletGroups = walletGroupRepository || new InMemoryWalletGroupRepository({ seed: !walletProvisioningService });
-  const transfers = transferRepository || new InMemoryTransferRepository({ walletGroupRepository: walletGroups });
+  const transfers = transferRepository || new InMemoryTransferRepository({ walletGroupRepository: walletGroups, assetService });
+  const walletsWithBalances = async (groupId) => {
+    const wallets = walletGroups.listWallets(groupId);
+    if (!assetService) return wallets;
+    return Promise.all(wallets.map(async (wallet) => ({ ...wallet, balances: await assetService.balances(wallet) })));
+  };
+  const groupWithBalances = async (group) => {
+    const wallets = await walletsWithBalances(group.groupId);
+    const totals = {};
+    for (const wallet of wallets) {
+      for (const balance of Object.values(wallet.balances || {})) {
+        if (balance.status !== "live" || balance.atomic == null) continue;
+        const current = totals[balance.asset] || 0n;
+        totals[balance.asset] = current + BigInt(balance.atomic);
+      }
+    }
+    const formatted = {};
+    for (const [asset, atomic] of Object.entries(totals)) {
+      const decimals = asset === "SOL" ? 9n : 18n;
+      const scale = 10n ** decimals;
+      const fraction = String(atomic % scale).padStart(Number(decimals), "0").replace(/0+$/, "");
+      formatted[asset] = `${atomic / scale}${fraction ? `.${fraction}` : ""}`;
+    }
+    return { ...group, balances: formatted, balanceStatus: assetService ? "live" : "unavailable" };
+  };
+  const livePortfolio = async (period) => {
+    const groups = await Promise.all(walletGroups.listGroups().map(groupWithBalances));
+    const totals = {};
+    for (const group of groups) for (const [asset, amount] of Object.entries(group.balances || {})) {
+      totals[asset] = addDecimalStrings(totals[asset] || "0", amount);
+    }
+    return { mode: "live", period, balances: totals, turnover: null, realizedPnl: null, unrealizedPnl: null, pnlPercent: null, history: [], dataStatus: "live_native_balances", updatedAt: new Date().toISOString() };
+  };
   const manager = taskManager || new TaskManager({
     repository: repo,
     handlers: createMockHandlers(registry, { devWalletRepository: devWallets, launchDraftRepository: launchDrafts }),
@@ -201,12 +245,12 @@ export function createApplication({ config, logger, repository, conversationRepo
 
       if (req.method === "GET" && url.pathname === "/api/v1/account/portfolio") {
         const period = validatePortfolioPeriod(url.searchParams.get("period"));
-        sendJson(res, 200, mockAccountPortfolio(period), requestId);
+        sendJson(res, 200, assetService ? await livePortfolio(period) : mockAccountPortfolio(period), requestId);
         return;
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/wallet-groups") {
-        sendJson(res, 200, { mode: walletGroups.mode(), groups: walletGroups.listGroups() }, requestId);
+        sendJson(res, 200, { mode: walletGroups.mode(), balanceMode: assetService ? "live" : "unavailable", groups: await Promise.all(walletGroups.listGroups().map(groupWithBalances)) }, requestId);
         return;
       }
 
@@ -214,7 +258,7 @@ export function createApplication({ config, logger, repository, conversationRepo
       if (groupWalletsMatch) {
         const group = walletGroups.getGroup(groupWalletsMatch[1]);
         if (!group) throw new ApiError(404, "WALLET_GROUP_NOT_FOUND", "Wallet group was not found");
-        sendJson(res, 200, { mode: walletGroups.mode(), group, wallets: walletGroups.listWallets(group.groupId) }, requestId);
+        sendJson(res, 200, { mode: walletGroups.mode(), balanceMode: assetService ? "live" : "unavailable", group: await groupWithBalances(group), wallets: await walletsWithBalances(group.groupId) }, requestId);
         return;
       }
 
@@ -262,11 +306,12 @@ export function createApplication({ config, logger, repository, conversationRepo
 
       if (req.method === "GET" && url.pathname === "/api/v1/execution/capabilities") {
         sendJson(res, 200, {
-          execution_enabled: false,
+          execution_enabled: Boolean(config.realExecutionEnabled),
+          native_assets: assetService ? { balances: ["SOL", "BNB"], deposits: true, withdrawals: config.realExecutionEnabled, wallet_group_transfers: config.realExecutionEnabled } : null,
           simulation_types: EXECUTION_SIMULATION_TYPES,
           statuses: EXECUTION_SIMULATION_STATUSES,
-          signing: "signing_disabled",
-          broadcasting: "broadcasting_disabled",
+          signing: assetService ? "encrypted_vault" : "signing_disabled",
+          broadcasting: config.realExecutionEnabled ? "enabled" : "broadcasting_disabled",
         }, requestId);
         return;
       }
@@ -393,13 +438,13 @@ export function createApplication({ config, logger, repository, conversationRepo
 
         if (url.pathname === "/api/v1/transfers/preview") {
           const input = validateTransferPreview(body);
-          sendJson(res, 201, transfers.preview(input, requestId), requestId);
+          sendJson(res, 201, await transfers.preview(input, requestId), requestId);
           return;
         }
 
         if (url.pathname === "/api/v1/transfers") {
           const input = validateTransferSubmit(body, req.headers["idempotency-key"]);
-          sendJson(res, 202, transfers.create(input, req.headers["idempotency-key"], requestId), requestId);
+          sendJson(res, 202, await transfers.create(input, req.headers["idempotency-key"], requestId), requestId);
           return;
         }
 

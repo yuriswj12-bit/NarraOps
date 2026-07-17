@@ -345,13 +345,16 @@ function transferEndpoint(value, field) {
   const type = string(value.type, `${field}.type`, { required: true, max: 30 });
   if (!allowed.has(type)) throw new ApiError(400, "VALIDATION_ERROR", `${field}.type is not supported`);
   const id = string(value.id, `${field}.id`, { max: 100 });
+  const address = string(value.address, `${field}.address`, { max: 100 });
   if (type === "wallet_group" && !id) throw new ApiError(400, "VALIDATION_ERROR", `${field}.id is required for wallet_group`);
   if (type === "login_wallet" && id) throw new ApiError(400, "VALIDATION_ERROR", `${field}.id must be omitted for login_wallet`);
-  return id ? { type, id } : { type };
+  return { type, ...(id ? { id } : {}), ...(address ? { address } : {}) };
 }
 
 export function validateTransferPreview(body) {
   base(body);
+  const chain = string(body.chain, "chain", { required: true, max: 20 });
+  if (!new Set(["solana", "bsc"]).has(chain)) throw new ApiError(400, "VALIDATION_ERROR", "chain must be solana or bsc");
   const source = transferEndpoint(body.source, "source");
   const destination = transferEndpoint(body.destination, "destination");
   if (source.type === "login_wallet" && destination.type === "login_wallet") {
@@ -359,6 +362,9 @@ export function validateTransferPreview(body) {
   }
   if (source.type === "wallet_group" && source.id === destination.id) {
     throw new ApiError(400, "VALIDATION_ERROR", "source and destination wallet groups must differ");
+  }
+  if (destination.type === "login_wallet" && !destination.address) {
+    throw new ApiError(400, "VALIDATION_ERROR", "destination.address is required when withdrawing to a login wallet");
   }
   const amountMode = string(body.amountMode, "amountMode", { required: true, max: 20 });
   if (!new Set(["fraction", "amount"]).has(amountMode)) {
@@ -381,6 +387,7 @@ export function validateTransferPreview(body) {
     if (body.fractionBps != null) throw new ApiError(400, "VALIDATION_ERROR", "fractionBps must be omitted when amountMode is amount");
   }
   return {
+    chain,
     source,
     destination,
     amountMode,

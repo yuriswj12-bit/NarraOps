@@ -4,7 +4,7 @@ import { createApplication } from "./app.mjs";
 import { LaunchPlanningService } from "./launch-service.mjs";
 import { resolve } from "node:path";
 import { Connection } from "@solana/web3.js";
-import { BatchFollowBuyExecutor, EncryptedWalletRepository, EvmJsonRpcClient, EvmTransactionAdapter, FourMemeFollowBuyPlanner, LaunchConfirmationProvider, LaunchSigningService, PumpFollowBuyPlanner, SolanaTransactionAdapter, WalletProvisioningService } from "../../execution/index.js";
+import { BatchFollowBuyExecutor, EncryptedWalletRepository, EvmJsonRpcClient, EvmTransactionAdapter, FourMemeFollowBuyPlanner, LaunchConfirmationProvider, LaunchSigningService, NativeAssetService, PumpFollowBuyPlanner, SolanaTransactionAdapter, WalletProvisioningService } from "../../execution/index.js";
 import { InMemoryWalletGroupRepository } from "./repositories/in-memory-wallet-group-repository.mjs";
 import { LaunchExecutionCoordinator } from "./launch-execution-coordinator.mjs";
 import { FileLaunchExecutionRepository } from "./repositories/file-launch-execution-repository.mjs";
@@ -42,8 +42,15 @@ const followBuyExecutor = encryptedWalletRepository ? new BatchFollowBuyExecutor
 const confirmationProvider = new LaunchConfirmationProvider({ solanaConnection: launchService.pump.connection, evmRpcClient: followBuyRpcClient });
 const launchExecutionRepository = new FileLaunchExecutionRepository({ filePath: resolve(config.launchExecutionStorePath) });
 const launchCoordinator = launchSigningService ? new LaunchExecutionCoordinator({ launchService, signingService: launchSigningService, walletGroupRepository, vaultPassword: config.walletVaultPassword, confirmationProvider, followBuyExecutor, repository: launchExecutionRepository }) : null;
+const assetService = encryptedWalletRepository ? new NativeAssetService({
+  walletRepository: encryptedWalletRepository,
+  vaultPassword: config.walletVaultPassword,
+  solanaConnection: launchService.pump.connection,
+  evmChains: { bsc: { rpcClient: followBuyRpcClient, chainId: 56, asset: "BNB" } },
+  executionEnabled: config.realExecutionEnabled,
+}) : null;
 launchCoordinator?.markInterruptedExecutions();
-const application = createApplication({ config, logger, launchService, walletProvisioningService, walletGroupRepository, launchCoordinator });
+const application = createApplication({ config, logger, launchService, walletProvisioningService, walletGroupRepository, launchCoordinator, assetService });
 
 application.server.listen(config.port, config.host, () => {
   logger.info("api_started", {

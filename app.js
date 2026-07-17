@@ -64,6 +64,8 @@ const state = {
     transferOpen: false,
     transferSource: "login_wallet",
     transferDestination: null,
+    transferChain: "solana",
+    transferExternalAddress: "",
     transferFraction: 25,
     transferPreview: null,
     transferResult: null,
@@ -954,7 +956,12 @@ function renderAssetSummary() {
 }
 
 function transferEndpointValue(value) {
-  return value === "login_wallet" ? { type: "login_wallet" } : { type: "wallet_group", id: value };
+  return value === "login_wallet" ? { type: "login_wallet", address: state.assets.transferExternalAddress.trim() } : { type: "wallet_group", id: value };
+}
+
+function nativeBalances(value = {}) {
+  const rows = Object.entries(value).filter(([, amount]) => Number(amount) !== 0);
+  return rows.length ? rows.map(([asset, amount]) => `${Number(amount).toLocaleString(undefined, { maximumFractionDigits: 9 })} ${asset}`).join(" · ") : "0 SOL · 0 BNB";
 }
 
 function transferEndpointOptions(selected, exclude = null) {
@@ -971,12 +978,13 @@ function renderTransferPanel() {
   const pairRows = (preview?.allocations || []).slice(0, 6).map((item, index) => `<div class="transfer-pair"><span>${String(index + 1).padStart(2, "0")}</span><code>${escapeHtml(shortAddress(item.sourceWalletId || t("登录地址", "Login address")))}</code><i class="fa-solid fa-arrow-right"></i><code>${escapeHtml(shortAddress(item.destinationWalletId || t("登录地址", "Login address")))}</code><strong>${money(item.amount, preview.currency)}</strong></div>`).join("");
   return `<section class="transfer-panel">
     <div class="asset-section-heading"><div><span>${t("资金转移", "Fund transfer")}</span><h2>${t("钱包组转账", "Wallet-group transfer")}</h2></div><button class="icon-button" type="button" data-action="close-transfer" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>
-    <form id="assetTransferForm"><div class="transfer-route"><label class="field-label">${t("转出对象", "From")}<select class="field-select" id="transferSource">${transferEndpointOptions(source, destination)}</select></label><button class="transfer-swap" type="button" data-action="swap-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i></button><label class="field-label">${t("转入对象", "To")}<select class="field-select" id="transferDestination">${transferEndpointOptions(destination, source)}</select></label></div>
+    <form id="assetTransferForm"><div class="transfer-route"><label class="field-label">${t("链", "Chain")}<select class="field-select" id="transferChain"><option value="solana" ${state.assets.transferChain === "solana" ? "selected" : ""}>Solana / SOL</option><option value="bsc" ${state.assets.transferChain === "bsc" ? "selected" : ""}>BSC / BNB</option></select></label><label class="field-label">${t("转出钱包组", "From wallet group")}<select class="field-select" id="transferSource">${state.assets.groups.map((group) => `<option value="${group.groupId}" ${source === group.groupId ? "selected" : ""}>${escapeHtml(group.name)}</option>`).join("")}</select></label><label class="field-label">${t("转入对象", "To")}<select class="field-select" id="transferDestination">${transferEndpointOptions(destination, source)}</select></label></div>
+      ${destination === "login_wallet" ? `<label class="field-label">${t("提现地址", "Withdrawal address")}<input class="field-input" id="transferExternalAddress" value="${escapeHtml(state.assets.transferExternalAddress)}" placeholder="${state.assets.transferChain === "solana" ? "Solana address" : "0x..."}" required /></label>` : ""}
       <div class="transfer-slider-block"><div><span>${t("转账比例", "Transfer ratio")}</span><strong id="transferPercent">${state.assets.transferFraction}%</strong></div><input id="transferFraction" type="range" min="1" max="100" value="${state.assets.transferFraction}" /><div class="slider-ticks"><span>1%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div></div>
-      <div class="transfer-rule"><i class="fa-solid fa-link"></i><div><strong>${source !== "login_wallet" && destination !== "login_wallet" ? t("钱包索引 1:1 配对", "1:1 wallet-index pairing") : source === "login_wallet" ? t("登录地址向钱包组分发", "Login address distributes to a wallet group") : t("钱包组归集到登录地址", "Wallet group collects to login address")}</strong><span>${t("两个钱包组按 Wallet[i] → Wallet[i] 配对，未匹配钱包不参与。当前只生成转账计划，不签名、不广播。", "Two groups pair Wallet[i] → Wallet[i]; unmatched wallets do not participate. This creates a plan only—no signing or broadcast.")}</span></div></div>
+      <div class="transfer-rule"><i class="fa-solid fa-shield-halved"></i><div><strong>${destination !== "login_wallet" ? t("钱包索引 1:1 配对", "1:1 wallet-index pairing") : t("提现到外部地址", "Withdraw to external address")}</strong><span>${t("预览不移动资金；只有再次确认后才会由加密钱包签名并广播。", "Preview does not move funds; encrypted wallets sign and broadcast only after final confirmation.")}</span></div></div>
       <div class="transfer-actions"><button class="secondary-button" type="button" data-action="close-transfer">${t("取消", "Cancel")}</button><button class="primary-button" type="submit" ${state.assets.transferBusy || !destination ? "disabled" : ""}><i class="fa-solid fa-eye"></i>${state.assets.transferBusy ? t("生成中…", "Planning…") : t("预览转账计划", "Preview transfer plan")}</button></div></form>
-    ${preview ? `<div class="transfer-preview"><div class="transfer-preview-summary"><span><small>${t("预计金额", "Estimated amount")}</small><strong>${money(preview.estimatedAmount, preview.currency)}</strong></span><span><small>${t("配对数量", "Pairs")}</small><strong>${preview.pairCount}</strong></span><span><small>${t("未匹配", "Unmatched")}</small><strong>${(preview.unmatchedSourceWalletIds?.length || 0) + (preview.unmatchedDestinationWalletIds?.length || 0)}</strong></span><span><small>${t("状态", "Status")}</small><strong>${t("等待确认 · 执行关闭", "Review · execution off")}</strong></span></div><div class="transfer-pair-list">${pairRows}</div><button class="primary-button transfer-confirm" type="button" data-action="confirm-transfer-plan">${t("确认并保存计划", "Confirm and save plan")}</button></div>` : ""}
-    ${state.assets.transferResult ? `<div class="asset-state"><i class="fa-solid fa-circle-check"></i>${t("转账计划已保存，真实签名与广播仍关闭。", "Transfer plan saved; signing and broadcast remain disabled.")}</div>` : ""}
+    ${preview ? `<div class="transfer-preview"><div class="transfer-preview-summary"><span><small>${t("预计金额", "Estimated amount")}</small><strong>${escapeHtml(preview.estimatedAmount)} ${escapeHtml(preview.currency)}</strong></span><span><small>${t("配对数量", "Pairs")}</small><strong>${preview.pairCount}</strong></span><span><small>${t("未匹配", "Unmatched")}</small><strong>${(preview.unmatchedSourceWalletIds?.length || 0) + (preview.unmatchedDestinationWalletIds?.length || 0)}</strong></span><span><small>${t("状态", "Status")}</small><strong>${t("等待最终确认", "Awaiting final confirmation")}</strong></span></div><div class="transfer-pair-list">${pairRows}</div><button class="primary-button transfer-confirm" type="button" data-action="confirm-transfer-plan">${t("确认签名并广播", "Confirm, sign and broadcast")}</button></div>` : ""}
+    ${state.assets.transferResult ? `<div class="asset-state"><i class="fa-solid fa-circle-check"></i>${escapeHtml(state.assets.transferResult.status)}${state.assets.transferResult.txHash ? ` · ${escapeHtml(shortAddress(state.assets.transferResult.txHash))}` : ""}</div>` : ""}
   </section>`;
 }
 
@@ -984,19 +992,19 @@ function renderAssets() {
   const liveWallets = state.assets.mode === "encrypted_vault";
   const selectedGroup = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
   const periods = ["1d", "7d", "30d", "all"].map((period) => `<button class="period-button ${state.assets.period === period ? "active" : ""}" type="button" data-asset-period="${period}">${period === "all" ? t("全部", "All") : period.toUpperCase()}</button>`).join("");
-  const groupCards = state.assets.groups.map((group) => `<button class="wallet-group-card ${group.groupId === state.assets.selectedGroupId ? "active" : ""}" type="button" data-wallet-group="${group.groupId}"><span class="wallet-group-icon"><i class="fa-solid ${group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i></span><span><strong>${escapeHtml(group.name)}</strong><small>${group.purpose === "cooking" ? t("Cooking · 1 个钱包", "Cooking · 1 wallet") : `${group.walletCount} ${t("个钱包", "wallets")}`}</small></span><b>${money(group.totalBalance, group.balanceAsset)}</b></button>`).join("");
-  const walletRows = state.assets.wallets.map((wallet) => `<tr><td><span class="wallet-label"><i class="fa-solid fa-wallet"></i><strong>${escapeHtml(wallet.label)}</strong></span></td><td><code title="${escapeHtml(wallet.addresses?.solana || wallet.publicAddress)}">SOL ${escapeHtml(shortAddress(wallet.addresses?.solana || wallet.publicAddress))}</code><br><code title="${escapeHtml(wallet.addresses?.bsc || wallet.publicAddress)}">EVM ${escapeHtml(shortAddress(wallet.addresses?.bsc || wallet.publicAddress))}</code></td><td>${money(wallet.balance, wallet.balanceAsset)}</td><td><span class="state-pill">${wallet.provisioningStatus === "active" ? t("已加密", "Encrypted") : t("模拟", "Simulation")}</span></td></tr>`).join("");
+  const groupCards = state.assets.groups.map((group) => `<button class="wallet-group-card ${group.groupId === state.assets.selectedGroupId ? "active" : ""}" type="button" data-wallet-group="${group.groupId}"><span class="wallet-group-icon"><i class="fa-solid ${group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i></span><span><strong>${escapeHtml(group.name)}</strong><small>${group.purpose === "cooking" ? t("Cooking · 1 个钱包", "Cooking · 1 wallet") : `${group.walletCount} ${t("个钱包", "wallets")}`}</small></span><b>${escapeHtml(nativeBalances(group.balances))}</b></button>`).join("");
+  const walletRows = state.assets.wallets.map((wallet) => `<tr><td><span class="wallet-label"><i class="fa-solid fa-wallet"></i><strong>${escapeHtml(wallet.label)}</strong></span></td><td><code title="${escapeHtml(wallet.addresses?.solana || "")}">SOL ${escapeHtml(shortAddress(wallet.addresses?.solana))}</code><br><code title="${escapeHtml(wallet.addresses?.bsc || "")}">BSC ${escapeHtml(shortAddress(wallet.addresses?.bsc))}</code></td><td>${Object.values(wallet.balances || {}).map((balance) => balance.status === "live" ? `${escapeHtml(balance.amount)} ${escapeHtml(balance.asset)}` : `${escapeHtml(balance.asset)} ${t("暂不可用", "unavailable")}`).join("<br>") || "—"}</td><td><span class="state-pill">${wallet.provisioningStatus === "active" ? t("已加密", "Encrypted") : t("模拟", "Simulation")}</span></td></tr>`).join("");
   const status = state.assets.loading ? `<div class="asset-state"><i class="fa-solid fa-circle-notch fa-spin"></i>${t("正在读取资产…", "Loading assets…")}</div>` : state.assets.error ? `<div class="asset-state error"><i class="fa-solid fa-triangle-exclamation"></i><div><strong>${t("资产服务未连接", "Asset service unavailable")}</strong><span>${escapeHtml(state.assets.error)}</span></div><button class="secondary-button" type="button" data-action="refresh-assets">${t("重试", "Retry")}</button></div>` : "";
   const totalWallets = state.assets.groups.reduce((sum, group) => sum + group.walletCount, 0);
   const portfolio = state.assets.portfolio;
   viewRoot.innerHTML = `
     ${pageHeading("Assets", t("个人资产与钱包组", "Personal assets and wallet groups"), liveWallets ? t("真实多链钱包已在本地加密仓中创建。", "Real multi-chain wallets are stored in the encrypted vault.") : t("统一查看账户表现、钱包组资产与模拟钱包。", "Review account performance, wallet-group assets, and simulated wallets."), `<span class="simulation-pill"><i class="fa-solid fa-shield-halved"></i>${liveWallets ? t("真实钱包 · 加密保存", "Real wallets · Encrypted") : t("模拟资产 · 真实执行关闭", "Mock assets · Live execution off")}</span><button class="secondary-button" type="button" data-action="refresh-assets"><i class="fa-solid fa-arrows-rotate"></i>${t("刷新", "Refresh")}</button>`)}
     ${status}
-    <section class="asset-overview-panel account-wallet-card"><div class="account-wallet-tabs"><strong>${t("钱包", "Wallets")} (${totalWallets})</strong><div class="period-switcher">${periods}</div><button class="calendar-button" type="button"><i class="fa-regular fa-calendar"></i>${t("盈亏日历", "P&L calendar")}</button></div><div class="account-balance"><span>${t("总余额", "Total balance")}</span><strong>${portfolio ? money(portfolio.totalBalance, portfolio.currency) : "—"}</strong></div><div class="account-profit-grid"><span><small>${t("总成交额", "Total turnover")}</small><strong>${portfolio ? money(portfolio.turnover, portfolio.currency) : "—"}</strong></span><span><small>${t("总盈亏", "Total P&L")}</small><strong class="positive">${portfolio ? money(Number(portfolio.realizedPnl) + Number(portfolio.unrealizedPnl), portfolio.currency) : "—"} (${portfolio?.pnlPercent || "0"}%)</strong></span><span><small>${t("已实现利润", "Realized P&L")}</small><strong>${portfolio ? money(portfolio.realizedPnl, portfolio.currency) : "—"}</strong></span><span><small>${t("未实现利润", "Unrealized P&L")}</small><strong>${portfolio ? money(portfolio.unrealizedPnl, portfolio.currency) : "—"}</strong></span></div><div class="account-wallet-actions"><button type="button" data-action="deposit-disabled"><i class="fa-solid fa-arrow-down"></i><span>${t("充值", "Deposit")}</span></button><button type="button" data-action="withdraw-disabled"><i class="fa-solid fa-arrow-up"></i><span>${t("提取", "Withdraw")}</span></button><button type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i><span>${t("转账", "Transfer")}</span></button></div></section>
+    <section class="asset-overview-panel account-wallet-card"><div class="account-wallet-tabs"><strong>${t("钱包", "Wallets")} (${totalWallets})</strong><div class="period-switcher">${periods}</div></div><div class="account-balance"><span>${t("链上总余额", "Total on-chain balances")}</span><strong>${portfolio ? escapeHtml(nativeBalances(portfolio.balances)) : "—"}</strong></div><div class="account-profit-grid"><span><small>${t("数据来源", "Data source")}</small><strong>${portfolio?.dataStatus === "live_native_balances" ? t("链上 RPC 实时读取", "Live chain RPC") : "—"}</strong></span><span><small>${t("成交额", "Turnover")}</small><strong>—</strong></span><span><small>${t("已实现盈亏", "Realized P&L")}</small><strong>—</strong></span><span><small>${t("未实现盈亏", "Unrealized P&L")}</small><strong>—</strong></span></div><div class="account-wallet-actions"><button type="button" data-action="deposit-disabled"><i class="fa-solid fa-arrow-down"></i><span>${t("充值", "Deposit")}</span></button><button type="button" data-action="withdraw-disabled"><i class="fa-solid fa-arrow-up"></i><span>${t("提取", "Withdraw")}</span></button><button type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i><span>${t("转账", "Transfer")}</span></button></div></section>
     ${renderTransferPanel()}
     <section class="wallet-groups-layout">
       <div class="wallet-groups-panel"><div class="asset-section-heading"><div><span>${t("钱包组资产", "Wallet-group assets")}</span><h2>${t("钱包组", "Wallet groups")}</h2></div><button class="compact-button" type="button" data-action="open-create-group"><i class="fa-solid fa-plus"></i>${t("新建", "New")}</button></div><div class="wallet-group-list">${groupCards || `<div class="empty-state">${t("还没有钱包组", "No wallet groups yet")}</div>`}</div></div>
-      <div class="wallet-detail-panel"><div class="asset-section-heading"><div><span>${t("钱包组管理", "Wallet-group management")}</span><h2>${selectedGroup ? escapeHtml(selectedGroup.name) : t("选择钱包组", "Select a wallet group")}</h2></div>${selectedGroup && selectedGroup.purpose !== "cooking" ? `<button class="compact-button" type="button" data-action="open-add-wallet"><i class="fa-solid fa-plus"></i>${t("添加钱包", "Add wallets")}</button>` : ""}</div>${selectedGroup ? `<div class="wallet-group-metrics"><span><small>${t("钱包数量", "Wallets")}</small><strong>${selectedGroup.walletCount}</strong></span><span><small>${t("组内资产", "Group assets")}</small><strong>${money(selectedGroup.totalBalance, selectedGroup.balanceAsset)}</strong></span><span><small>${t("钱包组用途", "Group purpose")}</small><strong>${selectedGroup.purpose === "cooking" ? "Cooking" : t("常规", "General")}</strong></span></div><div class="wallet-table-wrap"><table class="wallet-table"><thead><tr><th>${t("钱包", "Wallet")}</th><th>${t("公开地址", "Public address")}</th><th>${t("余额", "Balance")}</th><th>${t("状态", "Status")}</th></tr></thead><tbody>${walletRows || `<tr><td colspan="4" class="empty-state">${t("该组暂无钱包", "No wallets in this group")}</td></tr>`}</tbody></table></div>` : `<div class="empty-state large"><i class="fa-solid fa-layer-group"></i>${t("选择一个钱包组查看明细", "Select a wallet group to view details")}</div>`}</div>
+      <div class="wallet-detail-panel"><div class="asset-section-heading"><div><span>${t("钱包组管理", "Wallet-group management")}</span><h2>${selectedGroup ? escapeHtml(selectedGroup.name) : t("选择钱包组", "Select a wallet group")}</h2></div>${selectedGroup && selectedGroup.purpose !== "cooking" ? `<button class="compact-button" type="button" data-action="open-add-wallet"><i class="fa-solid fa-plus"></i>${t("添加钱包", "Add wallets")}</button>` : ""}</div>${selectedGroup ? `<div class="wallet-group-metrics"><span><small>${t("钱包数量", "Wallets")}</small><strong>${selectedGroup.walletCount}</strong></span><span><small>${t("组内资产", "Group assets")}</small><strong>${escapeHtml(nativeBalances(selectedGroup.balances))}</strong></span><span><small>${t("钱包组用途", "Group purpose")}</small><strong>${selectedGroup.purpose === "cooking" ? "Cooking" : t("常规", "General")}</strong></span></div><div class="wallet-table-wrap"><table class="wallet-table"><thead><tr><th>${t("钱包", "Wallet")}</th><th>${t("公开地址", "Public address")}</th><th>${t("链上余额", "On-chain balance")}</th><th>${t("状态", "Status")}</th></tr></thead><tbody>${walletRows || `<tr><td colspan="4" class="empty-state">${t("该组暂无钱包", "No wallets in this group")}</td></tr>`}</tbody></table></div>` : `<div class="empty-state large"><i class="fa-solid fa-layer-group"></i>${t("选择一个钱包组查看明细", "Select a wallet group to view details")}</div>`}</div>
     </section>`;
   const addWalletButton = viewRoot.querySelector('[data-action="open-add-wallet"]');
   if (addWalletButton) addWalletButton.insertAdjacentHTML("beforebegin", `<button class="compact-button" type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i>${t("转账", "Transfer")}</button>`);
@@ -1133,9 +1141,16 @@ function openAddWallets() {
   if (!state.assets.selectedGroupId) return;
   openModal({
     kicker: t("钱包组管理", "Wallet-group management"),
-    title: t("添加模拟钱包", "Add simulated wallets"),
-    content: `<form class="form-stack" id="addWalletsForm"><label class="field-label">${t("添加数量", "Number to add")}<input class="field-input" name="count" type="number" min="1" max="200" value="1" required /></label><p>${t("钱包仅包含模拟公开地址和余额，不包含任何密钥材料。", "Wallets contain simulated public addresses and balances only, with no key material.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("添加钱包", "Add wallets")}</button></div></form>`,
+    title: t("添加加密钱包", "Add encrypted wallets"),
+    content: `<form class="form-stack" id="addWalletsForm"><label class="field-label">${t("添加数量", "Number to add")}<input class="field-input" name="count" type="number" min="1" max="200" value="1" required /></label><p>${t("将为每个钱包生成真实 Solana 与 EVM 地址，密钥仅以加密密文保存。", "Each wallet receives real Solana and EVM addresses; keys are stored only as encrypted ciphertext.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("添加钱包", "Add wallets")}</button></div></form>`,
   });
+}
+
+function openDepositAddresses() {
+  const selected = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
+  if (!selected || !state.assets.wallets.length) return showToast(t("请先选择钱包组", "Select a wallet group first"));
+  const rows = state.assets.wallets.map((wallet) => `<div class="transfer-pair"><span>${escapeHtml(wallet.label)}</span><div><small>Solana / SOL</small><code>${escapeHtml(wallet.addresses?.solana || "—")}</code><br><small>BSC / BNB</small><code>${escapeHtml(wallet.addresses?.bsc || "—")}</code></div><button class="secondary-button" type="button" data-copy-address="${escapeHtml(wallet.addresses?.solana || "")}">${t("复制 SOL 地址", "Copy SOL address")}</button></div>`).join("");
+  openModal({ kicker: t("真实链上充值", "Live on-chain deposit"), title: `${selected.name} · ${t("充值地址", "Deposit addresses")}`, content: `<p>${t("请仅向对应链地址发送原生资产。Solana 地址接收 SOL，BSC 地址接收 BNB。", "Send native assets only on the matching chain: SOL to Solana addresses and BNB to BSC addresses.")}</p><div class="transfer-pair-list">${rows}</div><div class="modal-actions"><button class="primary-button" type="button" data-modal-action="close">${t("完成", "Done")}</button></div>` });
 }
 
 function openLaunchImageGenerator(mode = "ai") {
@@ -1456,8 +1471,7 @@ viewRoot.addEventListener("click", async (event) => {
     state.assets.transferOpen = true;
     state.assets.transferPreview = null;
     state.assets.transferResult = null;
-    if (event.target.closest(".wallet-detail-panel") && state.assets.selectedGroupId) state.assets.transferSource = state.assets.selectedGroupId;
-    else state.assets.transferSource = "login_wallet";
+    state.assets.transferSource = state.assets.selectedGroupId || state.assets.groups[0]?.groupId || null;
     state.assets.transferDestination = state.assets.groups.find((group) => group.groupId !== state.assets.transferSource)?.groupId || (state.assets.transferSource !== "login_wallet" ? "login_wallet" : null);
     renderAssets();
     document.querySelector(".transfer-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1471,16 +1485,26 @@ viewRoot.addEventListener("click", async (event) => {
     state.assets.transferDestination = previous;
     state.assets.transferPreview = null;
     renderAssets();
-  } else if (action === "deposit-disabled" || action === "withdraw-disabled") {
-    showToast(t("真实充值与提取将在认证和签名服务接入后开放。", "Live deposit and withdrawal require authentication and signing services."));
+  } else if (action === "deposit-disabled") {
+    openDepositAddresses();
+  } else if (action === "withdraw-disabled") {
+    state.assets.transferOpen = true;
+    state.assets.transferSource = state.assets.selectedGroupId || state.assets.groups[0]?.groupId || null;
+    state.assets.transferDestination = "login_wallet";
+    state.assets.transferPreview = null;
+    state.assets.transferResult = null;
+    renderAssets();
+    document.querySelector(".transfer-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   } else if (action === "confirm-transfer-plan") {
     const preview = state.assets.transferPreview;
     if (!preview) return;
+    if (!window.confirm(t(`确认在 ${preview.chain} 上签名并广播 ${preview.estimatedAmount} ${preview.currency}？链上交易不可撤销。`, `Sign and broadcast ${preview.estimatedAmount} ${preview.currency} on ${preview.chain}? This cannot be undone.`))) return;
     try {
       state.assets.transferBusy = true;
       const result = await apiRequest("/api/v1/transfers", { method: "POST", headers: { "Idempotency-Key": preview.idempotencyKey }, body: JSON.stringify({ previewToken: preview.previewToken, confirmationToken: preview.confirmationToken, idempotencyKey: preview.idempotencyKey }) });
       state.assets.transferResult = result;
-      showToast(t("转账计划已保存，真实执行保持关闭。", "Transfer plan saved; live execution remains off."));
+      showToast(result.status === "confirmed" ? t("链上交易已确认", "On-chain transfer confirmed") : `${t("交易状态", "Transfer status")}: ${result.status}`);
+      await loadAssets();
     } catch (error) { showToast(error.message); }
     finally { state.assets.transferBusy = false; renderAssets(); }
   }
@@ -1495,7 +1519,7 @@ viewRoot.addEventListener("submit", async (event) => {
     state.assets.transferResult = null;
     renderAssets();
     try {
-      const preview = await apiRequest("/api/v1/transfers/preview", { method: "POST", body: JSON.stringify({ source: transferEndpointValue(state.assets.transferSource), destination: transferEndpointValue(state.assets.transferDestination), amountMode: "fraction", fractionBps: state.assets.transferFraction * 100, distribution: "equal", idempotencyKey }) });
+      const preview = await apiRequest("/api/v1/transfers/preview", { method: "POST", body: JSON.stringify({ chain: state.assets.transferChain, source: transferEndpointValue(state.assets.transferSource), destination: transferEndpointValue(state.assets.transferDestination), amountMode: "fraction", fractionBps: state.assets.transferFraction * 100, distribution: "equal", idempotencyKey }) });
       state.assets.transferPreview = { ...preview, idempotencyKey };
     } catch (error) { showToast(error.message); }
     finally { state.assets.transferBusy = false; renderAssets(); }
@@ -1570,12 +1594,23 @@ viewRoot.addEventListener("input", (event) => {
     if (label) label.textContent = `${state.assets.transferFraction}%`;
     return;
   }
+  if (event.target.id === "transferExternalAddress") {
+    state.assets.transferExternalAddress = event.target.value;
+    state.assets.transferPreview = null;
+    return;
+  }
   if (event.target.id !== "agentInput") return;
   event.target.style.height = "auto";
   event.target.style.height = `${Math.min(event.target.scrollHeight, 144)}px`;
 });
 
 viewRoot.addEventListener("change", (event) => {
+  if (event.target.id === "transferChain") {
+    state.assets.transferChain = event.target.value;
+    state.assets.transferPreview = null;
+    renderAssets();
+    return;
+  }
   if (event.target.id === "buyAllocationMode") {
     const random = event.target.value === "TOTAL_RANDOM";
     const equalField = document.querySelector("#equalBoundBuyAmountField");
@@ -1612,7 +1647,13 @@ viewRoot.addEventListener("change", (event) => {
   }
 });
 
-modal.addEventListener("click", (event) => {
+modal.addEventListener("click", async (event) => {
+  const copyAddress = event.target.closest("[data-copy-address]")?.dataset.copyAddress;
+  if (copyAddress) {
+    await navigator.clipboard.writeText(copyAddress);
+    showToast(t("地址已复制", "Address copied"));
+    return;
+  }
   const action = event.target.closest("[data-modal-action]")?.dataset.modalAction;
   if (action === "close") closeModal();
   if (action === "agent") {
