@@ -67,3 +67,19 @@
 - No live execution is pending.
 - No remote push was performed.
 - Daily report: `coordination/DAILY_REPORT_2026-07-16_CN.md`.
+
+## 2026-07-17 launch-bound-buy integration
+
+- Replaced the provisional Launch follow-buy contract with `boundBuy`.
+- Launch supports disabled mode or T1-T5 block-offset execution; T0 is rejected with `T0_BUNDLE_UNAVAILABLE` until a reviewed bundle relay is configured.
+- Launch allocation is now per-wallet equal or per-wallet custom. Random and ladder allocation were removed from the Launch execution path.
+- The coordinator records the confirmed launch block, waits for the selected target block, applies a deadline window, and stores per-wallet bound-buy results.
+- Safe retry operates only on failed bound-buy wallet entries.
+- Launch UI now labels the feature 发射绑定买入, selects T1-T5, accepts a per-wallet amount, and previews the wallet-group total budget.
+- Shared contract commit: `70ac3a7`.
+- Execution integration commit: `fe6c3ce` (source role commit `7c26871`).
+- Backend integration commit: `7152223` (source role commit `9893bb0`).
+- Frontend integration commit: `0c2b44b` (source role commit `873e1ee`).
+- Verification: frontend/root syntax check passed; backend 40/40; execution 37/37.
+- Real execution remains disabled. No transaction or fund movement occurred.
+- Remaining blocker: true T0 requires platform-specific deterministic addressing, pre-signing, and a reviewed Solana/BSC bundle relay implementation.
