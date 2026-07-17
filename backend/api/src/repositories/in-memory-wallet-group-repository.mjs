@@ -42,12 +42,13 @@ export class InMemoryWalletGroupRepository {
     return group ? this.#publicGroup(group) : null;
   }
 
-  createGroup({ name, walletCount, purpose = "general" }) {
+  createGroup({ name, walletCount, purpose = "general", network = "solana" }) {
     const now = new Date().toISOString();
     const group = {
       groupId: randomUUID(),
       name,
       purpose,
+      network,
       walletIds: [],
       createdAt: now,
       updatedAt: now,
@@ -238,6 +239,7 @@ export class InMemoryWalletGroupRepository {
       groupId: group.groupId,
       name: group.name,
       purpose: group.purpose,
+      network: group.network || "multi",
       walletCount: wallets.length,
       totalBalance: addMoney(wallets.map(({ balance }) => balance)),
       balanceAsset: "USD",
@@ -313,7 +315,13 @@ export class InMemoryWalletGroupRepository {
     try {
       const payload = JSON.parse(readFileSync(this.#filePath, "utf8"));
       if (payload?.format !== "narraops-wallet-groups-v1" || !Array.isArray(payload.groups) || !Array.isArray(payload.wallets)) return false;
-      this.#groups = new Map(payload.groups.map((group) => [group.groupId, group]));
+      this.#groups = new Map(payload.groups.map((group) => {
+        if (!group.network) {
+          const evmHint = /(?:four|bsc|evm|pons|robinhood)/i.test(group.name || "");
+          group.network = evmHint ? "evm" : "solana";
+        }
+        return [group.groupId, group];
+      }));
       this.#wallets = new Map(payload.wallets.map((wallet) => [wallet.walletId, wallet]));
       return true;
     } catch {

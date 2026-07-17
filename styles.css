@@ -19,6 +19,43 @@
   --container: 1480px;
 }
 
+/* Compact Assets workspace */
+.compact-assets-page { padding: 34px 32px 72px; max-width: 1680px; margin: 0 auto; }
+.compact-assets-header { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:18px; }
+.compact-assets-header span { color:var(--green); font-size:12px; font-weight:800; letter-spacing:.08em; }
+.compact-assets-header h1 { margin:5px 0 0; font-size:34px; }
+.asset-primary-tabs { display:flex; gap:28px; border-bottom:1px solid var(--line); margin-bottom:18px; }
+.asset-primary-tabs button { border:0; background:none; color:var(--muted); font:inherit; font-size:20px; font-weight:800; padding:0 0 12px; cursor:pointer; border-bottom:3px solid transparent; }
+.asset-primary-tabs button.active { color:var(--text); border-color:var(--green); }
+.asset-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:18px; min-height:42px; }
+.compact-select,.balance-chip { height:42px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--text); padding:0 14px; font:inherit; }
+.balance-chip { display:flex; align-items:center; gap:6px; }
+.toolbar-spacer { flex:1; }
+.primary-button.compact { min-height:42px; padding:0 15px; }
+.compact-data-panel { border:1px solid var(--line); border-radius:14px; background:var(--panel); overflow:hidden; }
+.compact-panel-tabs { min-height:58px; padding:0 18px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--line); }
+.compact-panel-tabs button { border:0; border-radius:8px; background:var(--text); color:var(--page); padding:9px 14px; font-weight:800; }
+.compact-panel-tabs span { margin-left:auto; color:var(--muted); font-size:13px; }
+.compact-table-wrap { width:100%; overflow:auto; }
+.compact-asset-table { width:100%; border-collapse:collapse; min-width:780px; }
+.compact-asset-table th { text-align:left; color:var(--muted); font-size:12px; font-weight:700; padding:12px 18px; background:rgba(255,255,255,.025); }
+.compact-asset-table td { padding:15px 18px; border-top:1px solid var(--line); vertical-align:middle; }
+.compact-asset-table tbody tr:hover,.compact-asset-table .selected-row { background:rgba(80,230,139,.055); }
+.compact-token,.group-name-button { display:flex; align-items:center; gap:10px; }
+.compact-token i,.group-name-button>i { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; color:var(--green); background:rgba(80,230,139,.12); }
+.group-name-button { border:0; background:none; color:var(--text); text-align:left; cursor:pointer; padding:0; }
+.group-name-button span { display:flex; flex-direction:column; gap:3px; }
+.group-name-button small { color:var(--muted); }
+.network-badge { display:inline-flex; border:1px solid var(--line); border-radius:999px; padding:4px 9px; font-size:12px; font-weight:800; }
+.table-action { border:1px solid var(--line); background:transparent; color:var(--text); border-radius:8px; padding:7px 11px; cursor:pointer; }
+.compact-group-detail { border-top:1px solid var(--line); padding:20px 18px 10px; }
+.detail-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.detail-heading h2 { margin:4px 0 0; font-size:22px; }.detail-heading>div:last-child { display:flex; gap:8px; }
+.transfer-summary-line { display:flex; align-items:center; gap:10px; padding:13px 14px; border:1px solid var(--line); border-radius:10px; }
+.transfer-summary-line strong { flex:1; }.compact-range>div { display:flex; justify-content:space-between; margin-bottom:8px; }.compact-range input { width:100%; accent-color:var(--green); }
+.compact-transfer-preview { margin-top:16px; border-top:1px solid var(--line); padding-top:16px; display:flex; align-items:center; gap:14px; }.compact-transfer-preview span { color:var(--muted); }.compact-transfer-preview button { margin-left:auto; }
+@media(max-width:760px){.compact-assets-page{padding:22px 14px 56px}.asset-toolbar{align-items:stretch;flex-wrap:wrap}.toolbar-spacer{display:none}.compact-assets-header h1{font-size:28px}.detail-heading{align-items:flex-start;gap:12px;flex-direction:column}.compact-transfer-preview{align-items:stretch;flex-direction:column}.compact-transfer-preview button{margin-left:0}}
+
 :root[data-theme="soft"] {
   --page: #0d1110;
   --surface: #171c19;

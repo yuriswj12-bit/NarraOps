@@ -390,7 +390,7 @@ export function createApplication({ config, logger, repository, conversationRepo
           const group = walletGroups.createGroup(input);
           if (walletProvisioningService) {
             for (const wallet of walletGroups.listWallets(group.groupId)) {
-              walletGroups.activateWallet(wallet.walletId, await walletProvisioningService.provision({ walletId: wallet.walletId }));
+              walletGroups.activateWallet(wallet.walletId, await walletProvisioningService.provision({ walletId: wallet.walletId, network: group.network }));
             }
           }
           sendJson(res, 201, walletGroups.getGroup(group.groupId), requestId);
@@ -436,7 +436,8 @@ export function createApplication({ config, logger, repository, conversationRepo
           const input = validateWalletAdd(body);
           const created = walletGroups.addWallets(addWalletsMatch[1], input.count);
           if (walletProvisioningService) {
-            for (const wallet of created) walletGroups.activateWallet(wallet.walletId, await walletProvisioningService.provision({ walletId: wallet.walletId }));
+            const group = walletGroups.getGroup(addWalletsMatch[1]);
+            for (const wallet of created) walletGroups.activateWallet(wallet.walletId, await walletProvisioningService.provision({ walletId: wallet.walletId, network: group.network }));
           }
           sendJson(res, 201, {
             mode: walletGroups.mode(),

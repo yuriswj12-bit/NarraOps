@@ -21,7 +21,7 @@ const walletGroupRepository = new InMemoryWalletGroupRepository({ seed: !walletP
 if (walletProvisioningService) {
   for (const group of walletGroupRepository.listGroups()) {
     for (const wallet of walletGroupRepository.listWallets(group.groupId).filter(({ provisioningStatus }) => provisioningStatus !== "active")) {
-      walletGroupRepository.activateWallet(wallet.walletId, await walletProvisioningService.provision({ walletId: wallet.walletId }));
+      walletGroupRepository.activateWallet(wallet.walletId, await walletProvisioningService.provision({ walletId: wallet.walletId, network: group.network }));
     }
   }
 }

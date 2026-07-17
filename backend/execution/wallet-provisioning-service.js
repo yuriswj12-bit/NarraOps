@@ -12,23 +12,26 @@ export class WalletProvisioningService {
     this.password = password;
   }
 
-  async provision({ walletId = randomUUID() } = {}) {
-    const evm = Wallet.createRandom();
-    const solana = Keypair.generate();
+  async provision({ walletId = randomUUID(), network = "multi" } = {}) {
+    if (!["solana", "evm", "multi"].includes(network)) throw new ExecutionError("WALLET_NETWORK_UNSUPPORTED", "Wallet network must be solana or evm");
+    const evm = network !== "solana" ? Wallet.createRandom() : null;
+    const solana = network !== "evm" ? Keypair.generate() : null;
     const evmReferenceId = `${walletId}:evm`;
     const solanaReferenceId = `${walletId}:solana`;
-    const solanaPrivateKey = Buffer.from(solana.secretKey).toString("base64");
+    const solanaPrivateKey = solana ? Buffer.from(solana.secretKey).toString("base64") : null;
     try {
-      await this.walletRepository.putEncryptedWallet(sealWalletSecret({ walletReferenceId: evmReferenceId, publicAddress: evm.address, privateKey: evm.privateKey, password: this.password }));
-      await this.walletRepository.putEncryptedWallet(sealWalletSecret({ walletReferenceId: solanaReferenceId, publicAddress: solana.publicKey.toBase58(), privateKey: solanaPrivateKey, password: this.password }));
+      if (evm) await this.walletRepository.putEncryptedWallet(sealWalletSecret({ walletReferenceId: evmReferenceId, publicAddress: evm.address, privateKey: evm.privateKey, password: this.password }));
+      if (solana) await this.walletRepository.putEncryptedWallet(sealWalletSecret({ walletReferenceId: solanaReferenceId, publicAddress: solana.publicKey.toBase58(), privateKey: solanaPrivateKey, password: this.password }));
     } finally {
-      solana.secretKey.fill(0);
+      solana?.secretKey.fill(0);
     }
+    const evmAddress = evm?.address;
+    const solanaAddress = solana?.publicKey.toBase58();
     return {
       walletId,
-      publicAddress: evm.address,
-      addresses: { bsc: evm.address, robinhood: evm.address, solana: solana.publicKey.toBase58() },
-      signerReferences: { evm: evmReferenceId, solana: solanaReferenceId },
+      publicAddress: evmAddress || solanaAddress,
+      addresses: { ...(evmAddress ? { bsc: evmAddress, robinhood: evmAddress } : {}), ...(solanaAddress ? { solana: solanaAddress } : {}) },
+      signerReferences: { ...(evmAddress ? { evm: evmReferenceId } : {}), ...(solanaAddress ? { solana: solanaReferenceId } : {}) },
       custodyMode: "narraops_encrypted_vault",
       provisioningStatus: "active",
       exportEligible: false,
