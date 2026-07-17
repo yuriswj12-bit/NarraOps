@@ -353,13 +353,13 @@ components:
       properties:
         enabled: { type: boolean }
         walletGroupId: { type: string, minLength: 1, maxLength: 64 }
-        timing:
+        window:
           type: object
           additionalProperties: false
-          required: [mode, blockOffset]
+          required: [earliestBlockOffset, latestBlockOffset]
           properties:
-            mode: { type: string, enum: [T0_BUNDLE, BLOCK_OFFSET] }
-            blockOffset: { type: integer, minimum: 0, maximum: 5 }
+            earliestBlockOffset: { type: integer, const: 1 }
+            latestBlockOffset: { type: integer, const: 5 }
         allocation:
           type: object
           additionalProperties: false
