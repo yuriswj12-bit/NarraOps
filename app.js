@@ -1173,6 +1173,19 @@ function openOnboarding() {
   openModal({ kicker: "NarraOps", title: t("欢迎来到 Agentic Meme Launch OS", "Welcome to the Agentic Meme Launch OS"), content: `<p class="onboarding-lead">${t("从叙事发现到链上发射、钱包组运营，NarraOps 把完整工作流放在一个控制台中。", "From narrative discovery to on-chain launch and wallet operations, NarraOps keeps the workflow in one console.")}</p><div class="onboarding-grid"><article><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Go</strong><span>${t("让 Agent 搜索叙事、生成素材并组织任务。", "Discover narratives, generate assets, and orchestrate work.")}</span></article><article><i class="fa-solid fa-rocket"></i><strong>Launch</strong><span>${t("连接 Cooking 钱包并在支持的平台真实发射。", "Launch on supported platforms with a Cooking wallet.")}</span></article><article><i class="fa-solid fa-wave-square"></i><strong>Pulse</strong><span>${t("追踪信号、链上状态和执行进度。", "Track signals, on-chain state, and execution progress.")}</span></article><article><i class="fa-solid fa-wallet"></i><strong>Assets</strong><span>${t("查看登录钱包、创建钱包组并管理真实资产。", "View login wallets, create groups, and manage live assets.")}</span></article></div><button class="primary-button onboarding-start" type="button" data-modal-action="complete-onboarding">${t("我知道了，开始使用", "Got it, start using NarraOps")}</button>` });
 }
 
+async function linkSolanaIdentity(provider) {
+  if (!provider?.connect || !provider?.signMessage) return false;
+  const connection = await provider.connect();
+  const address = (connection.publicKey || provider.publicKey).toString();
+  if (state.auth.session?.user?.identities?.some((identity) => identity.address === address)) return true;
+  const challenge = await apiRequest("/api/v1/auth/web3/challenge", { method: "POST", body: JSON.stringify({ chain: "solana", address }) });
+  const signed = await provider.signMessage(new TextEncoder().encode(challenge.message), "utf8");
+  const bytes = signed.signature || signed;
+  const signature = btoa(Array.from(bytes, (value) => String.fromCharCode(value)).join(""));
+  state.auth.session = await apiRequest("/api/v1/auth/web3/link", { method: "POST", body: JSON.stringify({ challengeId: challenge.challengeId, signature }) });
+  return true;
+}
+
 async function web3Login(walletId) {
   if (state.auth.busy) return;
   state.auth.busy = true;
@@ -1188,6 +1201,10 @@ async function web3Login(walletId) {
       const challenge = await apiRequest("/api/v1/auth/web3/challenge", { method: "POST", body: JSON.stringify({ chain, address, chainId }) });
       signature = await provider.request({ method: "personal_sign", params: [challenge.message, address] });
       state.auth.session = await apiRequest("/api/v1/auth/web3/verify", { method: "POST", body: JSON.stringify({ challengeId: challenge.challengeId, signature }) });
+      if (walletId === "okx" && window.okxwallet?.solana) {
+        try { await linkSolanaIdentity(window.okxwallet.solana); }
+        catch { showToast(t("钱包已连接，但 SOL 地址关联未完成，请重新连接后确认两次签名。", "Wallet connected, but the SOL address was not linked. Reconnect and approve both signatures.")); }
+      }
     } else {
       const provider = selection.provider;
       if (!provider?.connect || !provider?.signMessage) throw new Error(t("未检测到该钱包，请确认扩展已安装并启用。", "Wallet not detected. Make sure the extension is installed and enabled."));

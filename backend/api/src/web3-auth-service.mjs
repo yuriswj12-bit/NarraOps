@@ -63,15 +63,7 @@ export class Web3AuthService {
   }
 
   verify({ challengeId, signature }) {
-    const challenge = this.challenges.get(challengeId);
-    this.challenges.delete(challengeId);
-    if (!challenge || challenge.used || Date.parse(challenge.expiresAt) <= this.now()) throw new ApiError(400, "AUTH_CHALLENGE_INVALID", "Login challenge is missing, used, or expired");
-    let valid = false;
-    try {
-      if (challenge.chain === "evm") valid = safeEqual(getAddress(verifyMessage(challenge.message, signature)), challenge.address);
-      else valid = nacl.sign.detached.verify(Buffer.from(challenge.message, "utf8"), Buffer.from(signature, "base64"), bs58.decode(challenge.address));
-    } catch { valid = false; }
-    if (!valid) throw new ApiError(401, "WALLET_SIGNATURE_INVALID", "Wallet signature could not be verified");
+    const challenge = this.#verifyChallenge({ challengeId, signature });
     const identityKey = `${challenge.chain}:${challenge.address.toLowerCase()}`;
     let user = this.store.users.find((item) => item.identities.some((identity) => `${identity.chain}:${identity.address.toLowerCase()}` === identityKey));
     const now = new Date(this.now()).toISOString();
@@ -85,6 +77,23 @@ export class Web3AuthService {
     this.store.sessions.push(session);
     this.#save();
     return { token, maxAge: Math.floor(SESSION_TTL_MS / 1000), session: this.publicSession(user, session) };
+  }
+
+  linkIdentity(cookieHeader, { challengeId, signature }) {
+    const authenticated = this.authenticate(cookieHeader);
+    if (!authenticated) throw new ApiError(401, "AUTHENTICATION_REQUIRED", "Sign in before linking another wallet address");
+    const challenge = this.#verifyChallenge({ challengeId, signature });
+    const identityKey = `${challenge.chain}:${challenge.address.toLowerCase()}`;
+    const owner = this.store.users.find((item) => item.identities.some((identity) => `${identity.chain}:${identity.address.toLowerCase()}` === identityKey));
+    if (owner && owner.userId !== authenticated.user.userId) throw new ApiError(409, "WALLET_IDENTITY_ALREADY_LINKED", "This wallet address belongs to another account");
+    const user = this.store.users.find(({ userId }) => userId === authenticated.user.userId);
+    if (!owner) {
+      const now = new Date(this.now()).toISOString();
+      user.identities.push({ chain: challenge.chain, address: challenge.address, createdAt: now });
+      user.updatedAt = now;
+      this.#save();
+    }
+    return this.authenticate(cookieHeader);
   }
 
   authenticate(cookieHeader) {
@@ -115,6 +124,19 @@ export class Web3AuthService {
 
   publicSession(user, session) {
     return { authenticated: true, user: { userId: user.userId, identities: user.identities, primaryIdentity: user.primaryIdentity, onboardingCompleted: user.onboardingCompleted === true }, expiresAt: session.expiresAt };
+  }
+
+  #verifyChallenge({ challengeId, signature }) {
+    const challenge = this.challenges.get(challengeId);
+    this.challenges.delete(challengeId);
+    if (!challenge || challenge.used || Date.parse(challenge.expiresAt) <= this.now()) throw new ApiError(400, "AUTH_CHALLENGE_INVALID", "Login challenge is missing, used, or expired");
+    let valid = false;
+    try {
+      if (challenge.chain === "evm") valid = safeEqual(getAddress(verifyMessage(challenge.message, signature)), challenge.address);
+      else valid = nacl.sign.detached.verify(Buffer.from(challenge.message, "utf8"), Buffer.from(signature, "base64"), bs58.decode(challenge.address));
+    } catch { valid = false; }
+    if (!valid) throw new ApiError(401, "WALLET_SIGNATURE_INVALID", "Wallet signature could not be verified");
+    return challenge;
   }
 
   #load() {

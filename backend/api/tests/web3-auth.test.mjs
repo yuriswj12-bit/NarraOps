@@ -38,6 +38,13 @@ test("EVM wallet challenge creates an HttpOnly session and cannot be replayed", 
   assert.equal(session.authenticated, true);
   assert.equal(session.user.identities[0].address, wallet.address);
   assert.equal(session.user.onboardingCompleted, false);
+  const solanaWallet = nacl.sign.keyPair();
+  const solanaAddress = bs58.encode(solanaWallet.publicKey);
+  const solanaChallenge = await post(baseUrl, "/api/v1/auth/web3/challenge", { chain: "solana", address: solanaAddress }).then((response) => response.json());
+  const solanaSignature = Buffer.from(nacl.sign.detached(Buffer.from(solanaChallenge.message, "utf8"), solanaWallet.secretKey)).toString("base64");
+  const linked = await post(baseUrl, "/api/v1/auth/web3/link", { challengeId: solanaChallenge.challengeId, signature: solanaSignature }, cookie);
+  assert.equal(linked.status, 200);
+  assert.deepEqual((await linked.json()).user.identities.map(({ chain }) => chain), ["evm", "solana"]);
   const onboarding = await post(baseUrl, "/api/v1/auth/onboarding/complete", {}, cookie);
   assert.equal(onboarding.status, 200);
   assert.equal((await fetch(`${baseUrl}/api/v1/auth/session`, { headers: { cookie } }).then((response) => response.json())).user.onboardingCompleted, true);
