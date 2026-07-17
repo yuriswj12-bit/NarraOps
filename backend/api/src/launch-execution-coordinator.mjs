@@ -1,6 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { ApiError } from "./errors.mjs";
-import { parseUnits } from "ethers";
+import { formatUnits, parseUnits } from "ethers";
 
 const digest = (value) => createHash("sha256").update(value).digest();
 
@@ -25,12 +25,25 @@ export class LaunchExecutionCoordinator {
       const challenge = await this.launchService.requestFourMemeLogin({ address: cooking.publicAddress });
       loginSignature = await this.signingService.signEvmMessage({ walletReferenceId: cooking.walletReferenceId, password: this.vaultPassword, message: challenge.message });
     }
-    const plan = await this.launchService.plan({ ...input, walletAddress: cooking.publicAddress, loginSignature });
     const executionId = randomUUID();
+    const plan = await this.launchService.plan({ ...input, walletAddress: cooking.publicAddress, loginSignature });
+    let preparedBoundBuys = [];
+    if (input.boundBuy.enabled) {
+      if (!this.followBuyExecutor) throw new ApiError(503, "BOUND_BUY_EXECUTION_UNAVAILABLE", "Launch-bound-buy execution is not configured");
+      const wallets = this.walletGroups.getExecutionWallets(input.boundBuy.walletGroupId, chain);
+      const decimals = input.platform === "pump" ? 9 : 18;
+      const source = input.boundBuy.allocation;
+      const allocation = source.mode === "PER_WALLET_EQUAL"
+        ? { mode: source.mode, amountPerWalletAtomic: parseUnits(source.amountPerWallet, decimals).toString() }
+        : source.mode === "TOTAL_RANDOM"
+          ? { mode: source.mode, totalAmountAtomic: parseUnits(source.totalAmount, decimals).toString(), seed: executionId }
+          : { mode: source.mode, customAmountsAtomic: source.customAmounts.map(({ walletId, amount }) => ({ walletId, amountAtomic: parseUnits(amount, decimals).toString() })) };
+      preparedBoundBuys = this.followBuyExecutor.prepareAllocation({ wallets, allocation }).map(({ walletId, amountAtomic }) => ({ walletId, amountAtomic, amount: formatUnits(amountAtomic, decimals), status: "planned" }));
+    }
     const confirmationToken = randomUUID();
     const expiresAt = this.now() + 5 * 60_000;
-    this.repository.create({ executionId, platform: input.platform, plan, walletReferenceId: cooking.walletReferenceId, boundBuy: input.boundBuy, tokenHash: digest(confirmationToken).toString("hex"), expiresAt, status: "requires_user_confirmation", createdAt: new Date(this.now()).toISOString() });
-    return { executionId, platform: input.platform, chain, status: "requires_user_confirmation", confirmationToken, expiresAt: new Date(expiresAt).toISOString(), summary: { name: input.name, symbol: input.symbol, developerBuyAmount: input.developerBuyAmount, cookingWalletGroupId: input.cookingWalletGroupId, boundBuy: input.boundBuy } };
+    this.repository.create({ executionId, platform: input.platform, plan, walletReferenceId: cooking.walletReferenceId, boundBuy: input.boundBuy, preparedBoundBuys, tokenHash: digest(confirmationToken).toString("hex"), expiresAt, status: "requires_user_confirmation", createdAt: new Date(this.now()).toISOString() });
+    return { executionId, platform: input.platform, chain, status: "requires_user_confirmation", confirmationToken, expiresAt: new Date(expiresAt).toISOString(), summary: { name: input.name, symbol: input.symbol, developerBuyAmount: input.developerBuyAmount, cookingWalletGroupId: input.cookingWalletGroupId, boundBuy: input.boundBuy, preparedBoundBuys } };
   }
 
   async confirm({ executionId, confirmationToken }) {
@@ -52,11 +65,7 @@ export class LaunchExecutionCoordinator {
       }
       const chain = execution.platform === "pump" ? "solana" : "bsc";
       const wallets = this.walletGroups.getExecutionWallets(execution.boundBuy.walletGroupId, chain);
-      const decimals = execution.platform === "pump" ? 9 : 18;
-      const sourceAllocation = execution.boundBuy.allocation;
-      const allocation = sourceAllocation.mode === "PER_WALLET_EQUAL"
-        ? { mode: sourceAllocation.mode, amountPerWalletAtomic: parseUnits(sourceAllocation.amountPerWallet, decimals).toString() }
-        : { mode: sourceAllocation.mode, customAmountsAtomic: sourceAllocation.customAmounts.map(({ walletId, amount }) => ({ walletId, amountAtomic: parseUnits(amount, decimals).toString() })) };
+      const allocation = { mode: "PER_WALLET_CUSTOM", customAmountsAtomic: execution.preparedBoundBuys.map(({ walletId, amountAtomic }) => ({ walletId, amountAtomic })) };
       execution = this.repository.update(executionId, { status: "waiting_bound_buy_block" }, "bound_buys.waiting_for_block");
       const timing = await this.confirmationProvider.waitForBoundBuyWindow({ platform: execution.platform, launchBlockNumber: confirmation.blockNumber });
       execution = this.repository.update(executionId, { status: "bound_buy_signing", boundBuyEarliestBlock: timing.earliestBlock, boundBuyLatestBlock: timing.latestBlock, boundBuyObservedBlock: timing.observedBlock, boundBuyActualOffset: timing.actualOffset });
