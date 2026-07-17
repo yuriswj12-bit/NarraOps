@@ -21,7 +21,7 @@ const TASK_TYPES = new Set([
   "account.recent-summary",
 ]);
 const CHAINS = new Set(["solana", "bsc", "robinhood"]);
-const PORTFOLIO_PERIODS = new Set(["1d", "7d", "30d", "all"]);
+const PORTFOLIO_PERIODS = new Set(["1d", "3d", "7d", "30d", "90d", "all"]);
 const MONEY_PATTERN = /^(?:0|[1-9]\d{0,17})(?:\.\d{1,18})?$/;
 
 function isObject(value) {
@@ -268,7 +268,7 @@ export function validateConversationMessage(body) {
 export function validatePortfolioPeriod(value) {
   const period = value || "7d";
   if (!PORTFOLIO_PERIODS.has(period)) {
-    throw new ApiError(400, "VALIDATION_ERROR", "period must be 1d, 7d, 30d, or all");
+    throw new ApiError(400, "VALIDATION_ERROR", "period must be 1d, 3d, 7d, 30d, 90d, or all");
   }
   return period;
 }

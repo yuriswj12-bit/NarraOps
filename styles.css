@@ -55,6 +55,21 @@
 .transfer-summary-line strong { flex:1; }.compact-range>div { display:flex; justify-content:space-between; margin-bottom:8px; }.compact-range input { width:100%; accent-color:var(--green); }
 .compact-transfer-preview { margin-top:16px; border-top:1px solid var(--line); padding-top:16px; display:flex; align-items:center; gap:14px; }.compact-transfer-preview span { color:var(--muted); }.compact-transfer-preview button { margin-left:auto; }
 @media(max-width:760px){.compact-assets-page{padding:22px 14px 56px}.asset-toolbar{align-items:stretch;flex-wrap:wrap}.toolbar-spacer{display:none}.compact-assets-header h1{font-size:28px}.detail-heading{align-items:flex-start;gap:12px;flex-direction:column}.compact-transfer-preview{align-items:stretch;flex-direction:column}.compact-transfer-preview button{margin-left:0}}
+.assets-v3 .asset-primary-tabs { gap:32px; }
+.pnl-toolbar-periods { display:flex; justify-content:flex-end; gap:4px; margin:-54px 0 18px; }
+.pnl-toolbar-periods button { border:0; background:transparent; color:var(--muted); border-radius:8px; padding:9px 12px; cursor:pointer; font-weight:700; }
+.pnl-toolbar-periods button.active { color:var(--text); background:var(--surface-2); }
+.pnl-metric-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
+.pnl-metric-grid article { min-height:330px; border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:20px; display:flex; flex-direction:column; }
+.pnl-metric-grid article>span { color:var(--muted); font-size:14px; }.pnl-metric-grid article>strong { font-size:29px; margin-top:16px; }.pnl-metric-grid article>strong small { font-size:14px; }
+.pnl-flat-line { flex:1; border-bottom:1px dashed var(--line-strong); margin:20px 0; }.pnl-metric-grid footer { display:grid; grid-template-columns:1fr auto; gap:7px 10px; }.pnl-metric-grid small { color:var(--muted); }
+.empty-bars { flex:1; display:flex; align-items:flex-end; justify-content:center; gap:30px; padding:25px 8px 8px; }.empty-bars i { display:block; width:34px; border-radius:18px; background:var(--line-strong); }.empty-bars i:nth-child(1){height:58%}.empty-bars i:nth-child(2){height:42%}.empty-bars i:nth-child(3){height:33%}
+.pnl-distribution,.pnl-market-cap { margin-top:auto; display:flex; flex-direction:column; gap:10px; font-size:13px; }.pnl-distribution header,.pnl-market-cap header { display:flex; justify-content:space-between; color:var(--muted); }.pnl-distribution>span,.pnl-market-cap>span { display:flex; justify-content:space-between; }.pnl-distribution b,.pnl-market-cap b { color:var(--green); }.pnl-turnover { margin-top:auto; display:grid; grid-template-columns:1fr auto; gap:10px; }.pnl-turnover i { grid-column:1/-1; height:6px; background:var(--line-strong); }.pnl-turnover span { font-size:13px; }
+.pnl-ledger-tabs { display:flex; align-items:center; gap:8px; margin-top:24px; }.pnl-ledger-tabs button { border:0; border-radius:8px; background:var(--surface-2); color:var(--text); padding:10px 14px; font-weight:700; }.pnl-ledger-tabs button.active { background:var(--text); color:var(--page); }.pnl-ledger-tabs span { margin-left:8px; color:var(--muted); font-size:13px; }
+.pnl-empty-ledger { min-height:280px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; color:var(--muted); }.pnl-empty-ledger i { font-size:46px; color:var(--line-strong); }.pnl-empty-ledger strong { color:var(--text); font-size:17px; }.pnl-empty-ledger span { max-width:560px; text-align:center; }
+.asset-share-bar { display:inline-block; width:120px; height:7px; background:var(--line); border-radius:999px; margin-right:12px; overflow:hidden; }.asset-share-bar i { display:block; height:100%; background:var(--green); border-radius:inherit; }
+@media(max-width:1200px){.pnl-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pnl-metric-grid article:last-child{grid-column:1/-1}.pnl-toolbar-periods{margin:0 0 14px}}
+@media(max-width:700px){.pnl-metric-grid{grid-template-columns:1fr}.pnl-metric-grid article:last-child{grid-column:auto}.pnl-ledger-tabs{overflow:auto}.assets-v3 .asset-primary-tabs{gap:18px}.asset-primary-tabs button{font-size:17px}}
 
 :root[data-theme="soft"] {
   --page: #0d1110;
