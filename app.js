@@ -10,6 +10,7 @@ const notificationMenu = document.querySelector("#notificationMenu");
 const languageButton = document.querySelector("#languageButton");
 const languageMenu = document.querySelector("#languageMenu");
 const themeButton = document.querySelector("#themeButton");
+const accountAssetsButton = document.querySelector("#accountAssetsButton");
 
 const allowedViews = new Set(["pulse", "go", "launch", "invite", "assets"]);
 const storedLanguage = localStorage.getItem("narraops-language");
@@ -75,6 +76,7 @@ const state = {
     transferResult: null,
     transferBusy: false,
     launchGroupsLoading: false,
+    accountAssetChain: "solana",
   },
 };
 
@@ -1033,6 +1035,83 @@ function sumAssetBalance(asset) {
   return total;
 }
 
+function accountWallet(chain = state.assets.accountAssetChain) {
+  return state.assets.loginWallets.find((wallet) => chain === "solana" ? wallet.chain === "solana" : wallet.chain !== "solana") || null;
+}
+
+function accountWalletBalance(chain = state.assets.accountAssetChain) {
+  const wallet = accountWallet(chain);
+  const unit = chain === "solana" ? "SOL" : "BNB";
+  const balance = Object.values(wallet?.balances || {}).find((item) => item.asset === unit && item.status === "live");
+  return { wallet, unit, amount: balance?.amount || "0" };
+}
+
+function accountChainOptions(chain) {
+  return `<option value="solana" ${chain === "solana" ? "selected" : ""}>Solana · SOL</option><option value="bsc" ${chain === "bsc" ? "selected" : ""}>BSC · BNB</option>`;
+}
+
+function openAccountAssets(mode = "overview") {
+  const chain = state.assets.accountAssetChain;
+  const { wallet, unit, amount } = accountWalletBalance(chain);
+  const address = wallet?.address || "";
+  const selector = `<label class="account-chain-select"><span>${t("链", "Network")}</span><select class="field-select" id="accountAssetChain">${accountChainOptions(chain)}</select></label>`;
+  if (mode === "deposit") {
+    openModal({ kicker: t("账户资产", "Account assets"), title: t("充币", "Deposit"), content: `<div class="account-asset-flow" data-account-mode="deposit">${selector}<div class="account-address-card"><span>${t("充币地址", "Deposit address")}</span><strong>${address ? escapeHtml(address) : t("未连接该链地址", "No address connected for this network")}</strong>${address ? `<button type="button" data-copy-address="${escapeHtml(address)}"><i class="fa-regular fa-copy"></i>${t("复制", "Copy")}</button>` : ""}</div><div class="account-asset-balance"><span>${t("当前余额", "Current balance")}</span><strong>${escapeHtml(amount)} ${unit}</strong></div><button class="primary-button account-wide-action" type="button" data-modal-action="close">${t("完成", "Done")}</button></div>` });
+    return;
+  }
+  if (mode === "withdraw") {
+    openModal({ kicker: t("账户资产", "Account assets"), title: t("提取", "Withdraw"), content: `<form class="account-asset-flow" id="accountWithdrawForm" data-account-mode="withdraw">${selector}<label class="account-input-block"><span>${t("目标地址", "Destination address")}</span><input class="field-input" name="destination" required placeholder="${chain === "solana" ? "Solana address" : "0x..."}" /></label><label class="account-input-block"><span>${t("数量", "Amount")}</span><div class="account-amount-input"><input class="field-input" name="amount" id="accountWithdrawAmount" inputmode="decimal" required placeholder="0.00" /><b>${unit}</b><button type="button" data-account-all="${escapeHtml(amount)}">${t("全部", "All")}</button></div></label><div class="account-available"><span>${t("可提取", "Available")}</span><strong>${escapeHtml(amount)} ${unit}</strong></div><button class="primary-button account-wide-action" type="submit" ${wallet ? "" : "disabled"}>${t("提取", "Withdraw")}</button></form>` });
+    return;
+  }
+  const sol = accountWalletBalance("solana");
+  const bsc = accountWalletBalance("bsc");
+  openModal({ kicker: t("登录钱包", "Connected wallet"), title: t("账户资产", "Account assets"), content: `<div class="account-asset-overview"><div class="account-address-summary"><span>${t("已连接资产", "Connected assets")}</span><strong>${sol.amount} SOL · ${bsc.amount} BNB</strong></div><div class="account-wallet-lines"><span><b>Solana</b><code>${sol.wallet ? escapeHtml(shortAddress(sol.wallet.address)) : "—"}</code><strong>${sol.amount} SOL</strong></span><span><b>BSC</b><code>${bsc.wallet ? escapeHtml(shortAddress(bsc.wallet.address)) : "—"}</code><strong>${bsc.amount} BNB</strong></span></div><div class="account-asset-actions"><button class="primary-button" type="button" data-account-action="deposit"><i class="fa-solid fa-arrow-down"></i>${t("充币", "Deposit")}</button><button class="secondary-button" type="button" data-account-action="withdraw"><i class="fa-solid fa-arrow-up"></i>${t("提取", "Withdraw")}</button></div></div>` });
+}
+
+function decimalToAtomic(value, decimals) {
+  const normalized = String(value).trim();
+  if (!/^\d+(?:\.\d+)?$/.test(normalized)) throw new Error(t("请输入正确的数量", "Enter a valid amount"));
+  const [whole, fraction = ""] = normalized.split(".");
+  if (fraction.length > decimals) throw new Error(t("数量精度过高", "Amount has too many decimal places"));
+  return BigInt(whole) * 10n ** BigInt(decimals) + BigInt((fraction + "0".repeat(decimals)).slice(0, decimals));
+}
+
+async function activeEvmProvider(address) {
+  const candidates = [window.okxwallet?.ethereum, window.binancew3w?.ethereum, ...(window.ethereum?.providers || []), window.ethereum].filter(Boolean);
+  for (const provider of [...new Set(candidates)]) {
+    try {
+      const accounts = await provider.request({ method: "eth_accounts" });
+      if (accounts.some((item) => item.toLowerCase() === address.toLowerCase())) return provider;
+    } catch {}
+  }
+  return null;
+}
+
+async function submitAccountWithdrawal(chain, destination, amount) {
+  const { wallet, amount: available } = accountWalletBalance(chain);
+  if (!wallet) throw new Error(t("未连接该链地址", "No address connected for this network"));
+  const decimals = chain === "solana" ? 9 : 18;
+  const atomicAmount = decimalToAtomic(amount, decimals);
+  if (atomicAmount <= 0n) throw new Error(t("提取数量必须大于 0", "Withdrawal amount must be greater than zero"));
+  if (atomicAmount > decimalToAtomic(available, decimals)) throw new Error(t("提取数量超过可用余额", "Withdrawal amount exceeds the available balance"));
+  if (chain === "bsc") {
+    const provider = await activeEvmProvider(wallet.address);
+    if (!provider) throw new Error(t("请在当前浏览器钱包中切换到该 BSC 地址", "Switch your browser wallet to this BSC address"));
+    const chainId = await provider.request({ method: "eth_chainId" });
+    if (Number.parseInt(chainId, 16) !== 56) await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x38" }] });
+    return provider.request({ method: "eth_sendTransaction", params: [{ from: wallet.address, to: destination, value: `0x${atomicAmount.toString(16)}` }] });
+  }
+  const providers = [window.okxwallet?.solana, window.phantom?.solana, window.solflare].filter(Boolean);
+  const provider = providers.find((item) => item.publicKey?.toString() === wallet.address);
+  if (!provider || !window.solanaWeb3) throw new Error(t("请在当前浏览器钱包中切换到该 Solana 地址", "Switch your browser wallet to this Solana address"));
+  const connection = new window.solanaWeb3.Connection("https://api.mainnet-beta.solana.com", "confirmed");
+  const transaction = new window.solanaWeb3.Transaction().add(window.solanaWeb3.SystemProgram.transfer({ fromPubkey: new window.solanaWeb3.PublicKey(wallet.address), toPubkey: new window.solanaWeb3.PublicKey(destination), lamports: atomicAmount }));
+  const latest = await connection.getLatestBlockhash("confirmed");
+  transaction.recentBlockhash = latest.blockhash;
+  transaction.feePayer = new window.solanaWeb3.PublicKey(wallet.address);
+  return provider.signAndSendTransaction(transaction);
+}
+
 const nativeAssetImages = {
   SOL: "https://solana.com/zh/src/img/branding/solanaLogoMark.png",
 };
@@ -1493,6 +1572,12 @@ document.querySelectorAll("[data-view-trigger]").forEach((button) => {
   button.addEventListener("click", () => switchView(button.dataset.viewTrigger));
 });
 
+accountAssetsButton.addEventListener("click", async () => {
+  if (!state.auth.session) return openAuth("web3");
+  if (!state.assets.loginWallets.length && !state.assets.loading) await loadAssets();
+  openAccountAssets();
+});
+
 document.querySelectorAll("[data-auth]").forEach((button) => {
   button.addEventListener("click", () => openAuth(button.dataset.auth));
 });
@@ -1710,6 +1795,19 @@ viewRoot.addEventListener("submit", async (event) => {
 });
 
 modal.addEventListener("submit", async (event) => {
+  if (event.target.id === "accountWithdrawForm") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const destination = String(form.get("destination") || "").trim();
+    const amount = String(form.get("amount") || "").trim();
+    try {
+      const result = await submitAccountWithdrawal(state.assets.accountAssetChain, destination, amount);
+      closeModal();
+      showToast(`${t("交易已提交", "Transaction submitted")}: ${typeof result === "string" ? shortAddress(result) : shortAddress(result?.signature || "")}`);
+      window.setTimeout(() => loadAssets(), 1800);
+    } catch (error) { showToast(error.message); }
+    return;
+  }
   if (event.target.id === "assetTransferForm") {
     event.preventDefault();
     const idempotencyKey = crypto.randomUUID();
@@ -1759,6 +1857,11 @@ modal.addEventListener("submit", async (event) => {
 });
 
 modal.addEventListener("change", (event) => {
+  if (event.target.id === "accountAssetChain") {
+    state.assets.accountAssetChain = event.target.value;
+    openAccountAssets(event.target.closest("[data-account-mode]")?.dataset.accountMode || "overview");
+    return;
+  }
   if (event.target.id === "transferDestination") {
     state.assets.transferDestination = event.target.value;
     const field = modal.querySelector("#transferAddressField");
@@ -1849,6 +1952,17 @@ viewRoot.addEventListener("change", (event) => {
 });
 
 modal.addEventListener("click", async (event) => {
+  const accountAction = event.target.closest("[data-account-action]")?.dataset.accountAction;
+  if (accountAction) {
+    openAccountAssets(accountAction);
+    return;
+  }
+  const allAmount = event.target.closest("[data-account-all]")?.dataset.accountAll;
+  if (allAmount != null) {
+    const input = modal.querySelector("#accountWithdrawAmount");
+    if (input) input.value = allAmount;
+    return;
+  }
   if (event.target.closest('[data-action="confirm-transfer-plan"]')) {
     const preview = state.assets.transferPreview;
     if (!preview || !window.confirm(t(`确认在 ${preview.chain} 上签名并广播 ${preview.estimatedAmount} ${preview.currency}？链上交易不可撤销。`, `Sign and broadcast ${preview.estimatedAmount} ${preview.currency} on ${preview.chain}? This cannot be undone.`))) return;

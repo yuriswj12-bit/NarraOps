@@ -1531,6 +1531,32 @@ button {
   margin-top: 20px;
 }
 
+.account-asset-overview,.account-asset-flow { display:grid; gap:16px; }
+.account-address-summary,.account-address-card,.account-wallet-lines,.account-input-block,.account-chain-select { border:1px solid var(--line); border-radius:8px; background:var(--surface-3); padding:16px; }
+.account-address-summary span,.account-address-card>span,.account-input-block>span,.account-chain-select>span,.account-available span { display:block; color:var(--muted); font-size:13px; margin-bottom:8px; }
+.account-address-summary strong { font-size:25px; }
+.account-wallet-lines { display:grid; gap:0; padding:0; overflow:hidden; }
+.account-wallet-lines>span { display:grid; grid-template-columns:80px 1fr auto; align-items:center; gap:12px; padding:15px 16px; }
+.account-wallet-lines>span+span { border-top:1px solid var(--line); }
+.account-wallet-lines code { color:var(--muted); }
+.account-asset-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.account-asset-actions button { min-height:48px; }
+.account-chain-select { display:grid; grid-template-columns:80px 1fr; align-items:center; gap:12px; }
+.account-chain-select>span { margin:0; }
+.account-address-card { position:relative; padding-right:94px; }
+.account-address-card strong { display:block; overflow-wrap:anywhere; line-height:1.55; }
+.account-address-card button { position:absolute; top:50%; right:14px; transform:translateY(-50%); border:0; background:transparent; color:var(--green); cursor:pointer; }
+.account-address-card button i { margin-right:6px; }
+.account-asset-balance,.account-available { display:flex; align-items:center; justify-content:space-between; padding:2px 4px; }
+.account-asset-balance span { color:var(--muted); }
+.account-input-block { display:grid; gap:8px; }
+.account-amount-input { display:grid; grid-template-columns:1fr auto auto; align-items:center; gap:10px; }
+.account-amount-input input { border:0; padding-left:0; }
+.account-amount-input button { border:0; background:transparent; color:var(--green); font-weight:700; cursor:pointer; }
+.account-wide-action { width:100%; min-height:50px; }
+.account-wide-action:disabled { opacity:.45; cursor:not-allowed; }
+@media(max-width:620px){.account-wallet-lines>span{grid-template-columns:68px 1fr}.account-wallet-lines strong{grid-column:2}.account-chain-select{grid-template-columns:1fr}.account-asset-actions{grid-template-columns:1fr}}
+
 .toast {
   position: fixed;
   z-index: 120;
