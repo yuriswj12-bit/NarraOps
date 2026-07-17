@@ -91,3 +91,13 @@
 - The UI now labels the selector `T1-T5 买入钱包组` and explains that actual inclusion depends on chain conditions.
 - Backend execution enters at the earliest observed block from N+1 and expires unsubmitted work after N+5; it records the actual offset for audit.
 - Verification after correction: backend 40/40, execution 37/37, frontend syntax check passed.
+
+### Equal and random T1-T5 allocation
+
+- Launch now offers `PER_WALLET_EQUAL` and `TOTAL_RANDOM` allocation modes.
+- Equal mode accepts one amount per wallet and derives the total budget.
+- Random mode accepts one fixed wallet-group total and deterministically splits it into positive, unequal atomic amounts whose sum exactly matches the requested total.
+- The execution ID seeds the allocation; the prepared per-wallet amounts are persisted and returned before confirmation.
+- Confirmation and failed-wallet retry reuse the frozen allocation and never randomize a second time.
+- ForgeX reference note: ForgeX launch accepts explicit per-wallet sniper amounts (or defaults each to 0.01); its unrelated robot random mode does not preserve a fixed group total, so NarraOps uses its own auditable fixed-total behavior.
+- Verification: backend 40/40, execution 38/38, frontend syntax check passed.
