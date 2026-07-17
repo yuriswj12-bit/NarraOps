@@ -1,26 +1,21 @@
 import { openWalletSecret } from "./encrypted-wallet-vault.js";
 import { ExecutionError } from "./errors.js";
-import { createHash } from "node:crypto";
 
-function splitAmount(total, count) {
-  const base = total / BigInt(count); const remainder = total % BigInt(count);
-  return Array.from({ length: count }, (_, index) => base + (BigInt(index) < remainder ? 1n : 0n));
-}
-
-export function allocateFollowBuyAmounts({ totalAmountAtomic, walletCount, mode = "equal", seed = "narraops" }) {
-  const total = BigInt(totalAmountAtomic); const count = Number(walletCount);
-  if (!Number.isInteger(count) || count < 1 || total < BigInt(count)) throw new ExecutionError("FOLLOW_BUY_AMOUNT_TOO_SMALL", "Follow-buy total must allocate at least one atomic unit per wallet");
-  if (mode === "equal") return splitAmount(total, count);
-  const weights = mode === "ladder"
-    ? Array.from({ length: count }, (_, index) => BigInt(index + 1))
-    : mode === "random"
-      ? Array.from({ length: count }, (_, index) => BigInt(`0x${createHash("sha256").update(`${seed}:${index}`).digest("hex").slice(0, 12)}`) + 1n)
-      : (() => { throw new ExecutionError("FOLLOW_BUY_MODE_INVALID", "Follow-buy mode must be equal, random, or ladder"); })();
-  const distributable = total - BigInt(count); const weightTotal = weights.reduce((sum, value) => sum + value, 0n);
-  const amounts = weights.map((weight) => 1n + (distributable * weight) / weightTotal);
-  let remainder = total - amounts.reduce((sum, value) => sum + value, 0n);
-  for (let index = 0; remainder > 0n; index = (index + 1) % count, remainder -= 1n) amounts[index] += 1n;
-  return amounts;
+export function resolveBoundBuyAmounts({ wallets, allocation }) {
+  if (!Array.isArray(wallets) || !wallets.length) throw new ExecutionError("BOUND_BUY_WALLETS_REQUIRED", "Launch-bound-buy wallet group is empty");
+  if (allocation?.mode === "PER_WALLET_EQUAL") {
+    const amount = BigInt(allocation.amountPerWalletAtomic || 0);
+    if (amount <= 0n) throw new ExecutionError("BOUND_BUY_AMOUNT_INVALID", "Per-wallet bound-buy amount must be positive");
+    return wallets.map(() => amount);
+  }
+  if (allocation?.mode === "PER_WALLET_CUSTOM") {
+    const entries = new Map((allocation.customAmountsAtomic || []).map(({ walletId, amountAtomic }) => [walletId, BigInt(amountAtomic)]));
+    if (entries.size !== wallets.length || wallets.some(({ walletId }) => !entries.has(walletId))) throw new ExecutionError("BOUND_BUY_WALLET_MISMATCH", "Custom bound-buy amounts must contain exactly one entry for every selected wallet");
+    const amounts = wallets.map(({ walletId }) => entries.get(walletId));
+    if (amounts.some((amount) => amount <= 0n)) throw new ExecutionError("BOUND_BUY_AMOUNT_INVALID", "Every custom bound-buy amount must be positive");
+    return amounts;
+  }
+  throw new ExecutionError("BOUND_BUY_ALLOCATION_INVALID", "Bound-buy allocation must be PER_WALLET_EQUAL or PER_WALLET_CUSTOM");
 }
 
 export class BatchFollowBuyExecutor {
@@ -28,10 +23,8 @@ export class BatchFollowBuyExecutor {
     Object.assign(this, { walletRepository, pumpPlanner, fourMemePlanner, solanaAdapter, evmAdapter });
   }
 
-  async execute({ platform, tokenAddress, wallets, totalAmountAtomic, password, slippageBps = 500, distributionMode = "equal", distributionSeed = "narraops" }) {
-    if (!Array.isArray(wallets) || !wallets.length) throw new ExecutionError("FOLLOW_BUY_WALLETS_REQUIRED", "Follow-buy wallet group is empty");
-    const amounts = allocateFollowBuyAmounts({ totalAmountAtomic, walletCount: wallets.length, mode: distributionMode, seed: distributionSeed });
-    if (amounts.some((amount) => amount <= 0n)) throw new ExecutionError("FOLLOW_BUY_AMOUNT_TOO_SMALL", "Follow-buy amount is too small for the selected wallet count");
+  async execute({ platform, tokenAddress, wallets, allocation, password, slippageBps = 500 }) {
+    const amounts = resolveBoundBuyAmounts({ wallets, allocation });
     const results = [];
     for (let index = 0; index < wallets.length; index += 1) {
       const wallet = wallets[index]; const envelope = await this.walletRepository.getEncryptedWallet(wallet.walletReferenceId);
