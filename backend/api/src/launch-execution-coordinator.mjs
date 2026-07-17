@@ -18,7 +18,6 @@ export class LaunchExecutionCoordinator {
 
   async prepare(input) {
     if (!this.vaultPassword) throw new ApiError(503, "WALLET_VAULT_LOCKED", "Wallet vault password is not configured");
-    if (input.boundBuy.enabled && input.boundBuy.timing.mode === "T0_BUNDLE") throw new ApiError(503, "T0_BUNDLE_UNAVAILABLE", "T0 launch-bound buying requires a configured and reviewed bundle relay");
     const chain = input.platform === "pump" ? "solana" : "bsc";
     const cooking = this.walletGroups.getSigningWallet(input.cookingWalletGroupId, chain);
     let loginSignature = input.loginSignature;
@@ -59,8 +58,8 @@ export class LaunchExecutionCoordinator {
         ? { mode: sourceAllocation.mode, amountPerWalletAtomic: parseUnits(sourceAllocation.amountPerWallet, decimals).toString() }
         : { mode: sourceAllocation.mode, customAmountsAtomic: sourceAllocation.customAmounts.map(({ walletId, amount }) => ({ walletId, amountAtomic: parseUnits(amount, decimals).toString() })) };
       execution = this.repository.update(executionId, { status: "waiting_bound_buy_block" }, "bound_buys.waiting_for_block");
-      const timing = await this.confirmationProvider.waitForBoundBuyBlock({ platform: execution.platform, launchBlockNumber: confirmation.blockNumber, blockOffset: execution.boundBuy.timing.blockOffset, deadlineBlocks: execution.boundBuy.deadlineBlocks });
-      execution = this.repository.update(executionId, { status: "bound_buy_signing", boundBuyTargetBlock: timing.targetBlock, boundBuyObservedBlock: timing.observedBlock });
+      const timing = await this.confirmationProvider.waitForBoundBuyWindow({ platform: execution.platform, launchBlockNumber: confirmation.blockNumber });
+      execution = this.repository.update(executionId, { status: "bound_buy_signing", boundBuyEarliestBlock: timing.earliestBlock, boundBuyLatestBlock: timing.latestBlock, boundBuyObservedBlock: timing.observedBlock, boundBuyActualOffset: timing.actualOffset });
       const boundBuys = await this.followBuyExecutor.execute({ platform: execution.platform, tokenAddress: confirmation.tokenAddress, wallets, allocation, password: this.vaultPassword, slippageBps: execution.boundBuy.slippageBps });
       const failedCount = boundBuys.filter(({ status }) => status === "failed").length;
       const status = failedCount === 0 ? "bound_buys_submitted" : failedCount === boundBuys.length ? "failed" : "partially_failed";

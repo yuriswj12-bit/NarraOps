@@ -151,10 +151,6 @@ export function validateInternalLaunchPrepare(body) {
   if (!isObject(rawBoundBuy) || typeof rawBoundBuy.enabled !== "boolean") throw new ApiError(400, "VALIDATION_ERROR", "boundBuy.enabled must be a boolean");
   let boundBuy = { enabled: false };
   if (rawBoundBuy.enabled) {
-    if (!isObject(rawBoundBuy.timing)) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy.timing must be an object");
-    const timingMode = string(rawBoundBuy.timing.mode, "boundBuy.timing.mode", { required: true, max: 20 });
-    const blockOffset = Number(rawBoundBuy.timing.blockOffset);
-    if (timingMode === "T0_BUNDLE" ? blockOffset !== 0 : timingMode !== "BLOCK_OFFSET" || !Number.isInteger(blockOffset) || blockOffset < 1 || blockOffset > 5) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy timing must be T0 bundle or a T1-T5 block offset");
     if (!isObject(rawBoundBuy.allocation)) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy.allocation must be an object");
     const allocationMode = string(rawBoundBuy.allocation.mode, "boundBuy.allocation.mode", { required: true, max: 30 });
     let allocation;
@@ -177,10 +173,8 @@ export function validateInternalLaunchPrepare(body) {
       allocation = { mode: allocationMode, customAmounts };
     } else throw new ApiError(400, "VALIDATION_ERROR", "boundBuy allocation must be equal per-wallet or custom per-wallet");
     const slippageBps = Number(rawBoundBuy.slippageBps ?? 500);
-    const deadlineBlocks = Number(rawBoundBuy.deadlineBlocks ?? 5);
     if (!Number.isInteger(slippageBps) || slippageBps < 1 || slippageBps > 5000) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy slippageBps must be between 1 and 5000");
-    if (!Number.isInteger(deadlineBlocks) || deadlineBlocks < 1 || deadlineBlocks > 20) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy deadlineBlocks must be between 1 and 20");
-    boundBuy = { enabled: true, walletGroupId: string(rawBoundBuy.walletGroupId, "boundBuy.walletGroupId", { required: true, max: 64 }), timing: { mode: timingMode, blockOffset }, allocation, slippageBps, deadlineBlocks };
+    boundBuy = { enabled: true, walletGroupId: string(rawBoundBuy.walletGroupId, "boundBuy.walletGroupId", { required: true, max: 64 }), window: { earliestBlockOffset: 1, latestBlockOffset: 5 }, allocation, slippageBps };
   }
   return {
     ...input,
