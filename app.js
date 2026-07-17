@@ -530,12 +530,14 @@ async function submitPonsLaunch(form) {
     return;
   }
   const boundBuyEnabled = Boolean(values.buyingWalletGroup);
+  const randomBoundBuy = values.buyAllocationMode === "TOTAL_RANDOM";
   const buyingGroup = state.assets.groups.find((group) => group.groupId === values.buyingWalletGroup && !isCookingGroup(group) && group.walletCount > 0);
   if (boundBuyEnabled && !buyingGroup) {
     showToast(t("请选择发射绑定买入的钱包组。", "Select the wallet group for launch-bound buying."));
     return;
   }
-  if (boundBuyEnabled && !(Number(values.boundBuyAmountPerWallet) > 0)) return showToast(t("请输入大于 0 的每钱包买入金额。", "Enter a per-wallet buy amount greater than zero."));
+  const boundBuyInputAmount = randomBoundBuy ? values.boundBuyTotalAmount : values.boundBuyAmountPerWallet;
+  if (boundBuyEnabled && !(Number(boundBuyInputAmount) > 0)) return showToast(t(randomBoundBuy ? "请输入大于 0 的钱包组买入总额。" : "请输入大于 0 的每钱包买入金额。", randomBoundBuy ? "Enter a wallet-group total greater than zero." : "Enter a per-wallet buy amount greater than zero."));
   if (!state.launchMedia.file && !state.launchMedia.metadataUri) {
     showToast(t("请先上传或生成 Cooking 图片。", "Upload or generate a Cooking image first."));
     return;
@@ -560,8 +562,8 @@ async function submitPonsLaunch(form) {
   try {
     const gas = await window.ethereum.request({ method: "eth_estimateGas", params: [transaction] });
     const confirmed = window.confirm(t(
-      `即将通过 Pons 工厂发射 ${values.tokenSymbol}。Cooking 钱包首笔买入 ${values.cookingBuyAmount || "0"} ETH，发射费 0.0005 ETH。${boundBuyEnabled ? `${buyingGroup.name} 将在 T1-T5 窗口以每钱包 ${values.boundBuyAmountPerWallet || "0"} ETH 执行买入。` : ""}预估发射 Gas ${Number.parseInt(gas, 16).toLocaleString()}。`,
-      `Launch ${values.tokenSymbol} through the Pons factory. The Cooking wallet buys ${values.cookingBuyAmount || "0"} ETH first, plus the 0.0005 ETH launch fee. ${boundBuyEnabled ? `${buyingGroup.name} will buy ${values.boundBuyAmountPerWallet || "0"} ETH per wallet during the T1-T5 window. ` : ""}Estimated launch gas: ${Number.parseInt(gas, 16).toLocaleString()}.`,
+      `即将通过 Pons 工厂发射 ${values.tokenSymbol}。Cooking 钱包首笔买入 ${values.cookingBuyAmount || "0"} ETH，发射费 0.0005 ETH。${boundBuyEnabled ? `${buyingGroup.name} 将在 T1-T5 窗口${randomBoundBuy ? `随机拆分总额 ${values.boundBuyTotalAmount || "0"}` : `以每钱包 ${values.boundBuyAmountPerWallet || "0"}`} ETH 执行买入。` : ""}预估发射 Gas ${Number.parseInt(gas, 16).toLocaleString()}。`,
+      `Launch ${values.tokenSymbol} through the Pons factory. The Cooking wallet buys ${values.cookingBuyAmount || "0"} ETH first, plus the 0.0005 ETH launch fee. ${boundBuyEnabled ? `${buyingGroup.name} will ${randomBoundBuy ? `randomly split a total of ${values.boundBuyTotalAmount || "0"}` : `buy ${values.boundBuyAmountPerWallet || "0"} per wallet`} ETH during T1-T5. ` : ""}Estimated launch gas: ${Number.parseInt(gas, 16).toLocaleString()}.`,
     ));
     if (!confirmed) return;
     const hash = await window.ethereum.request({ method: "eth_sendTransaction", params: [{ ...transaction, gas }] });
@@ -570,7 +572,7 @@ async function submitPonsLaunch(form) {
       launchTransactionHash: hash,
       platform: state.selectedPlatform,
       cookingWalletGroupId: cookingGroup.groupId,
-      boundBuy: boundBuyEnabled ? { enabled: true, walletGroupId: buyingGroup.groupId, window: { earliestBlockOffset: 1, latestBlockOffset: 5 }, allocation: { mode: "PER_WALLET_EQUAL", amountPerWallet: values.boundBuyAmountPerWallet } } : { enabled: false },
+      boundBuy: boundBuyEnabled ? { enabled: true, walletGroupId: buyingGroup.groupId, window: { earliestBlockOffset: 1, latestBlockOffset: 5 }, allocation: randomBoundBuy ? { mode: "TOTAL_RANDOM", totalAmount: values.boundBuyTotalAmount } : { mode: "PER_WALLET_EQUAL", amountPerWallet: values.boundBuyAmountPerWallet } } : { enabled: false },
       status: "awaiting_launch_confirmation",
     }));
     showToast(t(`发射交易已提交：${hash.slice(0, 12)}…`, `Launch transaction submitted: ${hash.slice(0, 12)}…`));
@@ -592,9 +594,11 @@ async function submitInternalLaunch(form) {
   const values = Object.fromEntries(new FormData(form).entries());
   const cookingGroup = state.assets.groups.find((group) => group.groupId === values.cookingWalletGroup && isCookingGroup(group));
   const boundBuyEnabled = Boolean(values.buyingWalletGroup);
+  const randomBoundBuy = values.buyAllocationMode === "TOTAL_RANDOM";
   const buyingGroup = state.assets.groups.find((group) => group.groupId === values.buyingWalletGroup && !isCookingGroup(group));
   if (!cookingGroup || (boundBuyEnabled && !buyingGroup)) return showToast(t("请选择 Cooking 钱包和发射绑定买入钱包组。", "Select a Cooking wallet and launch-bound-buy wallet group."));
-  if (boundBuyEnabled && !(Number(values.boundBuyAmountPerWallet) > 0)) return showToast(t("请输入大于 0 的每钱包买入金额。", "Enter a per-wallet buy amount greater than zero."));
+  const boundBuyInputAmount = randomBoundBuy ? values.boundBuyTotalAmount : values.boundBuyAmountPerWallet;
+  if (boundBuyEnabled && !(Number(boundBuyInputAmount) > 0)) return showToast(t(randomBoundBuy ? "请输入大于 0 的钱包组买入总额。" : "请输入大于 0 的每钱包买入金额。", randomBoundBuy ? "Enter a wallet-group total greater than zero." : "Enter a per-wallet buy amount greater than zero."));
   if (!state.launchMedia.file) return showToast(t("请上传 Cooking 图片。", "Upload a Cooking image."));
   const platform = state.selectedPlatform === "four" ? "fourmeme" : "pump";
   try {
@@ -604,7 +608,7 @@ async function submitInternalLaunch(form) {
       boundBuy: boundBuyEnabled ? {
         enabled: true,
         walletGroupId: buyingGroup.groupId,
-        allocation: { mode: "PER_WALLET_EQUAL", amountPerWallet: values.boundBuyAmountPerWallet || "0" },
+        allocation: randomBoundBuy ? { mode: "TOTAL_RANDOM", totalAmount: values.boundBuyTotalAmount || "0" } : { mode: "PER_WALLET_EQUAL", amountPerWallet: values.boundBuyAmountPerWallet || "0" },
         slippageBps: 500,
       } : { enabled: false },
       name: values.tokenName.trim(), symbol: values.tokenSymbol.trim(), description: `${values.tokenName.trim()} (${values.tokenSymbol.trim()})`,
@@ -612,10 +616,12 @@ async function submitInternalLaunch(form) {
       twitter: values.xUrl.trim(), telegram: values.telegramUrl.trim(), website: values.websiteUrl.trim(), developerBuyAmount: values.cookingBuyAmount || "0",
     }) });
     const unit = state.selectedPlatform === "pump" ? "SOL" : "BNB";
-    const boundBuyTotal = boundBuyEnabled ? (Number(values.boundBuyAmountPerWallet) * buyingGroup.walletCount).toFixed(6) : "0";
+    const boundBuyTotal = boundBuyEnabled ? (randomBoundBuy ? Number(values.boundBuyTotalAmount).toFixed(6) : (Number(values.boundBuyAmountPerWallet) * buyingGroup.walletCount).toFixed(6)) : "0";
+    const allocationPreview = prepared.summary?.preparedBoundBuys || [];
+    const allocationLines = allocationPreview.map(({ walletId, amount }) => `${walletId}: ${amount} ${unit}`).join("\n");
     const approved = window.confirm(t(
-      `确认使用 ${cookingGroup.name} 发射 ${values.tokenSymbol}，Cooking 首买 ${values.cookingBuyAmount || "0"} ${unit}${boundBuyEnabled ? `；${buyingGroup.name} 在 T1-T5 窗口每钱包买入 ${values.boundBuyAmountPerWallet} ${unit}，总预算 ${boundBuyTotal} ${unit}` : ""}。本次确认将统一签名并执行该发射计划。`,
-      `Confirm launching ${values.tokenSymbol} with ${cookingGroup.name} and a ${values.cookingBuyAmount || "0"} ${unit} Cooking buy.${boundBuyEnabled ? ` ${buyingGroup.name} buys ${values.boundBuyAmountPerWallet} ${unit} per wallet during T1-T5; total budget ${boundBuyTotal} ${unit}.` : ""}`,
+      `确认使用 ${cookingGroup.name} 发射 ${values.tokenSymbol}，Cooking 首买 ${values.cookingBuyAmount || "0"} ${unit}${boundBuyEnabled ? `；${buyingGroup.name} 在 T1-T5 ${randomBoundBuy ? "随机买入" : "等额买入"}，总预算 ${boundBuyTotal} ${unit}${allocationLines ? `\n\n逐钱包预览：\n${allocationLines}` : ""}` : ""}。本次确认将执行这份已冻结的发射计划。`,
+      `Confirm launching ${values.tokenSymbol} with ${cookingGroup.name} and a ${values.cookingBuyAmount || "0"} ${unit} Cooking buy.${boundBuyEnabled ? ` ${buyingGroup.name} uses ${randomBoundBuy ? "random" : "equal"} T1-T5 buys; total budget ${boundBuyTotal} ${unit}.${allocationLines ? `\n\nPer-wallet preview:\n${allocationLines}` : ""}` : ""}`,
     ));
     if (!approved) return;
     const result = await apiRequest(`/api/v1/launch/executions/${prepared.executionId}/confirm`, { method: "POST", body: JSON.stringify({ confirmationToken: prepared.confirmationToken }) });
@@ -804,12 +810,28 @@ function renderLaunch() {
           ${buyingGroupOptions ? "" : `<small>${t("请先在资产页创建一个常规钱包组。", "Create a general wallet group in Assets first.")}</small>`}
         </label>
         <label class="launch-field">
+          <span>${t("买入方式", "Buy mode")}</span>
+          <select class="field-select" name="buyAllocationMode" id="buyAllocationMode">
+            <option value="PER_WALLET_EQUAL">${t("等额买入", "Equal buy")}</option>
+            <option value="TOTAL_RANDOM">${t("随机买入", "Random buy")}</option>
+          </select>
+          <small>${t("随机买入会将固定总额拆分为不同的逐钱包金额，确认后不再改变。", "Random buy splits a fixed total into different per-wallet amounts that are frozen after preview.")}</small>
+        </label>
+        <label class="launch-field" id="equalBoundBuyAmountField">
           <span>${t("每钱包买入金额", "Buy amount per wallet")}</span>
           <div class="launch-amount-input">
             <input class="field-input" name="boundBuyAmountPerWallet" type="number" min="0.000000001" step="0.0001" placeholder="0.00" />
             <span>${selected.unit}</span>
           </div>
           <small>${t("所选钱包组内每个钱包使用相同金额。总预算将在确认页计算。", "Every selected wallet uses this amount. The total budget is calculated in the confirmation preview.")}</small>
+        </label>
+        <label class="launch-field" id="randomBoundBuyTotalField" hidden>
+          <span>${t("钱包组买入总额", "Wallet-group total buy amount")}</span>
+          <div class="launch-amount-input">
+            <input class="field-input" name="boundBuyTotalAmount" type="number" min="0.000000001" step="0.0001" placeholder="0.00" />
+            <span>${selected.unit}</span>
+          </div>
+          <small>${t("该总额会随机拆分到组内全部钱包，逐钱包金额之和严格等于输入总额。", "This total is randomly split across every wallet; per-wallet amounts add up exactly to the entered total.")}</small>
         </label>
 
         <div class="launch-form-actions launch-field-wide">
@@ -1554,6 +1576,14 @@ viewRoot.addEventListener("input", (event) => {
 });
 
 viewRoot.addEventListener("change", (event) => {
+  if (event.target.id === "buyAllocationMode") {
+    const random = event.target.value === "TOTAL_RANDOM";
+    const equalField = document.querySelector("#equalBoundBuyAmountField");
+    const randomField = document.querySelector("#randomBoundBuyTotalField");
+    if (equalField) equalField.hidden = random;
+    if (randomField) randomField.hidden = !random;
+    return;
+  }
   if (event.target.id === "launchImageInput") {
     const [file] = event.target.files || [];
     if (!file) return;
