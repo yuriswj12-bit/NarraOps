@@ -83,3 +83,11 @@
 - Verification: frontend/root syntax check passed; backend 40/40; execution 37/37.
 - Real execution remains disabled. No transaction or fund movement occurred.
 - Remaining blocker: true T0 requires platform-specific deterministic addressing, pre-signing, and a reviewed Solana/BSC bundle relay implementation.
+
+### T1-T5 semantics correction
+
+- T0 is the launch block and includes the Cooking/dev buy; wallet-group buying is the subsequent T1-T5 window.
+- Removed the misleading frontend selector for an exact T1, T2, T3, T4, or T5 block.
+- The UI now labels the selector `T1-T5 买入钱包组` and explains that actual inclusion depends on chain conditions.
+- Backend execution enters at the earliest observed block from N+1 and expires unsubmitted work after N+5; it records the actual offset for audit.
+- Verification after correction: backend 40/40, execution 37/37, frontend syntax check passed.
