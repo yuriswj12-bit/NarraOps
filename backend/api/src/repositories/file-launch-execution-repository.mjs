@@ -15,5 +15,5 @@ export class FileLaunchExecutionRepository {
   get(id) { return this.store.executions[id] ? structuredClone(this.store.executions[id]) : null; }
   update(id, patch, eventType = "launch.state_changed") { const current = this.store.executions[id]; if (!current) throw new ApiError(404, "LAUNCH_EXECUTION_NOT_FOUND", "Launch execution was not found"); Object.assign(current, structuredClone(patch), { updatedAt: new Date().toISOString() }); this.appendAudit(id, eventType, { status: current.status, transactionHash: current.transactionHash }); return this.get(id); }
   appendAudit(executionId, type, data = {}) { this.store.audit.push({ auditId: randomUUID(), executionId, type, at: new Date().toISOString(), ...structuredClone(data) }); this.#save(); }
-  recoverable() { return Object.values(this.store.executions).filter(({ status }) => ["submitted", "confirming_launch", "launch_confirmed", "follow_buy_signing", "follow_buys_submitted"].includes(status)).map((value) => structuredClone(value)); }
+  recoverable() { return Object.values(this.store.executions).filter(({ status }) => ["submitted", "confirming_launch", "launch_confirmed", "waiting_bound_buy_block", "bound_buy_signing", "bound_buys_submitted"].includes(status)).map((value) => structuredClone(value)); }
 }

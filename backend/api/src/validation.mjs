@@ -147,14 +147,45 @@ export function validateInternalLaunchPrepare(body) {
   const input = validateLaunchTransactionPlan({ ...body, walletAddress: body.walletAddress || (body.platform === "pump" ? "11111111111111111111111111111111" : "0x0000000000000000000000000000000000000000"), ...(body.platform === "fourmeme" ? { loginSignature: body.loginSignature || "internal" } : {}) });
   delete input.walletAddress;
   delete input.loginSignature;
-  const buyCondition = string(body.buyCondition || "equal", "buyCondition", { required: true, max: 20 });
-  if (!["equal", "random", "ladder"].includes(buyCondition)) throw new ApiError(400, "VALIDATION_ERROR", "buyCondition must be equal, random, or ladder");
+  const rawBoundBuy = body.boundBuy;
+  if (!isObject(rawBoundBuy) || typeof rawBoundBuy.enabled !== "boolean") throw new ApiError(400, "VALIDATION_ERROR", "boundBuy.enabled must be a boolean");
+  let boundBuy = { enabled: false };
+  if (rawBoundBuy.enabled) {
+    if (!isObject(rawBoundBuy.timing)) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy.timing must be an object");
+    const timingMode = string(rawBoundBuy.timing.mode, "boundBuy.timing.mode", { required: true, max: 20 });
+    const blockOffset = Number(rawBoundBuy.timing.blockOffset);
+    if (timingMode === "T0_BUNDLE" ? blockOffset !== 0 : timingMode !== "BLOCK_OFFSET" || !Number.isInteger(blockOffset) || blockOffset < 1 || blockOffset > 5) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy timing must be T0 bundle or a T1-T5 block offset");
+    if (!isObject(rawBoundBuy.allocation)) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy.allocation must be an object");
+    const allocationMode = string(rawBoundBuy.allocation.mode, "boundBuy.allocation.mode", { required: true, max: 30 });
+    let allocation;
+    if (allocationMode === "PER_WALLET_EQUAL") {
+      const amountPerWallet = string(rawBoundBuy.allocation.amountPerWallet, "boundBuy.allocation.amountPerWallet", { required: true, max: 40 });
+      if (!MONEY_PATTERN.test(amountPerWallet) || Number(amountPerWallet) <= 0) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy per-wallet amount must be positive");
+      allocation = { mode: allocationMode, amountPerWallet };
+    } else if (allocationMode === "PER_WALLET_CUSTOM") {
+      const custom = rawBoundBuy.allocation.customAmounts;
+      if (!Array.isArray(custom) || !custom.length || custom.length > 100) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy customAmounts must contain 1-100 wallets");
+      const seen = new Set();
+      const customAmounts = custom.map((entry, index) => {
+        if (!isObject(entry)) throw new ApiError(400, "VALIDATION_ERROR", `boundBuy customAmounts[${index}] must be an object`);
+        const walletId = string(entry.walletId, `boundBuy.customAmounts[${index}].walletId`, { required: true, max: 128 });
+        const amount = string(entry.amount, `boundBuy.customAmounts[${index}].amount`, { required: true, max: 40 });
+        if (seen.has(walletId)) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy custom wallet IDs must be unique");
+        if (!MONEY_PATTERN.test(amount) || Number(amount) <= 0) throw new ApiError(400, "VALIDATION_ERROR", "Every custom bound-buy amount must be positive");
+        seen.add(walletId); return { walletId, amount };
+      });
+      allocation = { mode: allocationMode, customAmounts };
+    } else throw new ApiError(400, "VALIDATION_ERROR", "boundBuy allocation must be equal per-wallet or custom per-wallet");
+    const slippageBps = Number(rawBoundBuy.slippageBps ?? 500);
+    const deadlineBlocks = Number(rawBoundBuy.deadlineBlocks ?? 5);
+    if (!Number.isInteger(slippageBps) || slippageBps < 1 || slippageBps > 5000) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy slippageBps must be between 1 and 5000");
+    if (!Number.isInteger(deadlineBlocks) || deadlineBlocks < 1 || deadlineBlocks > 20) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy deadlineBlocks must be between 1 and 20");
+    boundBuy = { enabled: true, walletGroupId: string(rawBoundBuy.walletGroupId, "boundBuy.walletGroupId", { required: true, max: 64 }), timing: { mode: timingMode, blockOffset }, allocation, slippageBps, deadlineBlocks };
+  }
   return {
     ...input,
     cookingWalletGroupId: string(body.cookingWalletGroupId, "cookingWalletGroupId", { required: true, max: 64 }),
-    buyingWalletGroupId: string(body.buyingWalletGroupId, "buyingWalletGroupId", { required: true, max: 64 }),
-    walletGroupBuyAmount: string(body.walletGroupBuyAmount ?? "0", "walletGroupBuyAmount", { required: true, max: 40 }),
-    buyCondition,
+    boundBuy,
   };
 }
 
