@@ -835,7 +835,7 @@ function renderLaunch() {
         </label>
 
         <div class="launch-form-actions launch-field-wide">
-          <p>${selected.id === "pons" ? t("基础发射费 0.0005 ETH。", "Base launch fee: 0.0005 ETH.") : t("该平台的直连执行适配器仍在接入。", "Direct execution for this platform is still being integrated.")}</p>
+          <p>${selected.id === "pons" ? t("基础发射费 0.0005 ETH。", "Base launch fee: 0.0005 ETH.") : t("由 Cooking 钱包确认发射；可选钱包组在 T1-T5 窗口执行买入。真实广播仅在生产执行开关和链配置通过后启用。", "The Cooking wallet confirms the launch; an optional wallet group buys during T1-T5. Live broadcast is enabled only after production execution and chain configuration pass validation.")}</p>
           ${selected.id === "pons" ? `<button class="primary-button" type="button" data-pons-launch><i class="fa-solid fa-fire-burner" aria-hidden="true"></i>${t(`Cooking 到 ${selected.name}`, `Cook on ${selected.name}`)}</button>` : `<button class="primary-button" type="button" data-internal-launch><i class="fa-solid fa-fire-burner" aria-hidden="true"></i>${t(`Cooking 到 ${selected.name}`, `Cook on ${selected.name}`)}</button>`}
         </div>
       </form>
