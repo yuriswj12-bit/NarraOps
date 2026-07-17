@@ -373,6 +373,12 @@ export function createApplication({ config, logger, repository, conversationRepo
           return;
         }
 
+        if (url.pathname === "/api/v1/auth/onboarding/complete") {
+          if (!authService) throw new ApiError(503, "AUTH_UNAVAILABLE", "Web3 authentication is not configured");
+          sendJson(res, 200, authService.completeOnboarding(req.headers.cookie), requestId);
+          return;
+        }
+
         if (url.pathname === "/api/v1/wallet-groups") {
           const input = validateWalletGroupCreate(body);
           const group = walletGroups.createGroup(input);

@@ -37,6 +37,10 @@ test("EVM wallet challenge creates an HttpOnly session and cannot be replayed", 
   const session = await fetch(`${baseUrl}/api/v1/auth/session`, { headers: { cookie } }).then((response) => response.json());
   assert.equal(session.authenticated, true);
   assert.equal(session.user.identities[0].address, wallet.address);
+  assert.equal(session.user.onboardingCompleted, false);
+  const onboarding = await post(baseUrl, "/api/v1/auth/onboarding/complete", {}, cookie);
+  assert.equal(onboarding.status, 200);
+  assert.equal((await fetch(`${baseUrl}/api/v1/auth/session`, { headers: { cookie } }).then((response) => response.json())).user.onboardingCompleted, true);
   assert.equal((await post(baseUrl, "/api/v1/auth/web3/verify", { challengeId: challenge.challengeId, signature })).status, 400);
   const logout = await post(baseUrl, "/api/v1/auth/logout", {}, cookie);
   assert.equal(logout.status, 200);

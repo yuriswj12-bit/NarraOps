@@ -1007,7 +1007,7 @@ function renderAssets() {
   }).join("");
   const loginWalletCard = state.auth.session
     ? `<section class="asset-overview-panel"><div class="asset-section-heading"><div><span>${t("个人资产", "Personal assets")}</span><h2>${t("登录钱包", "Login wallet")}</h2></div><span class="state-pill">${t("链上实时", "Live on-chain")}</span></div><div class="login-wallet-list">${loginWalletRows || `<div class="empty-state">${t("未发现登录钱包", "No login wallet found")}</div>`}</div></section>`
-    : `<section class="asset-overview-panel"><div class="asset-section-heading"><div><span>${t("个人资产", "Personal assets")}</span><h2>${t("登录钱包", "Login wallet")}</h2></div><button class="compact-button" type="button" data-action="login-web3">${t("Web3 登录", "Web3 sign in")}</button></div><div class="empty-state">${t("登录后显示钱包地址及真实 SOL / BNB 余额。", "Sign in to display your wallet address and live SOL / BNB balance.")}</div></section>`;
+    : `<section class="asset-overview-panel"><div class="asset-section-heading"><div><span>${t("个人资产", "Personal assets")}</span><h2>${t("连接钱包", "Connected wallet")}</h2></div><button class="compact-button" type="button" data-action="login-web3">${t("连接", "Connect")}</button></div><div class="empty-state">${t("连接后显示钱包地址及真实 SOL / BNB 余额。", "Connect to display your wallet address and live SOL / BNB balance.")}</div></section>`;
   viewRoot.innerHTML = `
     ${pageHeading("Assets", t("个人资产与钱包组", "Personal assets and wallet groups"), liveWallets ? t("真实多链钱包已在本地加密仓中创建。", "Real multi-chain wallets are stored in the encrypted vault.") : t("统一查看账户表现、钱包组资产与模拟钱包。", "Review account performance, wallet-group assets, and simulated wallets."), `<span class="simulation-pill"><i class="fa-solid fa-shield-halved"></i>${liveWallets ? t("真实钱包 · 加密保存", "Real wallets · Encrypted") : t("模拟资产 · 真实执行关闭", "Mock assets · Live execution off")}</span><button class="secondary-button" type="button" data-action="refresh-assets"><i class="fa-solid fa-arrows-rotate"></i>${t("刷新", "Refresh")}</button>`)}
     ${status}
@@ -1135,42 +1135,52 @@ async function openAuth(mode) {
     showToast(t("已退出登录", "Signed out"));
     return;
   }
-  if (mode === "email") {
-    openModal({ kicker: "NarraOps Account", title: t("邮箱登录", "Email login"), content: `<div class="empty-state large"><i class="fa-regular fa-envelope"></i>${t("邮箱注册与登录将在下一阶段接入。", "Email registration and login will be added in the next phase.")}</div><div class="modal-actions"><button class="primary-button" type="button" data-modal-action="close">${t("知道了", "Done")}</button></div>` });
-    return;
-  }
-  openModal({ kicker: t("无 Gas 签名认证", "Gas-free signature authentication"), title: t("Web3 钱包登录", "Sign in with a Web3 wallet"), content: `<p>${t("钱包只签署一次性登录消息，不会创建交易或花费 Gas。", "Your wallet signs a one-time login message. This creates no transaction and costs no gas.")}</p><div class="form-stack"><button class="primary-button" type="button" data-web3-login="evm"><i class="fa-brands fa-ethereum"></i>${t("使用 EVM 钱包登录", "Continue with an EVM wallet")}</button><button class="secondary-button" type="button" data-web3-login="solana"><i class="fa-solid fa-s"></i>${t("使用 Solana 钱包登录", "Continue with a Solana wallet")}</button></div>` });
+  openModal({ kicker: t("无 Gas 签名认证", "Gas-free signature authentication"), title: t("连接钱包", "Connect wallet"), content: `<p>${t("选择一个钱包。连接后仅签署一次性登录消息，不会创建交易或花费 Gas。", "Choose a wallet. You will only sign a one-time login message; no transaction or gas is involved.")}</p><div class="wallet-connect-list"><span>${t("已支持", "Supported")}</span><button type="button" data-web3-login="okx"><b class="wallet-brand okx">OKX</b><strong>OKX Wallet</strong><small>EVM</small><i class="fa-solid fa-chevron-right"></i></button><button type="button" data-web3-login="phantom"><b class="wallet-brand phantom">P</b><strong>Phantom</strong><small>Solana</small><i class="fa-solid fa-chevron-right"></i></button><button type="button" data-web3-login="metamask"><b class="wallet-brand metamask">M</b><strong>MetaMask</strong><small>EVM</small><i class="fa-solid fa-chevron-right"></i></button><button type="button" data-web3-login="solflare"><b class="wallet-brand solflare">S</b><strong>Solflare</strong><small>Solana</small><i class="fa-solid fa-chevron-right"></i></button></div><div class="wallet-connect-note"><i class="fa-solid fa-shield-halved"></i>${t("NarraOps 不会读取助记词或私钥。", "NarraOps never reads your seed phrase or private key.")}</div>` });
 }
 
 function updateAuthButtons() {
-  const [quiet, primary] = document.querySelectorAll("[data-auth]");
+  const primary = document.querySelector("[data-auth]");
   const identity = state.auth.session?.user?.identities?.[0];
   if (identity) {
-    quiet.dataset.auth = "logout";
-    quiet.textContent = t("退出", "Log out");
-    primary.dataset.auth = "web3";
-    primary.textContent = `${identity.chain.toUpperCase()} ${shortAddress(identity.address)}`;
+    primary.dataset.auth = "logout";
+    primary.innerHTML = `<i class="fa-solid fa-wallet"></i>${identity.chain.toUpperCase()} ${shortAddress(identity.address)}`;
   } else {
-    quiet.dataset.auth = "email";
-    quiet.textContent = t("邮箱登录", "Email login");
     primary.dataset.auth = "web3";
-    primary.textContent = "Web3 登录";
+    primary.innerHTML = `<i class="fa-solid fa-wallet"></i>${t("连接", "Connect")}`;
   }
 }
 
 async function loadAuthSession() {
   try { const result = await apiRequest("/api/v1/auth/session"); state.auth.session = result.authenticated ? result : null; }
   catch { state.auth.session = null; }
-  finally { state.auth.loading = false; updateAuthButtons(); }
+  finally {
+    state.auth.loading = false;
+    updateAuthButtons();
+    if (state.auth.session && !state.auth.session.user.onboardingCompleted) window.setTimeout(openOnboarding, 250);
+  }
 }
 
-async function web3Login(chain) {
+function walletProvider(walletId) {
+  if (walletId === "okx") return { chain: "evm", provider: window.okxwallet?.ethereum || window.okxwallet };
+  if (walletId === "metamask") return { chain: "evm", provider: window.ethereum?.providers?.find((item) => item.isMetaMask && !item.isPhantom) || (window.ethereum?.isMetaMask ? window.ethereum : null) };
+  if (walletId === "phantom") return { chain: "solana", provider: window.phantom?.solana };
+  if (walletId === "solflare") return { chain: "solana", provider: window.solflare };
+  return { chain: "evm", provider: window.ethereum };
+}
+
+function openOnboarding() {
+  openModal({ kicker: "NarraOps", title: t("欢迎来到 Agentic Meme Launch OS", "Welcome to the Agentic Meme Launch OS"), content: `<p class="onboarding-lead">${t("从叙事发现到链上发射、钱包组运营，NarraOps 把完整工作流放在一个控制台中。", "From narrative discovery to on-chain launch and wallet operations, NarraOps keeps the workflow in one console.")}</p><div class="onboarding-grid"><article><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Go</strong><span>${t("让 Agent 搜索叙事、生成素材并组织任务。", "Discover narratives, generate assets, and orchestrate work.")}</span></article><article><i class="fa-solid fa-rocket"></i><strong>Launch</strong><span>${t("连接 Cooking 钱包并在支持的平台真实发射。", "Launch on supported platforms with a Cooking wallet.")}</span></article><article><i class="fa-solid fa-wave-square"></i><strong>Pulse</strong><span>${t("追踪信号、链上状态和执行进度。", "Track signals, on-chain state, and execution progress.")}</span></article><article><i class="fa-solid fa-wallet"></i><strong>Assets</strong><span>${t("查看登录钱包、创建钱包组并管理真实资产。", "View login wallets, create groups, and manage live assets.")}</span></article></div><button class="primary-button onboarding-start" type="button" data-modal-action="complete-onboarding">${t("我知道了，开始使用", "Got it, start using NarraOps")}</button>` });
+}
+
+async function web3Login(walletId) {
   if (state.auth.busy) return;
   state.auth.busy = true;
   try {
+    const selection = walletProvider(walletId);
+    const chain = selection.chain;
     let address; let chainId; let signature;
     if (chain === "evm") {
-      const provider = window.ethereum;
+      const provider = selection.provider;
       if (!provider) throw new Error(t("未检测到 EVM 钱包扩展", "No EVM wallet extension was detected"));
       [address] = await provider.request({ method: "eth_requestAccounts" });
       chainId = Number.parseInt(await provider.request({ method: "eth_chainId" }), 16);
@@ -1178,7 +1188,7 @@ async function web3Login(chain) {
       signature = await provider.request({ method: "personal_sign", params: [challenge.message, address] });
       state.auth.session = await apiRequest("/api/v1/auth/web3/verify", { method: "POST", body: JSON.stringify({ challengeId: challenge.challengeId, signature }) });
     } else {
-      const provider = window.phantom?.solana || window.solflare || window.solana;
+      const provider = selection.provider;
       if (!provider?.connect || !provider?.signMessage) throw new Error(t("未检测到支持消息签名的 Solana 钱包", "No Solana wallet with message signing was detected"));
       const connection = await provider.connect();
       address = (connection.publicKey || provider.publicKey).toString();
@@ -1192,6 +1202,7 @@ async function web3Login(chain) {
     updateAuthButtons();
     if (state.view === "assets") await loadAssets();
     showToast(t("钱包登录成功", "Wallet sign-in successful"));
+    if (!state.auth.session.user.onboardingCompleted) window.setTimeout(openOnboarding, 180);
   } catch (error) { showToast(error.message); }
   finally { state.auth.busy = false; }
 }
@@ -1730,6 +1741,13 @@ modal.addEventListener("click", async (event) => {
   }
   const action = event.target.closest("[data-modal-action]")?.dataset.modalAction;
   if (action === "close") closeModal();
+  if (action === "complete-onboarding") {
+    try {
+      await apiRequest("/api/v1/auth/onboarding/complete", { method: "POST", body: "{}" });
+      if (state.auth.session?.user) state.auth.session.user.onboardingCompleted = true;
+    } catch (error) { showToast(error.message); }
+    closeModal();
+  }
   if (action === "agent") {
     closeModal();
     switchView("go");

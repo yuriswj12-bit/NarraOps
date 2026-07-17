@@ -76,7 +76,7 @@ export class Web3AuthService {
     let user = this.store.users.find((item) => item.identities.some((identity) => `${identity.chain}:${identity.address.toLowerCase()}` === identityKey));
     const now = new Date(this.now()).toISOString();
     if (!user) {
-      user = { userId: randomUUID(), identities: [{ chain: challenge.chain, address: challenge.address, createdAt: now }], primaryIdentity: identityKey, createdAt: now, updatedAt: now };
+      user = { userId: randomUUID(), identities: [{ chain: challenge.chain, address: challenge.address, createdAt: now }], primaryIdentity: identityKey, onboardingCompleted: false, createdAt: now, updatedAt: now };
       this.store.users.push(user);
     }
     const token = randomBytes(32).toString("base64url");
@@ -103,8 +103,18 @@ export class Web3AuthService {
     this.#save();
   }
 
+  completeOnboarding(cookieHeader) {
+    const session = this.authenticate(cookieHeader);
+    if (!session) throw new ApiError(401, "AUTHENTICATION_REQUIRED", "Sign in before completing onboarding");
+    const user = this.store.users.find(({ userId }) => userId === session.user.userId);
+    user.onboardingCompleted = true;
+    user.updatedAt = new Date(this.now()).toISOString();
+    this.#save();
+    return { completed: true };
+  }
+
   publicSession(user, session) {
-    return { authenticated: true, user: { userId: user.userId, identities: user.identities, primaryIdentity: user.primaryIdentity }, expiresAt: session.expiresAt };
+    return { authenticated: true, user: { userId: user.userId, identities: user.identities, primaryIdentity: user.primaryIdentity, onboardingCompleted: user.onboardingCompleted === true }, expiresAt: session.expiresAt };
   }
 
   #load() {
