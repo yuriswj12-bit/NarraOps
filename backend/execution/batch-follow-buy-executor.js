@@ -1,5 +1,17 @@
 import { openWalletSecret } from "./encrypted-wallet-vault.js";
 import { ExecutionError } from "./errors.js";
+import { createHash } from "node:crypto";
+
+function allocateFixedTotalRandom({ totalAmountAtomic, walletCount, seed }) {
+  const total = BigInt(totalAmountAtomic); const count = Number(walletCount);
+  if (!Number.isInteger(count) || count < 1 || total < BigInt(count)) throw new ExecutionError("BOUND_BUY_TOTAL_TOO_SMALL", "Random bound-buy total must allocate at least one atomic unit per wallet");
+  const weights = Array.from({ length: count }, (_, index) => BigInt(`0x${createHash("sha256").update(`${seed}:${index}`).digest("hex").slice(0, 16)}`) + 1n);
+  const distributable = total - BigInt(count); const weightTotal = weights.reduce((sum, value) => sum + value, 0n);
+  const amounts = weights.map((weight) => 1n + (distributable * weight) / weightTotal);
+  let remainder = total - amounts.reduce((sum, value) => sum + value, 0n);
+  for (let index = 0; remainder > 0n; index = (index + 1) % count, remainder -= 1n) amounts[index] += 1n;
+  return amounts;
+}
 
 export function resolveBoundBuyAmounts({ wallets, allocation }) {
   if (!Array.isArray(wallets) || !wallets.length) throw new ExecutionError("BOUND_BUY_WALLETS_REQUIRED", "Launch-bound-buy wallet group is empty");
@@ -15,12 +27,17 @@ export function resolveBoundBuyAmounts({ wallets, allocation }) {
     if (amounts.some((amount) => amount <= 0n)) throw new ExecutionError("BOUND_BUY_AMOUNT_INVALID", "Every custom bound-buy amount must be positive");
     return amounts;
   }
-  throw new ExecutionError("BOUND_BUY_ALLOCATION_INVALID", "Bound-buy allocation must be PER_WALLET_EQUAL or PER_WALLET_CUSTOM");
+  if (allocation?.mode === "TOTAL_RANDOM") return allocateFixedTotalRandom({ totalAmountAtomic: allocation.totalAmountAtomic, walletCount: wallets.length, seed: allocation.seed });
+  throw new ExecutionError("BOUND_BUY_ALLOCATION_INVALID", "Bound-buy allocation must be PER_WALLET_EQUAL, PER_WALLET_CUSTOM, or TOTAL_RANDOM");
 }
 
 export class BatchFollowBuyExecutor {
   constructor({ walletRepository, pumpPlanner, fourMemePlanner, solanaAdapter, evmAdapter }) {
     Object.assign(this, { walletRepository, pumpPlanner, fourMemePlanner, solanaAdapter, evmAdapter });
+  }
+
+  prepareAllocation({ wallets, allocation }) {
+    return resolveBoundBuyAmounts({ wallets, allocation }).map((amount, index) => ({ walletId: wallets[index].walletId, amountAtomic: amount.toString() }));
   }
 
   async execute({ platform, tokenAddress, wallets, allocation, password, slippageBps = 500 }) {

@@ -24,3 +24,14 @@ test("custom allocation requires exactly one positive amount per wallet", () => 
   assert.deepEqual(resolveBoundBuyAmounts({ wallets, allocation: { mode: "PER_WALLET_CUSTOM", customAmountsAtomic: [{ walletId: "w1", amountAtomic: "40" }, { walletId: "w2", amountAtomic: "60" }] } }), [40n, 60n]);
   assert.throws(() => resolveBoundBuyAmounts({ wallets, allocation: { mode: "PER_WALLET_CUSTOM", customAmountsAtomic: [{ walletId: "w1", amountAtomic: "100" }] } }), { code: "BOUND_BUY_WALLET_MISMATCH" });
 });
+
+test("fixed-total random allocation is deterministic and preserves the exact total", () => {
+  const wallets = Array.from({ length: 20 }, (_, index) => ({ walletId: `w${index}` }));
+  const allocation = { mode: "TOTAL_RANDOM", totalAmountAtomic: "10000000000", seed: "execution-42" };
+  const first = resolveBoundBuyAmounts({ wallets, allocation });
+  const second = resolveBoundBuyAmounts({ wallets, allocation });
+  assert.deepEqual(first, second);
+  assert.equal(first.reduce((sum, amount) => sum + amount, 0n), 10000000000n);
+  assert.ok(new Set(first.map(String)).size > 10);
+  assert.ok(first.every((amount) => amount > 0n));
+});
