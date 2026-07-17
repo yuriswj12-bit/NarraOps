@@ -158,6 +158,10 @@ export function validateInternalLaunchPrepare(body) {
       const amountPerWallet = string(rawBoundBuy.allocation.amountPerWallet, "boundBuy.allocation.amountPerWallet", { required: true, max: 40 });
       if (!MONEY_PATTERN.test(amountPerWallet) || Number(amountPerWallet) <= 0) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy per-wallet amount must be positive");
       allocation = { mode: allocationMode, amountPerWallet };
+    } else if (allocationMode === "TOTAL_RANDOM") {
+      const totalAmount = string(rawBoundBuy.allocation.totalAmount, "boundBuy.allocation.totalAmount", { required: true, max: 40 });
+      if (!MONEY_PATTERN.test(totalAmount) || Number(totalAmount) <= 0) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy random total amount must be positive");
+      allocation = { mode: allocationMode, totalAmount };
     } else if (allocationMode === "PER_WALLET_CUSTOM") {
       const custom = rawBoundBuy.allocation.customAmounts;
       if (!Array.isArray(custom) || !custom.length || custom.length > 100) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy customAmounts must contain 1-100 wallets");
@@ -171,7 +175,7 @@ export function validateInternalLaunchPrepare(body) {
         seen.add(walletId); return { walletId, amount };
       });
       allocation = { mode: allocationMode, customAmounts };
-    } else throw new ApiError(400, "VALIDATION_ERROR", "boundBuy allocation must be equal per-wallet or custom per-wallet");
+    } else throw new ApiError(400, "VALIDATION_ERROR", "boundBuy allocation must be equal per-wallet, fixed-total random, or custom per-wallet");
     const slippageBps = Number(rawBoundBuy.slippageBps ?? 500);
     if (!Number.isInteger(slippageBps) || slippageBps < 1 || slippageBps > 5000) throw new ApiError(400, "VALIDATION_ERROR", "boundBuy slippageBps must be between 1 and 5000");
     boundBuy = { enabled: true, walletGroupId: string(rawBoundBuy.walletGroupId, "boundBuy.walletGroupId", { required: true, max: 64 }), window: { earliestBlockOffset: 1, latestBlockOffset: 5 }, allocation, slippageBps };

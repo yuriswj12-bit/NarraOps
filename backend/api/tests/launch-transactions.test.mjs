@@ -41,12 +41,13 @@ test("internal Cooking-wallet launch uses prepare then explicit confirmation", a
   assert.deepEqual(calls[0][1].boundBuy.window, { earliestBlockOffset: 1, latestBlockOffset: 5 });
 });
 
-test("launch-bound buys reject random allocation", async (t) => {
-  const { application, baseUrl } = await start(null, { launchCoordinator: { prepare: async () => ({}) } });
+test("launch-bound buys accept a fixed-total random allocation", async (t) => {
+  let received;
+  const { application, baseUrl } = await start(null, { launchCoordinator: { prepare: async (input) => { received = input; return { executionId: "random-preview" }; } } });
   t.after(() => application.close());
-  const response = await post(baseUrl, "/api/v1/launch/executions/prepare", { platform: "pump", cookingWalletGroupId: "cook-group", boundBuy: { enabled: true, walletGroupId: "buy-group", allocation: { mode: "random", amountPerWallet: "0.1" } }, name: "Narra", symbol: "NARRA", imageBase64: Buffer.from("image").toString("base64"), developerBuyAmount: "0.1" });
-  assert.equal(response.status, 400);
-  assert.equal((await response.json()).error.code, "VALIDATION_ERROR");
+  const response = await post(baseUrl, "/api/v1/launch/executions/prepare", { platform: "pump", cookingWalletGroupId: "cook-group", boundBuy: { enabled: true, walletGroupId: "buy-group", allocation: { mode: "TOTAL_RANDOM", totalAmount: "10" } }, name: "Narra", symbol: "NARRA", imageBase64: Buffer.from("image").toString("base64"), developerBuyAmount: "0.1" });
+  assert.equal(response.status, 201);
+  assert.equal(received.boundBuy.allocation.totalAmount, "10");
 });
 
 test("launch plan returns an unsigned client-confirmation payload", async (t) => {
