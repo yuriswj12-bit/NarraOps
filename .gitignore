@@ -8,7 +8,7 @@ design-qa.md
 .env.*
 !.env.example
 
-data/workspace.json
+data/*.json
 data/*.local.json
 backend/api/data/*.json
 
