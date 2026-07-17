@@ -365,8 +365,9 @@ components:
           additionalProperties: false
           required: [mode]
           properties:
-            mode: { type: string, enum: [PER_WALLET_EQUAL, PER_WALLET_CUSTOM] }
+            mode: { type: string, enum: [PER_WALLET_EQUAL, PER_WALLET_CUSTOM, TOTAL_RANDOM] }
             amountPerWallet: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
+            totalAmount: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
             customAmounts:
               type: array
               items:
