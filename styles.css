@@ -1253,6 +1253,10 @@ button {
   gap: 9px;
 }
 
+.launch-field[hidden] {
+  display: none;
+}
+
 .launch-field > span {
   color: var(--muted);
   font-size: 14px;
