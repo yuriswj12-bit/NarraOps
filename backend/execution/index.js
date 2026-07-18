@@ -4,6 +4,7 @@ export { sealWalletSecret, openWalletSecret } from "./encrypted-wallet-vault.js"
 export { EncryptedBatchWalletSigner, OneTimeApprovalStore, digestBatch } from "./batch-wallet-signer.js";
 export { EncryptedWalletRepository } from "./encrypted-wallet-repository.js";
 export { WalletProvisioningService } from "./wallet-provisioning-service.js";
+export { WalletExportService } from "./wallet-export-service.js";
 export { EvmJsonRpcClient, EvmTransactionAdapter } from "./evm-transaction-adapter.js";
 export { SolanaTransactionAdapter } from "./solana-transaction-adapter.js";
 export { LaunchSigningService } from "./launch-signing-service.js";

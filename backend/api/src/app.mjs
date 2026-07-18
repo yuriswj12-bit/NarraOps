@@ -138,7 +138,7 @@ function toGoTask(task) {
   return payload;
 }
 
-export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager, launchService, walletProvisioningService, launchCoordinator, assetService, authService } = {}) {
+export function createApplication({ config, logger, repository, conversationRepository, devWalletRepository, launchDraftRepository, walletGroupRepository, transferRepository, integrations, taskManager, launchService, walletProvisioningService, walletExportService, launchCoordinator, assetService, authService } = {}) {
   const registry = integrations || createIntegrationRegistry(config);
   const repo = repository || new InMemoryTaskRepository();
   const devWallets = devWalletRepository || new InMemoryDevWalletRepository();
@@ -265,6 +265,27 @@ export function createApplication({ config, logger, repository, conversationRepo
 
       if (req.method === "GET" && url.pathname === "/api/v1/pulse") {
         sendJson(res, 200, mockPulse(), requestId);
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/v1/chains/solana/latest-blockhash") {
+        const rpcResponse = await fetch(config.solanaRpcUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: requestId, method: "getLatestBlockhash", params: [{ commitment: "confirmed" }] }),
+          signal: AbortSignal.timeout(config.externalTimeoutMs || 8_000),
+        });
+        const rpcPayload = await rpcResponse.json().catch(() => null);
+        if (!rpcResponse.ok || rpcPayload?.error || !rpcPayload?.result?.value?.blockhash) {
+          throw new ApiError(502, "SOLANA_RPC_UNAVAILABLE", "Solana RPC could not provide a recent blockhash", {
+            rpcStatus: rpcResponse.status,
+            rpcCode: rpcPayload?.error?.code,
+          });
+        }
+        sendJson(res, 200, {
+          blockhash: rpcPayload.result.value.blockhash,
+          lastValidBlockHeight: rpcPayload.result.value.lastValidBlockHeight,
+        }, requestId);
         return;
       }
 
@@ -460,7 +481,9 @@ export function createApplication({ config, logger, repository, conversationRepo
         const exportMatch = url.pathname.match(/^\/api\/v1\/wallet-groups\/([0-9a-f-]{36})\/exports$/i);
         if (exportMatch) {
           const groupId = exportMatch[1];
-          if (!walletGroups.getGroup(groupId)) throw new ApiError(404, "WALLET_GROUP_NOT_FOUND", "Wallet group was not found");
+          const group = walletGroups.getGroup(groupId);
+          if (!group) throw new ApiError(404, "WALLET_GROUP_NOT_FOUND", "Wallet group was not found");
+          if (authService && !authService.authenticate(req.headers.cookie)) throw new ApiError(401, "AUTHENTICATION_REQUIRED", "Sign in before exporting private keys");
           try {
             validateWalletExport(body);
           } catch (error) {
@@ -479,12 +502,14 @@ export function createApplication({ config, logger, repository, conversationRepo
             walletGroups.recordExportAttempt({ requestId, groupId, outcome: "mfa_required" });
             throw new ApiError(403, "MFA_REQUIRED", "Wallet export requires a verified MFA challenge");
           }
-          walletGroups.recordExportAttempt({ requestId, groupId, outcome: "export_service_disabled" });
-          throw new ApiError(503, "WALLET_EXPORT_DISABLED", "One-time encrypted wallet export is disabled until the isolated custody service and immutable audit store pass security review", {
-            ordinaryJsonResponseAllowed: false,
-            requiresOneTimeEncryptedDownload: true,
-            privateKeyMaterialReturned: false,
-          });
+          if (!walletExportService) {
+            walletGroups.recordExportAttempt({ requestId, groupId, outcome: "export_service_disabled" });
+            throw new ApiError(503, "WALLET_EXPORT_DISABLED", "Wallet export requires the encrypted wallet vault", { ordinaryJsonResponseAllowed: false, requiresOneTimeEncryptedDownload: true, privateKeyMaterialReturned: false });
+          }
+          const result = await walletExportService.exportText(group, walletGroups.getExportWallets(groupId));
+          walletGroups.recordExportAttempt({ requestId, groupId, outcome: "export_completed" });
+          sendJson(res, 200, result, requestId, { "cache-control": "no-store", pragma: "no-cache" });
+          return;
         }
 
         if (url.pathname === "/api/v1/transfers/preview") {

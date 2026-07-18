@@ -287,6 +287,15 @@ export class InMemoryWalletGroupRepository {
     });
   }
 
+  getExportWallets(groupId) {
+    const group = this.#requireGroup(groupId);
+    return group.walletIds.map((walletId) => {
+      const wallet = this.#wallets.get(walletId);
+      if (!wallet || wallet.provisioningStatus !== "active") throw new ApiError(409, "WALLET_NOT_EXPORTABLE", "Every wallet must be provisioned before export");
+      return { walletId, label: wallet.label, addresses: clone(wallet.addresses || {}), signerReferences: clone(wallet.signerReferences || {}) };
+    });
+  }
+
   #publicWallet(wallet) {
     const { signerReferences: _signerReferences, ...publicWallet } = wallet;
     return clone(publicWallet);

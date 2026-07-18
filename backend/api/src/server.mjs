@@ -4,7 +4,7 @@ import { createApplication } from "./app.mjs";
 import { LaunchPlanningService } from "./launch-service.mjs";
 import { resolve } from "node:path";
 import { Connection } from "@solana/web3.js";
-import { BatchFollowBuyExecutor, EncryptedWalletRepository, EvmJsonRpcClient, EvmTransactionAdapter, FourMemeFollowBuyPlanner, LaunchConfirmationProvider, LaunchSigningService, NativeAssetService, PumpFollowBuyPlanner, SolanaTransactionAdapter, WalletProvisioningService } from "../../execution/index.js";
+import { BatchFollowBuyExecutor, EncryptedWalletRepository, EvmJsonRpcClient, EvmTransactionAdapter, FourMemeFollowBuyPlanner, LaunchConfirmationProvider, LaunchSigningService, NativeAssetService, PumpFollowBuyPlanner, SolanaTransactionAdapter, WalletExportService, WalletProvisioningService } from "../../execution/index.js";
 import { InMemoryWalletGroupRepository } from "./repositories/in-memory-wallet-group-repository.mjs";
 import { LaunchExecutionCoordinator } from "./launch-execution-coordinator.mjs";
 import { FileLaunchExecutionRepository } from "./repositories/file-launch-execution-repository.mjs";
@@ -17,6 +17,7 @@ const encryptedWalletRepository = config.walletVaultPassword ? new EncryptedWall
 const walletProvisioningService = config.walletVaultPassword
   ? new WalletProvisioningService({ walletRepository: encryptedWalletRepository, password: config.walletVaultPassword })
   : null;
+const walletExportService = encryptedWalletRepository ? new WalletExportService({ walletRepository: encryptedWalletRepository, password: config.walletVaultPassword }) : null;
 const walletGroupRepository = new InMemoryWalletGroupRepository({ seed: !walletProvisioningService, filePath: resolve(config.walletGroupStorePath) });
 if (walletProvisioningService) {
   for (const group of walletGroupRepository.listGroups()) {
@@ -52,7 +53,7 @@ const assetService = encryptedWalletRepository ? new NativeAssetService({
 }) : null;
 const authService = new Web3AuthService({ filePath: resolve(config.authStorePath), origin: config.appOrigin });
 launchCoordinator?.markInterruptedExecutions();
-const application = createApplication({ config, logger, launchService, walletProvisioningService, walletGroupRepository, launchCoordinator, assetService, authService });
+const application = createApplication({ config, logger, launchService, walletProvisioningService, walletExportService, walletGroupRepository, launchCoordinator, assetService, authService });
 
 application.server.listen(config.port, config.host, () => {
   logger.info("api_started", {

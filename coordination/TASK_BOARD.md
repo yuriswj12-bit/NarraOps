@@ -17,3 +17,11 @@
 | Execution | Chain adapters and confirmation reconciler | Pending; real funds disabled |
 | Frontend | Render distinct execution states | Pending |
 | Integration | Live native SOL/BNB balances, deposits, withdrawals, and wallet-group transfers | Done locally; production auth/audit hardening pending |
+| Frontend | Unified wallet-group transfer modal and live amount preview | Done |
+| Backend | Configured Solana blockhash endpoint for browser-wallet transactions | Done |
+| Execution | Encrypted wallet export with explicit safeguards | Done |
+| QA | Browser-wallet SOL transfer small-value mainnet acceptance | Pending user-side wallet confirmation only |
+| Execution | BSC login-wallet 1-to-many distributor contract | Pending |
+| Assets | SPL/BEP-20 token discovery, token images, pricing, and P&L ledger | Pending |
+| Launch | Pump/Four.Meme/Pons mainnet end-to-end acceptance | Pending |
+| Pulse | Live signal expansion | Paused by product decision |
