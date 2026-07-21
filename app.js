@@ -1,1545 +1,1644 @@
-const STORAGE_KEY = "narraops.workspace.v1";
-const LANGUAGE_KEY = "narraops.language";
+const viewRoot = document.querySelector("#viewRoot");
+const toast = document.querySelector("#toast");
+const modal = document.querySelector("#modal");
+const modalBackdrop = document.querySelector("#modalBackdrop");
+const modalTitle = document.querySelector("#modalTitle");
+const modalKicker = document.querySelector("#modalKicker");
+const modalBody = document.querySelector("#modalBody");
+const notificationButton = document.querySelector("#notificationButton");
+const notificationMenu = document.querySelector("#notificationMenu");
+const languageButton = document.querySelector("#languageButton");
+const languageMenu = document.querySelector("#languageMenu");
+const themeButton = document.querySelector("#themeButton");
+
+const allowedViews = new Set(["pulse", "go", "launch", "invite", "assets"]);
+const storedLanguage = localStorage.getItem("narraops-language");
+const storedTheme = localStorage.getItem("narraops-theme");
 
 const state = {
-  activeView: "dashboard",
-  selectedSignalId: "sig-ai-mask",
-  contributionRate: Number(localStorage.getItem("narraops.contributionRate") || 4),
-  language: localStorage.getItem(LANGUAGE_KEY) || "en",
-  customBrief: "",
-  launchMode: "manual",
-  chain: "sol",
-  platform: "Pump.fun",
-  generated: null,
-  lastLaunchPackage: null,
-  armedLaunches: [
-    {
-      id: "arm-01",
-      trigger: "@marketobserver posts with image + AI mascot keyword",
-      chain: "Solana",
-      walletGroup: "Alpha Launch Group",
-      mode: "Confirm first",
-      status: "armed",
-    },
-  ],
-};
-
-const sources = [
-  {
-    id: "src-x-01",
-    platform: "X",
-    handle: "@marketobserver",
-    focus: "new posts, images, cultural phrases",
-    status: "live",
-    lastSeen: "2m",
+  view: getViewFromHash(),
+  language: storedLanguage === "en" ? "en" : "zh",
+  theme: storedTheme === "soft" ? "soft" : "dark",
+  selectedPlatform: null,
+  launchWallet: {
+    address: null,
+    chainId: null,
+    balance: null,
+    connecting: false,
+    error: null,
   },
-  {
-    id: "src-tt-01",
-    platform: "TikTok",
-    handle: "@clipradar",
-    focus: "viral short clips, creator memes",
-    status: "live",
-    lastSeen: "7m",
+  launchMedia: {
+    file: null,
+    previewUrl: null,
+    metadataUri: null,
+    generating: false,
   },
-  {
-    id: "src-ig-01",
-    platform: "Instagram",
-    handle: "@visualloops",
-    focus: "high-reuse media, characters, comments",
-    status: "queued",
-    lastSeen: "18m",
+  settings: {
+    x: true,
+    tiktok: true,
+    instagram: true,
+    telegram: false,
+    notifications: true,
   },
-  {
-    id: "src-tg-01",
-    platform: "Telegram",
-    handle: "Launch chatter list",
-    focus: "early meme repeats, ticker mentions",
-    status: "live",
-    lastSeen: "4m",
+  conversation: [],
+  agent: {
+    conversationId: null,
+    conversationPromise: null,
+    eventSource: null,
+    activeTaskId: null,
+    submitting: false,
+    retryCommand: null,
+    seenEventIds: new Set(),
+    seenCards: new Set(),
+    reconnects: 0,
   },
-];
-
-const signals = [
-  {
-    id: "sig-ai-mask",
-    title: "Masked AI mascot clip is spreading across comment threads",
-    source: "@marketobserver",
-    network: "X",
-    grade: "S",
-    score: 94,
-    comparable: "Comparable case peak: $42M",
-    sentiment: "accelerating",
-    risk: "low",
-    angle: "A character that looks like a bot pretending to be human becomes the symbol for agent-native internet culture.",
-    name: "MaskBot",
-    ticker: "MASKBOT",
-  },
-  {
-    id: "sig-glitch",
-    title: "Game glitch phrase became a repeated reply format",
-    source: "@clipradar",
-    network: "TikTok",
-    grade: "A",
-    score: 86,
-    comparable: "Comparable case peak: $9.8M",
-    sentiment: "rising",
-    risk: "medium",
-    angle: "The internet treats broken simulation moments as a shared market joke.",
-    name: "GlitchLoop",
-    ticker: "GLITCH",
-  },
-  {
-    id: "sig-catchphrase",
-    title: "Creator catchphrase is being remixed into financial slang",
-    source: "@visualloops",
-    network: "Instagram",
-    grade: "A",
-    score: 82,
-    comparable: "Comparable case peak: $6.4M",
-    sentiment: "volatile",
-    risk: "watch",
-    angle: "A short phrase becomes a ritual signal for people who buy chaos before it becomes consensus.",
-    name: "Before Consensus",
-    ticker: "BCONS",
-  },
-  {
-    id: "sig-telegram",
-    title: "Telegram groups repeat the same absurd ticker request",
-    source: "Launch chatter list",
-    network: "Telegram",
-    grade: "B",
-    score: 71,
-    comparable: "Comparable case peak: $730K",
-    sentiment: "early",
-    risk: "medium",
-    angle: "A community-born ticker becomes the meme before the token exists.",
-    name: "Ticker First",
-    ticker: "TICKR",
-  },
-];
-
-const historicalCases = [
-  { name: "GOAT", chain: "SOL", peak: "$800M+", tag: "AI narrative" },
-  { name: "CHILLGUY", chain: "SOL", peak: "$500M+", tag: "internet character" },
-  { name: "WIF", chain: "SOL", peak: "$4B+", tag: "media identity" },
-  { name: "MUBARAK", chain: "BSC", peak: "$100M+", tag: "culture event" },
-];
-
-const walletGroups = [
-  {
-    name: "Alpha Launch Group",
-    chain: "SOL",
-    wallets: 24,
-    balance: "18.42 SOL",
-    buyPlan: "random 0.12-0.35 SOL",
-    sellPlan: "25 / 50 / 75 / 100%",
-  },
-  {
-    name: "BSC Fast Group",
-    chain: "BSC",
-    wallets: 18,
-    balance: "9.73 BNB",
-    buyPlan: "ladder 0.04 BNB",
-    sellPlan: "profit tiers",
-  },
-  {
-    name: "Community Rewards",
-    chain: "SOL",
-    wallets: 8,
-    balance: "4.12 SOL",
-    buyPlan: "manual",
-    sellPlan: "locked",
-  },
-];
-
-const records = [
-  {
-    time: "12:18",
-    type: "Signal scored",
-    detail: "Masked AI mascot moved to S grade",
-    route: "Narrative Agent",
-    status: "done",
-  },
-  {
-    time: "12:09",
-    type: "Launch armed",
-    detail: "@marketobserver trigger linked to Alpha Launch Group",
-    route: "Signal-to-Launch",
-    status: "armed",
-  },
-  {
-    time: "11:47",
-    type: "Community pack",
-    detail: "Generated 8 X posts and 3 Telegram responses",
-    route: "Community Agent",
-    status: "done",
-  },
-];
-
-const UI_TRANSLATIONS = {
-  zh: {
-    "Agentic Launch OS": "智能体发行操作系统",
-    Dashboard: "仪表盘",
-    Narratives: "叙事",
-    "Signal-to-Launch": "信号到发射",
-    "Meme Builder": "Meme 构建器",
-    "Launch Console": "发射控制台",
-    "Wallet Ops": "钱包运营",
-    "Community Ops": "社区运营",
-    Records: "记录",
-    "Agent Status": "Agent 状态",
-    Listening: "监听中",
-    Signals: "信号",
-    "Armed launches": "已布防发射",
-    "Run scan": "运行扫描",
-    Settlement: "结算",
-    "Contribution Engine": "贡献结算引擎",
-    Close: "关闭",
-    "Selected rate": "当前比例",
-    "Settlement wallet": "隔离结算钱包",
-    "User-selected contribution": "用户选择贡献比例",
-    "Calculated only from the selected launch wallet group's realized total profit.": "只按所选发射钱包组的已实现总盈利计算。",
-    "No profit means no contribution. Loss wallets are not charged.": "没有盈利就不收取贡献，亏损钱包不参与扣款。",
-    "Positive wallets route their share into the settlement wallet before treasury transfer.": "盈利钱包按净盈利占比转入隔离结算钱包，再进入国库。",
-    "Future incentive reference": "未来激励参考",
-    "Contribution records can be used for future ecosystem rewards, ambassador access, launch partner lists, and whitelist scoring.": "贡献记录可用于未来生态奖励、项目大使、合作发射名单和白名单评分。",
-    "Signal, build, launch, operate.": "发现信号，构建叙事，准备发射，持续运营。",
-    "Track social signals and score launchable narratives.": "追踪社交信号并评估可发射叙事。",
-    "Arm social triggers for Solana or BSC launches.": "为 Solana 或 BSC 发射设置社交触发器。",
-    "Turn one signal into a launch-ready story pack.": "把一个信号转成可发射叙事包。",
-    "Prepare chain, platform, media, and wallet execution.": "准备链、平台、媒体和钱包执行。",
-    "Plan wallet groups, execution flow, settlement, and treasury routing.": "规划钱包组、执行流、结算和国库路径。",
-    "Operate X, Telegram, contests, spaces, and sentiment loops.": "运营 X、Telegram、活动、Space 和情绪循环。",
-    "Review agent actions, launch plans, and execution history.": "查看 Agent 动作、发射计划和执行历史。",
-    "Top signal": "最高信号",
-    "Launch readiness": "发射准备度",
-    "Name, ticker, ops plan ready": "名称、符号、运营方案已准备",
-    "Wallet groups": "钱包组",
-    "SOL + BSC configured": "SOL + BSC 已配置",
-    "Contribution rate": "贡献比例",
-    "User selected": "用户选择",
-    "Operator path": "操作路径",
-    "Use NarraOps as a working console: discover a meme angle, turn it into launch material, prepare execution, then keep the community alive after launch.": "把 NarraOps 当作工作台：发现 meme 角度，转成发射材料，准备执行，并在发射后持续运营社区。",
-    "Open watcher": "打开监听器",
-    "01 Listen": "01 监听",
-    "Add X, TikTok, Instagram, Telegram, or custom media sources.": "添加 X、TikTok、Instagram、Telegram 或自定义媒体源。",
-    "02 Score": "02 评分",
-    "Rank narratives against historical launches and sentiment drift.": "根据历史发射案例和情绪变化给叙事排序。",
-    "03 Build": "03 构建",
-    "Generate token identity, launch copy, and operations plan.": "生成代币身份、发射文案和运营计划。",
-    "04 Operate": "04 运营",
-    "Run wallet ops, contribution settlement, and community campaigns.": "执行钱包运营、贡献结算和社区活动。",
-    "Active narrative": "当前叙事",
-    "Build meme pack": "构建 Meme 包",
-    Signal: "信号",
-    Meme: "Meme",
-    Launch: "发射",
-    Ops: "运营",
-    "X posts, Telegram, contest, sentiment loop": "X 发帖、Telegram、比赛、情绪循环",
-    "Top signals": "高分信号",
-    Open: "打开",
-    "Recent actions": "最近动作",
-    All: "全部",
-    "Monitored sources": "监控源",
-    "Tracked accounts, media feeds, and community channels.": "被追踪的账号、媒体流和社区频道。",
-    "Source URL or handle": "来源链接或账号",
-    Platform: "平台",
-    "Add source": "添加来源",
-    "Launchable narratives": "可发射叙事",
-    "Scored against historical cases, media reuse potential, and sentiment drift.": "按历史案例、媒体复用潜力和情绪漂移评分。",
-    "Historical case memory": "历史案例记忆",
-    peak: "峰值",
-    "Arm trigger": "设置触发器",
-    "Watch target": "监听目标",
-    "Trigger phrase": "触发关键词",
-    Chain: "链",
-    Mode: "模式",
-    "Confirm first": "先确认",
-    "Auto after match": "匹配后自动",
-    "Wallet group": "钱包组",
-    "Arm watcher": "启用监听",
-    "Simulate trigger": "模拟触发",
-    "Current trigger signal": "当前触发信号",
-    "Auto path": "自动路径",
-    "Signal match -> Agent draft -> launch package -> wallet group execution plan -> community pack.": "信号匹配 -> Agent 草案 -> 发射包 -> 钱包组执行计划 -> 社区运营包。",
-    "Armed launch watchers": "已启用监听器",
-    "Meme brief": "Meme 简报",
-    "Input link, post, or angle": "输入链接、帖子或角度",
-    "Selected signal": "已选信号",
-    "Generate launch pack": "生成发射包",
-    "Send to launch": "发送到发射",
-    Identity: "身份",
-    "Token name": "代币名称",
-    Ticker: "符号",
-    Narrative: "叙事",
-    "Generated assets": "生成资产",
-    "Launch tweet": "发射推文",
-    "Telegram pinned message": "Telegram 置顶消息",
-    "24h operations plan": "24 小时运营计划",
-    "Narrative risk watch": "叙事风险监控",
-    "Launch package": "发射包",
-    "Build launch package": "构建发射包",
-    "Dev wallet": "Dev 钱包",
-    "Dev Wallet 01": "Dev 钱包 01",
-    "Dev Wallet 02": "Dev 钱包 02",
-    "01 Identity": "01 身份",
-    "02 Social binding": "02 社交绑定",
-    "X post, Telegram room, launch copy ready.": "X 帖子、Telegram 群、发射文案已准备。",
-    "03 Wallet group": "03 钱包组",
-    "Buy/sell amounts preconfigured.": "买入和卖出数量已预配置。",
-    "04 Contribution": "04 贡献",
-    "Launch checklist": "发射清单",
-    "API launch package": "API 发射包",
-    "Launch output": "发射输出",
-    "Package ID": "包 ID",
-    Description: "描述",
-    Post: "帖子",
-    "Create operational groups for launch buying, selling, treasury actions, rewards, or settlement routing.": "创建用于发射买入、卖出、国库动作、奖励或结算路径的钱包组。",
-    "Group name": "组名",
-    Wallets: "钱包数",
-    Balance: "余额",
-    "Add group": "添加组",
-    "Buy plan": "买入计划",
-    "Sell plan": "卖出计划",
-    "Contribution settlement preview": "贡献结算预览",
-    "Profit rule": "盈利规则",
-    "Compare selected wallet group total balance before buy and after sell. If the group is net profitable, positive wallets route 4% of group profit by net-gain share.": "比较所选钱包组买入前和卖出后的总余额。若钱包组整体盈利，盈利钱包按净盈利占比转出贡献。",
-    "Before buy": "买入前",
-    "After sell": "卖出后",
-    "Group profit": "组盈利",
-    Contribution: "贡献",
-    "Open settlement": "打开结算",
-    "Tracked mentions": "追踪提及",
-    Sentiment: "情绪",
-    "positive / creative": "正向 / 创作型",
-    "FUD risk": "FUD 风险",
-    Low: "低",
-    "creator account stable": "创建者账号稳定",
-    "Community content pack": "社区内容包",
-    "X, Telegram, contest, and treasury action drafts.": "X、Telegram、比赛和国库动作草案。",
-    "Generate new pack": "生成新内容包",
-    "X update": "X 更新",
-    "Telegram response": "Telegram 回复",
-    "Meme contest": "Meme 创作比赛",
-    "Operations action": "运营动作",
-    Copy: "复制",
-    "Activity records": "活动记录",
-    "Clear demo records": "清除演示记录",
-    "Scan refreshed by local API": "本地 API 已刷新扫描",
-    "Scan refreshed locally": "已在本地刷新扫描",
-    "Add a source first": "请先添加来源",
-    "Name the wallet group first": "请先填写钱包组名称",
-    "Wallet group added": "钱包组已添加",
-    "Launch pack generated by local API": "本地 API 已生成发射包",
-    "Launch pack generated locally": "已在本地生成发射包",
-    "Launch package ready": "发射包已准备",
-    "Launch package ready locally": "本地发射包已准备",
-    "Community pack refreshed": "社区内容包已刷新",
-    Copied: "已复制",
-    "Watcher armed": "监听器已启用",
-    "Demo records cleared": "演示记录已清除",
-    "Workspace loaded from local server": "已从本地服务加载工作区",
-    ready: "就绪",
-    "needs input": "需要输入",
-    "needs wallet group": "需要钱包组",
-    "confirm first": "先确认",
-    "auto after match": "匹配后自动",
-    done: "完成",
-    armed: "已启用",
-    live: "在线",
-    queued: "队列中",
-    low: "低",
-    medium: "中",
-    watch: "观察",
-    accelerating: "加速",
-    rising: "上升",
-    volatile: "波动",
-    early: "早期",
+  assets: {
+    mode: "mock",
+    period: "7d",
+    portfolio: null,
+    groups: [],
+    selectedGroupId: null,
+    wallets: [],
+    loading: false,
+    error: null,
+    transferOpen: false,
+    transferSource: "login_wallet",
+    transferDestination: null,
+    transferFraction: 25,
+    transferPreview: null,
+    transferResult: null,
+    transferBusy: false,
+    launchGroupsLoading: false,
   },
 };
 
-const ZH_TO_EN = Object.fromEntries(
-  Object.entries(UI_TRANSLATIONS.zh).map(([english, chinese]) => [chinese, english]),
-);
-
-let applyingWorkspace = false;
-let serverSaveTimer = null;
-let lastServerSavePayload = "";
-
-function getWorkspacePayload() {
-  return {
-    state: {
-      activeView: state.activeView,
-      selectedSignalId: state.selectedSignalId,
-      contributionRate: state.contributionRate,
-      language: state.language,
-      customBrief: state.customBrief,
-      launchMode: state.launchMode,
-      chain: state.chain,
-      platform: state.platform,
-      generated: state.generated,
-      lastLaunchPackage: state.lastLaunchPackage,
-      armedLaunches: state.armedLaunches,
-    },
-    sources,
-    signals,
-    walletGroups,
-    records,
-  };
-}
-
-function applyWorkspace(saved) {
-  if (!saved || typeof saved !== "object") return false;
-  if (saved.state && typeof saved.state === "object") {
-    Object.assign(state, {
-      activeView: saved.state.activeView || state.activeView,
-      selectedSignalId: saved.state.selectedSignalId || state.selectedSignalId,
-      contributionRate: Number(saved.state.contributionRate ?? state.contributionRate),
-      language: saved.state.language || state.language,
-      customBrief: saved.state.customBrief || "",
-      launchMode: saved.state.launchMode || state.launchMode,
-      chain: saved.state.chain || state.chain,
-      platform: saved.state.platform || state.platform,
-      generated: saved.state.generated || state.generated,
-      lastLaunchPackage: saved.state.lastLaunchPackage || state.lastLaunchPackage,
-      armedLaunches: Array.isArray(saved.state.armedLaunches)
-        ? saved.state.armedLaunches
-        : state.armedLaunches,
-    });
-  }
-
-  if (Array.isArray(saved.sources)) {
-    sources.splice(0, sources.length, ...saved.sources);
-  }
-  if (Array.isArray(saved.signals)) {
-    signals.splice(0, signals.length, ...saved.signals);
-  }
-  if (Array.isArray(saved.walletGroups)) {
-    walletGroups.splice(0, walletGroups.length, ...saved.walletGroups);
-  }
-  if (Array.isArray(saved.records)) {
-    records.splice(0, records.length, ...saved.records);
-  }
-  return true;
-}
-
-function loadWorkspace() {
-  let saved = null;
-  try {
-    saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-  } catch {
-    saved = null;
-  }
-  applyWorkspace(saved);
-}
-
-function saveWorkspace() {
-  const payload = getWorkspacePayload();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  scheduleServerSave(payload);
-}
-
-function hasStoredWorkspace(saved) {
-  if (!saved || typeof saved !== "object") return false;
-  const hasArrays =
-    (Array.isArray(saved.sources) && saved.sources.length > 0) ||
-    (Array.isArray(saved.signals) && saved.signals.length > 0) ||
-    (Array.isArray(saved.walletGroups) && saved.walletGroups.length > 0) ||
-    (Array.isArray(saved.records) && saved.records.length > 0);
-  return hasArrays || Object.keys(saved.state || {}).length > 0;
-}
-
-function scheduleServerSave(payload = getWorkspacePayload()) {
-  if (appServedFromFile() || applyingWorkspace) return;
-  const serialized = JSON.stringify(payload);
-  if (serialized === lastServerSavePayload) return;
-  lastServerSavePayload = serialized;
-  window.clearTimeout(serverSaveTimer);
-  serverSaveTimer = window.setTimeout(() => {
-    postJson("/api/workspace", { workspace: payload }).catch(() => {
-      lastServerSavePayload = "";
-    });
-  }, 250);
-}
-
-const titleMap = {
-  dashboard: ["Dashboard", "Signal, build, launch, operate."],
-  narratives: ["Narrative Intelligence", "Track social signals and score launchable narratives."],
-  signal: ["Signal-to-Launch", "Arm social triggers for Solana or BSC launches."],
-  builder: ["Meme Builder", "Turn one signal into a launch-ready story pack."],
-  launch: ["Launch Console", "Prepare chain, platform, media, and wallet execution."],
-  wallets: ["Wallet Ops", "Plan wallet groups, execution flow, settlement, and treasury routing."],
-  community: ["Community Ops", "Operate X, Telegram, contests, spaces, and sentiment loops."],
-  records: ["Records", "Review agent actions, launch plans, and execution history."],
+const translations = {
+  login: ["登录", "Log in"],
+  register: ["注册", "Create account"],
+  notifications: ["通知", "Notifications"],
+  newSignal: ["新的叙事信号", "New narrative signal"],
+  newSignalBody: ["跨平台讨论速度进入加速区间。", "Cross-platform discussion velocity is accelerating."],
+  simulationOnly: ["模拟模式已开启", "Simulation mode is active"],
+  simulationBody: ["资金与发射动作不会提交至链上。", "Fund and launch actions will not be submitted on-chain."],
 };
 
-const root = document.getElementById("viewRoot");
-const toast = document.getElementById("toast");
+const signalSeries = [
+  [30, 34, 32, 41, 44, 48, 45, 52, 57, 55, 62, 68, 73, 76, 84, 82, 91],
+  [58, 51, 55, 49, 61, 57, 64, 69, 63, 72, 76, 79, 74, 81, 86, 89, 88],
+  [21, 28, 26, 33, 31, 39, 47, 44, 52, 56, 63, 67, 71, 78, 82, 87, 92],
+];
 
-function selectedSignal() {
-  return signals.find((signal) => signal.id === state.selectedSignalId) || signals[0];
+const intelSeries = [
+  [20, 24, 23, 27, 32, 31, 35, 39, 42, 46],
+  [47, 44, 42, 46, 40, 38, 41, 35, 37, 34],
+  [30, 31, 35, 34, 39, 43, 41, 46, 51, 49],
+  [22, 27, 26, 32, 36, 42, 45, 50, 54, 60],
+];
+
+const opportunities = [
+  {
+    id: "op-1",
+    source: "X",
+    icon: "fa-brands fa-x-twitter",
+    titleZh: "AI 代理开始拥有自己的品牌语言",
+    titleEn: "AI agents are developing their own brand language",
+    bodyZh: "开发者与创作者围绕 Agent 身份表达形成密集讨论。",
+    bodyEn: "Developers and creators are converging around agent-native identity expression.",
+    momentum: "+184%",
+    score: "A / 91",
+    reach: "1.8M",
+  },
+  {
+    id: "op-2",
+    source: "TikTok",
+    icon: "fa-brands fa-tiktok",
+    titleZh: "反差角色模板进入二次创作周期",
+    titleEn: "Contrarian character templates enter a remix cycle",
+    bodyZh: "短视频模板出现跨语种复刻，素材传播速度持续上升。",
+    bodyEn: "Short-form templates are being remixed across languages with rising velocity.",
+    momentum: "+126%",
+    score: "A / 87",
+    reach: "3.2M",
+  },
+  {
+    id: "op-3",
+    source: "Instagram",
+    icon: "fa-brands fa-instagram",
+    titleZh: "极简角色视觉形成可识别符号",
+    titleEn: "Minimal character visuals become recognizable symbols",
+    bodyZh: "视觉母题在多个创作者网络扩散，具备 Meme 化潜力。",
+    bodyEn: "A visual motif is spreading across creator networks with meme potential.",
+    momentum: "+93%",
+    score: "B / 82",
+    reach: "940K",
+  },
+  {
+    id: "op-4",
+    source: "X",
+    icon: "fa-brands fa-x-twitter",
+    titleZh: "链上身份与社区荣誉叙事升温",
+    titleEn: "On-chain identity and community status narratives heat up",
+    bodyZh: "话题从工具讨论转向身份、归属与社区共同创造。",
+    bodyEn: "Discussion is shifting from tooling toward identity, belonging, and co-creation.",
+    momentum: "+71%",
+    score: "B / 78",
+    reach: "680K",
+  },
+];
+
+function getViewFromHash() {
+  const value = window.location.hash.replace("#", "");
+  return allowedViews.has(value) ? value : "pulse";
+}
+
+function t(zh, en) {
+  return state.language === "zh" ? zh : en;
 }
 
 function escapeHtml(value) {
   return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
-function textForLanguage(english, chinese) {
-  return state.language === "zh" ? chinese : english;
-}
-
-function translateText(value) {
-  const text = String(value);
-  const trimmed = text.trim();
-  if (!trimmed) return text;
-
-  const map = state.language === "zh" ? UI_TRANSLATIONS.zh : ZH_TO_EN;
-  const translated = map[trimmed];
-  if (!translated) return text;
-  return text.replace(trimmed, translated);
-}
-
-function translateNodeText(rootElement) {
-  const walker = document.createTreeWalker(rootElement, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const parent = node.parentElement;
-      if (!parent || ["SCRIPT", "STYLE", "TEXTAREA"].includes(parent.tagName)) {
-        return NodeFilter.FILTER_REJECT;
-      }
-      return NodeFilter.FILTER_ACCEPT;
-    },
-  });
-
-  const nodes = [];
-  while (walker.nextNode()) {
-    nodes.push(walker.currentNode);
-  }
-  nodes.forEach((node) => {
-    node.nodeValue = translateText(node.nodeValue);
-  });
-}
-
-function translateAttributes(rootElement) {
-  rootElement.querySelectorAll("[placeholder], [aria-label], [title]").forEach((element) => {
-    ["placeholder", "aria-label", "title"].forEach((attribute) => {
-      if (element.hasAttribute(attribute)) {
-        element.setAttribute(attribute, translateText(element.getAttribute(attribute)));
-      }
-    });
-  });
-}
-
-function applyLanguage() {
+function applyStaticTranslations() {
   document.documentElement.lang = state.language === "zh" ? "zh-CN" : "en";
-  const button = document.getElementById("languageToggleBtn");
-  if (button) {
-    button.textContent = state.language === "zh" ? "EN" : "中文";
-    button.setAttribute(
-      "aria-label",
-      state.language === "zh" ? "Switch to English" : "切换到中文",
-    );
+  document.querySelectorAll("[data-i18n]").forEach((element) => {
+    const entry = translations[element.dataset.i18n];
+    if (entry) element.textContent = state.language === "zh" ? entry[0] : entry[1];
+  });
+  languageMenu.querySelectorAll("[data-language]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.language === state.language);
+  });
+}
+
+function updateTheme() {
+  document.documentElement.dataset.theme = state.theme === "soft" ? "soft" : "dark";
+  const icon = themeButton.querySelector("i");
+  icon.className = state.theme === "soft" ? "fa-regular fa-sun" : "fa-regular fa-moon";
+}
+
+function updateNavigation() {
+  document.querySelectorAll("[data-view]").forEach((button) => {
+    const active = button.dataset.view === state.view;
+    button.classList.toggle("active", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+}
+
+function pageHeading(kicker, title, subtitle, actions = "") {
+  return `
+    <div class="page-heading">
+      <div>
+        <span class="section-kicker">${kicker}</span>
+        <h1>${title}</h1>
+        <p>${subtitle}</p>
+      </div>
+      <div class="heading-actions">${actions}</div>
+    </div>
+  `;
+}
+
+function renderPulse() {
+  const actions = `
+    <span class="simulation-pill"><i class="fa-solid fa-flask" aria-hidden="true"></i>${t("示例信号", "Sample signals")}</span>
+    <button class="secondary-button" type="button" data-action="scan"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> ${t("运行模拟扫描", "Run simulated scan")}</button>
+  `;
+
+  const signalCards = [
+    ["fa-solid fa-arrow-trend-up", t("叙事传播速度", "Narrative velocity"), "82.4", "+18.7%", t("跨平台 24 小时变化", "Cross-platform 24h change")],
+    ["fa-solid fa-link", t("来源共振", "Source resonance"), "7 / 10", "+11.2%", t("X · TikTok · Instagram", "X · TikTok · Instagram")],
+    ["fa-solid fa-rocket", t("发射准备度", "Launch readiness"), "86", "+9.4%", t("叙事与受众匹配", "Narrative and audience fit")],
+  ].map((card, index) => `
+    <article class="signal-card">
+      <div class="signal-topline">
+        <span class="signal-name">${card[1]}</span>
+        <span class="signal-icon"><i class="${card[0]}" aria-hidden="true"></i></span>
+      </div>
+      <div class="signal-value"><strong>${card[2]}</strong><span class="positive">${card[3]}</span></div>
+      <canvas class="sparkline" data-chart="signal-${index}" role="img" aria-label="${card[1]}"></canvas>
+      <div class="card-meta"><span>${card[4]}</span><span>${t("刚刚更新", "Updated now")}</span></div>
+    </article>
+  `).join("");
+
+  const opportunityCards = opportunities.map((item) => `
+    <button class="opportunity-card" type="button" data-opportunity="${item.id}">
+      <div class="opportunity-topline">
+        <span class="opportunity-source">
+          <span class="source-icon"><i class="${item.icon}" aria-hidden="true"></i></span>
+          <span class="source-pill">${item.source}</span>
+        </span>
+        <span class="score-pill">${item.score}</span>
+      </div>
+      <h3>${state.language === "zh" ? item.titleZh : item.titleEn}</h3>
+      <p>${state.language === "zh" ? item.bodyZh : item.bodyEn}</p>
+      <div class="opportunity-footer">
+        <span class="metric-stack"><span>${t("动量", "Momentum")}</span><strong>${item.momentum}</strong></span>
+        <span class="metric-stack"><span>${t("触达", "Reach")}</span><strong>${item.reach}</strong></span>
+      </div>
+    </button>
+  `).join("");
+
+  const intelCards = [
+    ["fa-solid fa-chart-line", t("宏观注意力", "Macro attention"), t("风险偏好温和回升", "Risk appetite is recovering"), "+12.4%"],
+    ["fa-solid fa-cubes-stacked", t("链上拥挤度", "On-chain congestion"), t("当前处于中低区间", "Currently in the low-mid range"), "34 / 100"],
+    ["fa-solid fa-people-group", t("叙事拥挤度", "Narrative crowding"), t("相似主题数量增加", "Similar themes are increasing"), "49 / 100"],
+    ["fa-solid fa-tower-broadcast", t("来源一致度", "Source consensus"), t("多个媒体源同步上升", "Multiple sources are rising together"), "76 / 100"],
+  ].map((card, index) => `
+    <article class="intel-card">
+      <div class="intel-topline"><span class="signal-icon"><i class="${card[0]}" aria-hidden="true"></i></span><strong class="positive">${card[3]}</strong></div>
+      <h3>${card[1]}</h3>
+      <p>${card[2]}</p>
+      <canvas class="sparkline" data-chart="intel-${index}" role="img" aria-label="${card[1]}"></canvas>
+    </article>
+  `).join("");
+
+  viewRoot.innerHTML = `
+    ${pageHeading(
+      "Narra Pulse",
+      t("发现下一条可发射叙事", "Discover the next launchable narrative"),
+      t("聚合社交传播、叙事共振与链上环境，形成可审阅的机会简报。", "Combine social velocity, narrative resonance, and on-chain context into reviewable opportunity briefs."),
+      actions,
+    )}
+    <section aria-label="${t("核心信号", "Core signals")}"><div class="signal-grid">${signalCards}</div></section>
+    <section class="section-block">
+      <div class="section-header"><div><h2>${t("发现机会", "Discover opportunities")}</h2><p>${t("按传播速度、可塑性与历史相似案例排序", "Ranked by velocity, adaptability, and historical analogs")}</p></div><button class="text-button" type="button" data-action="view-all">${t("查看全部", "View all")} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>
+      <div class="opportunity-grid">${opportunityCards}</div>
+    </section>
+    <section class="section-block">
+      <div class="section-header"><div><h2>${t("精选情报", "Selected intelligence")}</h2><p>${t("宏观、链上与叙事环境概览", "Macro, on-chain, and narrative context")}</p></div></div>
+      <div class="intel-grid">${intelCards}</div>
+    </section>
+  `;
+
+  requestAnimationFrame(drawVisibleCharts);
+}
+
+function getMessageTime() {
+  return new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date());
+}
+
+function getInitialConversation() {
+  return [
+    {
+      role: "agent",
+      timestamp: getMessageTime(),
+      demo: true,
+      contentZh: "这是 Go 工作台的演示引导。发送命令后，结果将来自 NarraOps 后端任务与实时事件流。",
+      contentEn: "This is a demo introduction to Go. After you send a command, results come from NarraOps backend tasks and the live event stream.",
+    },
+  ];
+}
+
+function renderStructuredCard(card) {
+  if (!card) return "";
+  const cardMeta = {
+    narrative_snapshot: ["fa-solid fa-wave-square", "叙事快照", "Narrative Snapshot"],
+    meme_package: ["fa-solid fa-shapes", "Meme 构建包", "Meme Build Package"],
+    launch_draft: ["fa-solid fa-rocket", "发射草案", "Launch Draft"],
+    execution_plan: ["fa-solid fa-diagram-project", "执行计划", "Execution Plan"],
+    community_plan: ["fa-solid fa-users-rays", "社区运营计划", "Community Operations Plan"],
+    dev_market: ["fa-solid fa-chart-line", "链上行情", "On-chain Market"],
+    narrative_trends: ["fa-solid fa-arrow-trend-up", "叙事信号趋势", "Narrative Signal Trends"],
+    meme_analysis: ["fa-solid fa-magnifying-glass-chart", "Meme 分析报告", "Meme Analysis Report"],
+    recent_summary: ["fa-solid fa-clock-rotate-left", "近期总结", "Recent Summary"],
+  };
+  const [icon, titleZh, titleEn] = cardMeta[card.type] || ["fa-solid fa-table-list", "任务结果", "Task Result"];
+  const data = card.data && typeof card.data === "object" ? card.data : {};
+  const entries = Object.entries(data);
+  const scalarEntries = entries.filter(([, value]) => value === null || ["string", "number", "boolean"].includes(typeof value));
+  const complexEntries = entries.filter(([, value]) => value && typeof value === "object");
+  const metrics = scalarEntries.slice(0, 6).map(([key, value]) => `
+    <div class="go-card-metric">
+      <span>${formatAgentKey(key)}</span>
+      <strong>${formatAgentValue(value)}</strong>
+    </div>
+  `).join("");
+  const details = complexEntries.map(([key, value]) => `
+    <details class="go-card-data-group">
+      <summary>${formatAgentKey(key)} <span>${Array.isArray(value) ? value.length : Object.keys(value).length}</span></summary>
+      <pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>
+    </details>
+  `).join("");
+
+  return `
+    <article class="go-structured-card" data-card-type="${card.type}">
+      <header>
+        <div><i class="${icon}" aria-hidden="true"></i><strong>${t(titleZh, titleEn)}</strong></div>
+        <span>${escapeHtml(String(data.data_status || data.status || data.mode || card.status || t("已返回", "Returned")))}</span>
+      </header>
+      ${metrics ? `<div class="go-card-metrics">${metrics}</div>` : ""}
+      ${details || (!entries.length ? `<p class="go-card-empty">${t("后端未返回可展示的数据。", "The backend returned no displayable data.")}</p>` : "")}
+    </article>
+  `;
+}
+
+function formatAgentKey(key) {
+  return escapeHtml(String(key).replace(/_/g, " "));
+}
+
+function formatAgentValue(value) {
+  if (value === null || value === undefined || value === "") return t("暂无", "Unavailable");
+  if (typeof value === "boolean") return value ? t("是", "Yes") : t("否", "No");
+  return escapeHtml(String(value));
+}
+
+function renderMessageContent(message) {
+  if (message.lifecycle && message.lifecycle !== "completed" && message.lifecycle !== "failed") {
+    const labels = {
+      connecting: t("正在连接 Agent…", "Connecting to Agent…"),
+      queued: t("任务已排队…", "Task queued…"),
+      running: t("Agent 正在处理…", "Agent is working…"),
+      reconnecting: t("事件流重连中…", "Reconnecting event stream…"),
+    };
+    return `<div class="go-agent-thinking"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>${labels[message.lifecycle] || labels.running}</span></div>${(message.cards || []).map(renderStructuredCard).join("")}`;
   }
-  translateNodeText(document.body);
-  translateAttributes(document.body);
+
+  const content = message.contentZh ? t(message.contentZh, message.contentEn) : message.content;
+  const suggestion = message.suggestionZh ? `
+    <div class="go-suggestion">
+      <span>${t("建议下一步", "Suggested next step")}</span>
+      <p>${t(message.suggestionZh, message.suggestionEn)}</p>
+    </div>
+  ` : "";
+
+  const demo = message.demo ? `<span class="go-demo-label">${t("演示引导", "Demo guide")}</span>` : "";
+  const error = message.lifecycle === "failed" ? `
+    <div class="go-agent-error"><strong>${t("任务失败", "Task failed")}</strong><span>${escapeHtml(message.error || t("Agent 服务当前不可用。", "The Agent service is currently unavailable."))}</span><button type="button" data-agent-retry>${t("重试", "Retry")}</button></div>
+  ` : "";
+  const cards = [...(message.cards || []), ...(message.card ? [message.card] : [])].map(renderStructuredCard).join("");
+  return `${demo}${content ? `<p>${escapeHtml(content)}</p>` : ""}${suggestion}${cards}${error}`;
+}
+
+function renderConversation() {
+  const container = document.querySelector("#conversation");
+  if (!container) return;
+  container.innerHTML = state.conversation.map((message) => {
+    if (message.role === "user") {
+      return `
+        <article class="go-message-row user">
+          <div class="go-message-content">
+            <div class="go-message-meta"><span>${message.timestamp || getMessageTime()}</span><strong>${t("你", "You")}</strong></div>
+            <div class="go-user-bubble">${escapeHtml(message.content)}</div>
+          </div>
+          <span class="go-user-avatar" aria-hidden="true"><i class="fa-solid fa-user"></i></span>
+        </article>
+      `;
+    }
+
+    return `
+      <article class="go-message-row agent">
+        <span class="go-agent-avatar" aria-hidden="true">N</span>
+        <div class="go-message-content">
+          <div class="go-message-meta"><strong>NarraOps Agent</strong><span>${message.timestamp || getMessageTime()}</span></div>
+          <div class="go-agent-response">${renderMessageContent(message)}</div>
+        </div>
+      </article>
+    `;
+  }).join("");
+  container.scrollTop = container.scrollHeight;
+}
+
+function renderGo() {
+  if (!state.conversation.length) state.conversation = getInitialConversation();
+  const quickActions = [
+    ["/dev-market", "fa-solid fa-chart-line", "链上行情", "On-chain Market", "按链标记 Dev 钱包，统计盈利并对比上一周期。", "Tag dev wallets by chain, compare profit across periods."],
+    ["/launch", "fa-solid fa-rocket", "Launch Meme", "Launch Meme", "选择链、连接 Dev 钱包与钱包组，绑定社交资料并生成买卖决策。", "Choose a chain, connect dev wallets and wallet groups, bind socials, and plan trading decisions."],
+    ["/narrative-trends", "fa-solid fa-arrow-trend-up", "叙事信号趋势", "Narrative Trends", "统计各链已发射 Meme 使用的叙事并生成评分报告。", "Score narratives used by launched memes across chains."],
+    ["/analyze-meme", "fa-solid fa-magnifying-glass-chart", "分析 Meme", "Analyze Meme", "根据合约地址识别庄家集群并生成分析报告。", "Find operator clusters from a contract address and produce a report."],
+    ["/recent-summary", "fa-solid fa-clock-rotate-left", "近期总结", "Recent Summary", "总结近期发射、盈利、Dev 钱包与钱包组使用情况。", "Summarize launches, profit, dev wallets, and wallet-group activity."],
+  ].map(([command, icon, zh, en, descriptionZh, descriptionEn]) => `
+    <button type="button" data-command="${command}" title="${t(descriptionZh, descriptionEn)}" aria-label="${t(`${zh}：${descriptionZh}`, `${en}: ${descriptionEn}`)}"><i class="${icon}" aria-hidden="true"></i><span>${t(zh, en)}</span></button>
+  `).join("");
+
+  viewRoot.innerHTML = `
+    <div class="go-workspace">
+      <section class="go-terminal" aria-label="NarraOps Agent">
+        <header class="go-agent-bar">
+          <div class="go-agent-identity">
+            <span class="go-agent-avatar" aria-hidden="true">N</span>
+            <strong>NarraOps Agent</strong>
+            <span class="go-online"><i class="fa-solid fa-circle" aria-hidden="true"></i>${t("在线", "Online")}</span>
+          </div>
+          <div class="go-agent-tools">
+            <button type="button" data-go-action="history" aria-label="${t("历史记录", "History")}" title="${t("历史记录", "History")}"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i></button>
+            <button type="button" data-go-action="share" aria-label="${t("分享会话", "Share conversation")}" title="${t("分享会话", "Share conversation")}"><i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i></button>
+            <span class="go-tool-divider" aria-hidden="true"></span>
+            <button type="button" data-go-action="close" aria-label="${t("关闭 Go", "Close Go")}" title="${t("关闭 Go", "Close Go")}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+          </div>
+        </header>
+
+        <div class="go-conversation" id="conversation" aria-live="polite"></div>
+
+        <form class="go-composer" id="agentForm">
+          <textarea class="go-command-input" id="agentInput" rows="1" autocomplete="off" placeholder="${t("描述任务，或输入 / 使用命令", "Describe a task, or type / for commands")}" aria-label="${t("Agent 命令", "Agent command")}"></textarea>
+          <div class="go-composer-footer">
+            <div class="go-composer-tools">
+              <button type="button" data-go-action="plus" aria-label="${t("添加上下文", "Add context")}" title="${t("添加上下文", "Add context")}"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <nav class="go-quick-actions" aria-label="${t("Agent 快捷任务", "Agent quick tasks")}">${quickActions}</nav>
+    </div>
+  `;
+  renderConversation();
+}
+
+const ROBINHOOD_CHAIN = Object.freeze({
+  chainId: "0x1237",
+  chainName: "Robinhood Chain",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: ["https://rpc.mainnet.chain.robinhood.com"],
+  blockExplorerUrls: ["https://robinhoodchain.blockscout.com"],
+});
+
+const PONS_FACTORY = "0x0c37a24f5d23a486fa692d1500881d698b1f77a4";
+const PONS_LAUNCH_FEE_WEI = 500000000000000n;
+const PONS_LAUNCH_SELECTOR = "686399cb";
+
+function abiWord(value) {
+  return BigInt(value).toString(16).padStart(64, "0");
+}
+
+function abiAddress(value) {
+  return value.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+}
+
+function abiString(value) {
+  const bytes = new TextEncoder().encode(value);
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${abiWord(bytes.length)}${hex.padEnd(Math.ceil(hex.length / 64) * 64, "0")}`;
+}
+
+function abiStringTuple(values) {
+  let offset = values.length * 32;
+  const tails = values.map(abiString);
+  const heads = tails.map((tail) => {
+    const head = abiWord(offset);
+    offset += tail.length / 2;
+    return head;
+  });
+  return `${heads.join("")}${tails.join("")}`;
+}
+
+function encodePonsLaunch({ name, symbol, metadataUri, description, socials, creator, salt }) {
+  const strings = [name, symbol, metadataUri, description].map(abiString);
+  const socialTuple = abiStringTuple(socials);
+  let offset = 6 * 32;
+  const tupleHeads = strings.map((tail) => {
+    const head = abiWord(offset);
+    offset += tail.length / 2;
+    return head;
+  });
+  tupleHeads.push(abiWord(offset));
+  tupleHeads.push(abiAddress(creator));
+  const tokenParams = `${tupleHeads.join("")}${strings.join("")}${socialTuple}`;
+  return `0x${PONS_LAUNCH_SELECTOR}${abiWord(128)}${abiWord(0)}${abiWord(0)}${salt.replace(/^0x/, "")}${tokenParams}`;
+}
+
+function parseEthToWei(value) {
+  const normalized = String(value || "0").trim();
+  if (!/^\d+(\.\d{0,18})?$/.test(normalized)) throw new Error(t("ETH 金额格式无效。", "Invalid ETH amount."));
+  const [whole, fraction = ""] = normalized.split(".");
+  return BigInt(whole) * 10n ** 18n + BigInt(fraction.padEnd(18, "0"));
+}
+
+function randomBytes32() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function submitPonsLaunch(form) {
+  if (!state.launchWallet.address) {
+    await connectRobinhoodWallet();
+    if (!state.launchWallet.address) return;
+  }
+  if (!form.reportValidity()) return;
+  const values = Object.fromEntries(new FormData(form).entries());
+  const cookingGroup = state.assets.groups.find((group) => group.groupId === values.cookingWalletGroup && isCookingGroup(group));
+  if (!cookingGroup) {
+    showToast(t("请选择一个只包含 1 个钱包的 Cooking 钱包组。", "Select a Cooking wallet group containing exactly one wallet."));
+    return;
+  }
+  const buyingGroup = state.assets.groups.find((group) => group.groupId === values.buyingWalletGroup && !isCookingGroup(group) && group.walletCount > 0);
+  if (!buyingGroup) {
+    showToast(t("请选择发射后执行第二笔买入的常规钱包组。", "Select the general wallet group that will place the second buy after launch."));
+    return;
+  }
+  if (!state.launchMedia.file && !state.launchMedia.metadataUri) {
+    showToast(t("请先上传或生成 Cooking 图片。", "Upload or generate a Cooking image first."));
+    return;
+  }
+  if (!state.launchMedia.metadataUri) {
+    showToast(t("图片已选择；配置 IPFS 固定服务后即可自动生成链上元数据。", "Image selected. Configure the IPFS pinning service to generate on-chain metadata automatically."));
+    return;
+  }
+  const creator = state.launchWallet.address;
+  const developerBuyWei = parseEthToWei(values.cookingBuyAmount);
+  const totalValue = PONS_LAUNCH_FEE_WEI + developerBuyWei;
+  const data = encodePonsLaunch({
+    name: values.tokenName.trim(),
+    symbol: values.tokenSymbol.trim(),
+    metadataUri: state.launchMedia.metadataUri,
+    description: `${values.tokenName.trim()} (${values.tokenSymbol.trim()})`,
+    socials: [values.xUrl.trim(), values.telegramUrl.trim(), values.websiteUrl.trim(), "", ""],
+    creator,
+    salt: randomBytes32(),
+  });
+  const transaction = { from: state.launchWallet.address, to: PONS_FACTORY, value: `0x${totalValue.toString(16)}`, data };
+  try {
+    const gas = await window.ethereum.request({ method: "eth_estimateGas", params: [transaction] });
+    const confirmed = window.confirm(t(
+      `即将通过 Pons 工厂发射 ${values.tokenSymbol}。Cooking 钱包首笔买入 ${values.cookingBuyAmount || "0"} ETH，发射费 0.0005 ETH；链上确认后，${buyingGroup.name} 计划跟买 ${values.walletGroupBuyAmount || "0"} ETH。预估发射 Gas ${Number.parseInt(gas, 16).toLocaleString()}。`,
+      `Launch ${values.tokenSymbol} through the Pons factory. The Cooking wallet buys ${values.cookingBuyAmount || "0"} ETH first, plus the 0.0005 ETH launch fee. After confirmation, ${buyingGroup.name} is scheduled to follow-buy ${values.walletGroupBuyAmount || "0"} ETH. Estimated launch gas: ${Number.parseInt(gas, 16).toLocaleString()}.`,
+    ));
+    if (!confirmed) return;
+    const hash = await window.ethereum.request({ method: "eth_sendTransaction", params: [{ ...transaction, gas }] });
+    sessionStorage.setItem("narraops-last-launch-tx", hash);
+    sessionStorage.setItem("narraops-follow-buy-plan", JSON.stringify({
+      launchTransactionHash: hash,
+      platform: state.selectedPlatform,
+      cookingWalletGroupId: cookingGroup.groupId,
+      buyingWalletGroupId: buyingGroup.groupId,
+      walletGroupBuyAmount: values.walletGroupBuyAmount,
+      buyCondition: values.buyCondition,
+      status: "awaiting_launch_confirmation",
+    }));
+    showToast(t(`发射交易已提交：${hash.slice(0, 12)}…`, `Launch transaction submitted: ${hash.slice(0, 12)}…`));
+    window.open(`${ROBINHOOD_CHAIN.blockExplorerUrls[0]}/tx/${hash}`, "_blank", "noopener,noreferrer");
+  } catch (error) {
+    showToast(error.code === 4001 ? t("你取消了交易。", "Transaction cancelled.") : (error.message || t("发射交易失败。", "Launch transaction failed.")));
+  }
+}
+
+async function fileToBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  return btoa(binary);
+}
+
+async function submitInternalLaunch(form) {
+  if (!form.reportValidity()) return;
+  const values = Object.fromEntries(new FormData(form).entries());
+  const cookingGroup = state.assets.groups.find((group) => group.groupId === values.cookingWalletGroup && isCookingGroup(group));
+  const buyingGroup = state.assets.groups.find((group) => group.groupId === values.buyingWalletGroup && !isCookingGroup(group));
+  if (!cookingGroup || !buyingGroup) return showToast(t("请选择 Cooking 钱包和跟买钱包组。", "Select a Cooking wallet and follow-buy wallet group."));
+  if (!state.launchMedia.file) return showToast(t("请上传 Cooking 图片。", "Upload a Cooking image."));
+  const platform = state.selectedPlatform === "four" ? "fourmeme" : "pump";
+  try {
+    const prepared = await apiRequest("/api/v1/launch/executions/prepare", { method: "POST", body: JSON.stringify({
+      platform,
+      cookingWalletGroupId: cookingGroup.groupId,
+      buyingWalletGroupId: buyingGroup.groupId,
+      walletGroupBuyAmount: values.walletGroupBuyAmount || "0",
+      buyCondition: values.buyCondition || "random",
+      name: values.tokenName.trim(), symbol: values.tokenSymbol.trim(), description: `${values.tokenName.trim()} (${values.tokenSymbol.trim()})`,
+      imageBase64: await fileToBase64(state.launchMedia.file), imageName: state.launchMedia.file.name, imageType: state.launchMedia.file.type,
+      twitter: values.xUrl.trim(), telegram: values.telegramUrl.trim(), website: values.websiteUrl.trim(), developerBuyAmount: values.cookingBuyAmount || "0",
+    }) });
+    const approved = window.confirm(t(
+      `确认使用 ${cookingGroup.name} 发射 ${values.tokenSymbol}，首买 ${values.cookingBuyAmount || "0"} ${state.selectedPlatform === "pump" ? "SOL" : "BNB"}；确认后将统一签名并广播。`,
+      `Confirm launching ${values.tokenSymbol} with ${cookingGroup.name} and a ${values.cookingBuyAmount || "0"} ${state.selectedPlatform === "pump" ? "SOL" : "BNB"} developer buy. Confirmation signs and broadcasts once.`,
+    ));
+    if (!approved) return;
+    const result = await apiRequest(`/api/v1/launch/executions/${prepared.executionId}/confirm`, { method: "POST", body: JSON.stringify({ confirmationToken: prepared.confirmationToken }) });
+    sessionStorage.setItem("narraops-last-launch-tx", result.transactionHash);
+    showToast(t(`发射交易已提交：${result.transactionHash.slice(0, 12)}…`, `Launch submitted: ${result.transactionHash.slice(0, 12)}…`));
+  } catch (error) {
+    showToast(error.message || t("发射失败。", "Launch failed."));
+  }
+}
+
+function formatWeiBalance(value) {
+  const wei = BigInt(value);
+  const whole = wei / 10n ** 18n;
+  const fraction = (wei % 10n ** 18n).toString().padStart(18, "0").slice(0, 5).replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+async function connectRobinhoodWallet() {
+  if (!window.ethereum?.request) {
+    state.launchWallet.error = t("未检测到 EVM 钱包，请安装 MetaMask 或支持 EIP-1193 的钱包。", "No EVM wallet detected. Install MetaMask or another EIP-1193 wallet.");
+    renderLaunch();
+    return;
+  }
+
+  state.launchWallet.connecting = true;
+  state.launchWallet.error = null;
+  renderLaunch();
+  try {
+    const [address] = await window.ethereum.request({ method: "eth_requestAccounts" });
+    let chainId = await window.ethereum.request({ method: "eth_chainId" });
+    if (chainId.toLowerCase() !== ROBINHOOD_CHAIN.chainId) {
+      try {
+        await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: ROBINHOOD_CHAIN.chainId }] });
+      } catch (error) {
+        if (error.code !== 4902) throw error;
+        await window.ethereum.request({ method: "wallet_addEthereumChain", params: [ROBINHOOD_CHAIN] });
+      }
+      chainId = await window.ethereum.request({ method: "eth_chainId" });
+    }
+    const balance = await window.ethereum.request({ method: "eth_getBalance", params: [address, "latest"] });
+    state.launchWallet.address = address;
+    state.launchWallet.chainId = Number.parseInt(chainId, 16);
+    state.launchWallet.balance = formatWeiBalance(balance);
+  } catch (error) {
+    state.launchWallet.error = error.code === 4001
+      ? t("你取消了钱包授权或网络切换。", "Wallet access or network switching was cancelled.")
+      : (error.message || t("钱包连接失败。", "Wallet connection failed."));
+  } finally {
+    state.launchWallet.connecting = false;
+    renderLaunch();
+  }
+}
+
+function renderLaunch() {
+  const platforms = [
+    {
+      id: "pump",
+      icon: "fa-solid fa-capsules",
+      name: "Pump.fun",
+      chain: "Solana",
+      unit: "SOL",
+      descriptionZh: "Solana 公平发射平台",
+      descriptionEn: "Solana fair-launch platform",
+    },
+    {
+      id: "four",
+      icon: "fa-solid fa-hand",
+      name: "Four.Meme",
+      chain: "BSC",
+      unit: "BNB",
+      descriptionZh: "BSC 联合曲线发射平台",
+      descriptionEn: "BSC bonding-curve launch platform",
+    },
+    {
+      id: "pons",
+      icon: "fa-solid fa-gem",
+      name: "Pons",
+      chain: "Robinhood",
+      unit: "ETH",
+      descriptionZh: "Robinhood Chain 发射平台",
+      descriptionEn: "Robinhood Chain launch platform",
+    },
+  ];
+
+  const selected = platforms.find((platform) => platform.id === state.selectedPlatform);
+  const launchWallet = state.launchWallet;
+  const walletAddress = launchWallet.address
+    ? `${launchWallet.address.slice(0, 7)}...${launchWallet.address.slice(-5)}`
+    : t("未连接", "Not connected");
+  const cookingGroups = state.assets.groups.filter(isCookingGroup);
+  const cookingOptions = cookingGroups.map((group) => `<option value="${group.groupId}">${escapeHtml(group.name)} · ${t("1 个钱包", "1 wallet")}</option>`).join("");
+  const buyingGroups = state.assets.groups.filter((group) => !isCookingGroup(group) && group.walletCount > 0);
+  const buyingGroupOptions = buyingGroups.map((group) => `<option value="${group.groupId}">${escapeHtml(group.name)} · ${group.walletCount} ${t("个钱包", "wallets")}</option>`).join("");
+  const media = state.launchMedia;
+  const platformCards = platforms.map((platform) => `
+    <article class="launch-platform ${state.selectedPlatform === platform.id ? "selected" : ""}">
+      <div class="platform-topline">
+        <span class="platform-icon"><i class="${platform.icon}" aria-hidden="true"></i></span>
+        <span class="source-pill">${platform.chain}</span>
+      </div>
+      <div class="launch-platform-copy">
+        <h3>${platform.name}</h3>
+        <p>${t(platform.descriptionZh, platform.descriptionEn)}</p>
+      </div>
+      <button class="platform-button" type="button" data-platform="${platform.id}">${state.selectedPlatform === platform.id ? t("已选择", "Selected") : t("选择平台", "Select platform")}</button>
+    </article>
+  `).join("");
+
+  const launchForm = selected ? `
+    <section class="launch-parameter-panel" aria-labelledby="launch-parameter-title">
+      <header class="launch-parameter-header">
+        <div>
+          <span class="section-kicker">${selected.chain} · ${selected.name}</span>
+          <h3 id="launch-parameter-title">${t("填写发射参数", "Launch parameters")}</h3>
+        </div>
+        <span class="simulation-pill"><i class="fa-solid fa-lock" aria-hidden="true"></i>${t("前端预览", "Frontend preview")}</span>
+      </header>
+
+      <form class="launch-parameter-form" id="launchParameterForm">
+        ${selected.id === "pons" ? `<div class="launch-wallet-panel launch-field-wide">
+          <div>
+            <span class="section-kicker">${t("链上钱包", "On-chain wallet")}</span>
+            <strong>${walletAddress}</strong>
+            <small>${launchWallet.balance === null ? t("连接后读取 Robinhood Chain 余额", "Connect to read the Robinhood Chain balance") : `${launchWallet.balance} ETH · Chain ID ${launchWallet.chainId}`}</small>
+            ${launchWallet.error ? `<small class="launch-wallet-error">${escapeHtml(launchWallet.error)}</small>` : ""}
+          </div>
+          <button class="secondary-button" type="button" data-launch-wallet="connect" ${launchWallet.connecting ? "disabled" : ""}>
+            <i class="fa-solid fa-wallet" aria-hidden="true"></i>${launchWallet.connecting ? t("连接中…", "Connecting…") : launchWallet.address ? t("重新连接", "Reconnect") : t("连接钱包", "Connect wallet")}
+          </button>
+        </div>` : `<div class="launch-wallet-panel launch-field-wide"><div><span class="section-kicker">${t("加密 Cooking 钱包", "Encrypted Cooking wallet")}</span><strong>${t("从下方钱包组选择", "Select from the wallet group below")}</strong><small>${t("一次确认完成发射签名，不会逐钱包弹窗。", "One confirmation signs the launch without per-wallet prompts.")}</small></div><i class="fa-solid fa-shield-halved"></i></div>`}
+        <section class="launch-image-field launch-field-wide" aria-label="${t("Cooking 图片", "Cooking image")}">
+          <div class="launch-image-heading"><div><span>${t("Cooking 图片", "Cooking image")}</span><small>${t("支持上传、图库、文生图和 AI 生图", "Upload, library, text-to-image, or AI generation")}</small></div><strong>${t("必填", "Required")}</strong></div>
+          <div class="launch-image-actions">
+            <label class="launch-image-action launch-image-upload">
+              <input id="launchImageInput" name="launchImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+              ${media.previewUrl ? `<img src="${media.previewUrl}" alt="${t("已选择的 Cooking 图片", "Selected Cooking image")}" />` : `<i class="fa-solid fa-plus" aria-hidden="true"></i><span>${t("上传", "Upload")}</span>`}
+            </label>
+            <div class="launch-image-secondary">
+              <button type="button" data-launch-image="library"><i class="fa-regular fa-images"></i>${t("图库", "Library")}</button>
+              <button type="button" data-launch-image="text"><i class="fa-solid fa-pen-ruler"></i>${t("文生图", "Text to image")}</button>
+            </div>
+            <button class="launch-image-action launch-image-ai" type="button" data-launch-image="ai"><i class="fa-solid fa-wand-magic-sparkles"></i><span>AI</span></button>
+          </div>
+        </section>
+        <label class="launch-field">
+          <span>${t("名称", "Name")}</span>
+          <input class="field-input" name="tokenName" maxlength="20" required placeholder="${t("填写代币名称", "Token name")}" />
+        </label>
+        <label class="launch-field">
+          <span>${t("符号", "Symbol")}</span>
+          <input class="field-input" name="tokenSymbol" maxlength="20" required placeholder="${t("例如 PEPE", "For example PEPE")}" />
+        </label>
+        <label class="launch-field">
+          <span>X</span>
+          <input class="field-input" name="xUrl" type="url" placeholder="https://x.com/..." />
+        </label>
+        <label class="launch-field">
+          <span>${t("官网", "Website")}</span>
+          <input class="field-input" name="websiteUrl" type="url" placeholder="https://..." />
+        </label>
+        <label class="launch-field">
+          <span>Telegram</span>
+          <input class="field-input" name="telegramUrl" type="url" placeholder="https://t.me/..." />
+        </label>
+        <label class="launch-field">
+          <span>${t("Cooking 钱包", "Cooking wallet")}</span>
+          <select class="field-select" name="cookingWalletGroup" required>
+            <option value="">${t("选择 Cooking 钱包", "Select a Cooking wallet")}</option>
+            ${cookingOptions}
+          </select>
+        </label>
+        <label class="launch-field">
+          <span>${t("Cooking 钱包买入金额", "Cooking wallet buy amount")}</span>
+          <div class="launch-amount-input">
+            <input class="field-input" name="cookingBuyAmount" type="number" min="0" step="0.0001" placeholder="0.00" />
+            <span>${selected.unit}</span>
+          </div>
+        </label>
+        <label class="launch-field">
+          <span>${t("跟买钱包组", "Follow-buy wallet group")}</span>
+          <select class="field-select" name="buyingWalletGroup" required>
+            <option value="">${t("选择钱包组", "Select wallet group")}</option>
+            ${buyingGroupOptions}
+          </select>
+          ${buyingGroupOptions ? "" : `<small>${t("请先在资产页创建一个常规钱包组。", "Create a general wallet group in Assets first.")}</small>`}
+        </label>
+        <label class="launch-field">
+          <span>${t("钱包组买入金额", "Wallet-group buy amount")}</span>
+          <div class="launch-amount-input">
+            <input class="field-input" name="walletGroupBuyAmount" type="number" min="0" step="0.0001" placeholder="0.00" required />
+            <span>${selected.unit}</span>
+          </div>
+        </label>
+        <label class="launch-field">
+          <span>${t("买入条件", "Buy condition")}</span>
+          <select class="field-select" name="buyCondition" required>
+            <option value="random">${t("随机买入", "Random buy")}</option>
+            <option value="ladder">${t("梯级买入", "Ladder buy")}</option>
+            <option value="equal">${t("等额买入", "Equal buy")}</option>
+          </select>
+          <small>${t("总买入金额保持不变，并分配到钱包组内全部钱包。", "The fixed total is distributed across every wallet in the group.")}</small>
+        </label>
+
+        <div class="launch-form-actions launch-field-wide">
+          <p>${selected.id === "pons" ? t("基础发射费 0.0005 ETH。", "Base launch fee: 0.0005 ETH.") : t("该平台的直连执行适配器仍在接入。", "Direct execution for this platform is still being integrated.")}</p>
+          ${selected.id === "pons" ? `<button class="primary-button" type="button" data-pons-launch><i class="fa-solid fa-fire-burner" aria-hidden="true"></i>${t(`Cooking 到 ${selected.name}`, `Cook on ${selected.name}`)}</button>` : `<button class="primary-button" type="button" data-internal-launch><i class="fa-solid fa-fire-burner" aria-hidden="true"></i>${t(`Cooking 到 ${selected.name}`, `Cook on ${selected.name}`)}</button>`}
+        </div>
+      </form>
+    </section>
+  ` : "";
+
+  viewRoot.innerHTML = `
+    ${pageHeading(
+      "Launch Studio",
+      t("选择发射平台", "Choose a launch platform"),
+      t("上传或生成 Cooking 图片，选择 Cooking 钱包后完成发射。", "Upload or generate a Cooking image, select a Cooking wallet, and launch."),
+      `<span class="simulation-pill"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>${t("钱包确认执行", "Wallet-confirmed execution")}</span>`,
+    )}
+    <section class="launch-grid">${platformCards}</section>
+    ${launchForm}
+  `;
+}
+
+function renderInvite() {
+  viewRoot.innerHTML = `
+    ${pageHeading("Invite", t("邀请协作者加入你的叙事工作区", "Invite collaborators to your narrative workspace"), t("当前为本地演示状态，不会创建真实账户或奖励。", "This is a local demo and does not create real accounts or rewards."), `<span class="simulation-pill"><i class="fa-solid fa-flask" aria-hidden="true"></i>Demo</span>`)}
+    <div class="invite-grid">
+      <section class="invite-panel"><h3>${t("邀请链接", "Invite link")}</h3><p>${t("分享演示工作区入口。", "Share the demo workspace entry.")}</p><div class="invite-code"><code>narraops.local/invite/NARRA-DEMO</code><button class="compact-button" type="button" data-action="copy-invite"><i class="fa-regular fa-copy" aria-hidden="true"></i></button></div></section>
+      <section class="invite-panel"><h3>${t("协作概览", "Collaboration overview")}</h3><div class="settings-list"><div class="invite-stat"><span>${t("已邀请", "Invited")}</span><strong>0</strong></div><div class="invite-stat"><span>${t("已加入", "Joined")}</span><strong>0</strong></div><div class="invite-stat"><span>${t("待审核草案", "Drafts awaiting review")}</span><strong>0</strong></div></div></section>
+    </div>
+  `;
+}
+
+function settingsToggle(key, label, description) {
+  return `<div class="settings-row"><div><strong>${label}</strong><span>${description}</span></div><button class="toggle ${state.settings[key] ? "active" : ""}" type="button" data-setting="${key}" aria-pressed="${state.settings[key]}"></button></div>`;
+}
+
+function renderLegacySettings() {
+  viewRoot.innerHTML = `
+    ${pageHeading("Settings", t("配置来源、界面与安全边界", "Configure sources, interface, and safety boundaries"), t("所有设置仅保存在当前浏览器。", "All settings are stored only in this browser."), `<span class="simulation-pill"><i class="fa-solid fa-lock" aria-hidden="true"></i>${t("真实执行关闭", "Live execution off")}</span>`)}
+    <div class="settings-grid">
+      <section class="settings-panel"><h3>${t("监控来源", "Monitoring sources")}</h3><p>${t("选择 Pulse 与 Agent 可使用的模拟来源。", "Choose simulated sources available to Pulse and Agent.")}</p><div class="settings-list">${settingsToggle("x", "X", t("推文与账号传播轨迹", "Posts and account propagation"))}${settingsToggle("tiktok", "TikTok", t("短视频趋势与模板扩散", "Short-video trends and template spread"))}${settingsToggle("instagram", "Instagram", t("视觉母题与创作者网络", "Visual motifs and creator networks"))}${settingsToggle("telegram", "Telegram", t("公开社区讨论", "Public community discussions"))}</div></section>
+      <section class="settings-panel"><h3>${t("界面与安全", "Interface and safety")}</h3><p>${t("管理本地体验，不会改变执行权限。", "Manage local experience without changing execution permissions.")}</p><div class="settings-list">${settingsToggle("notifications", t("通知", "Notifications"), t("显示叙事信号提醒", "Show narrative signal alerts"))}<div class="settings-row"><div><strong>${t("语言", "Language")}</strong><span>${state.language === "zh" ? "简体中文" : "English"}</span></div><button class="compact-button" type="button" data-action="language">${state.language === "zh" ? "EN" : "中文"}</button></div><div class="settings-row"><div><strong>${t("主题", "Theme")}</strong><span>${state.theme === "soft" ? t("柔和黑", "Soft dark") : t("深黑", "Deep dark")}</span></div><button class="compact-button" type="button" data-action="theme"><i class="fa-regular ${state.theme === "soft" ? "fa-sun" : "fa-moon"}" aria-hidden="true"></i></button></div><div class="settings-row"><div><strong>${t("链上执行", "On-chain execution")}</strong><span>${t("未接入签名与广播服务", "Signing and broadcast services are not connected")}</span></div><span class="state-pill">Disabled</span></div></div></section>
+    </div>
+  `;
+}
+
+function money(value, currency = "USD") {
+  const amount = Number(value || 0);
+  return new Intl.NumberFormat(state.language === "zh" ? "zh-CN" : "en-US", {
+    style: "currency", currency, maximumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function shortAddress(value) {
+  const address = String(value || "");
+  return address.length > 18 ? `${address.slice(0, 9)}…${address.slice(-6)}` : address;
+}
+
+async function apiRequest(path, options = {}) {
+  const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body?.error?.message || body?.message || `HTTP ${response.status}`);
+  return body;
+}
+
+async function loadAssets({ keepGroup = true } = {}) {
+  if (state.assets.loading) return;
+  state.assets.loading = true;
+  state.assets.error = null;
+  renderAssets();
+  try {
+    const [portfolio, groupsResult] = await Promise.all([
+      apiRequest(`/api/v1/account/portfolio?period=${state.assets.period}`),
+      apiRequest("/api/v1/wallet-groups"),
+    ]);
+    state.assets.portfolio = portfolio;
+    state.assets.mode = groupsResult.mode || "mock";
+    state.assets.groups = groupsResult.groups || [];
+    if (!keepGroup || !state.assets.groups.some((group) => group.groupId === state.assets.selectedGroupId)) state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
+    if (state.assets.selectedGroupId) {
+      const detail = await apiRequest(`/api/v1/wallet-groups/${state.assets.selectedGroupId}/wallets`);
+      state.assets.wallets = detail.wallets || [];
+    } else state.assets.wallets = [];
+  } catch (error) {
+    state.assets.error = error.message;
+  } finally {
+    state.assets.loading = false;
+    renderAssets();
+  }
+}
+
+async function loadLaunchGroups() {
+  if (state.assets.launchGroupsLoading) return;
+  state.assets.launchGroupsLoading = true;
+  try {
+    const result = await apiRequest("/api/v1/wallet-groups");
+    state.assets.mode = result.mode || "mock";
+    state.assets.groups = result.groups || [];
+    if (state.view === "launch") renderLaunch();
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    state.assets.launchGroupsLoading = false;
+  }
+}
+
+function isCookingGroup(group) {
+  if (group.purpose === "cooking") return group.walletCount === 1;
+  return !group.purpose && group.walletCount === 1;
+}
+
+function renderAssetSummary() {
+  const portfolio = state.assets.portfolio;
+  return [
+    [t("总资产", "Total assets"), money(portfolio?.totalBalance, portfolio?.currency), "fa-wallet"],
+    [t("已实现盈亏", "Realized P&L"), money(portfolio?.realizedPnl, portfolio?.currency), "fa-chart-line"],
+    [t("未实现盈亏", "Unrealized P&L"), money(portfolio?.unrealizedPnl, portfolio?.currency), "fa-wave-square"],
+    [t("周期成交额", "Period turnover"), money(portfolio?.turnover, portfolio?.currency), "fa-arrow-right-arrow-left"],
+  ].map(([label, value, icon]) => `<article class="asset-stat-card"><span><i class="fa-solid ${icon}" aria-hidden="true"></i>${label}</span><strong>${portfolio ? value : "—"}</strong></article>`).join("");
+}
+
+function transferEndpointValue(value) {
+  return value === "login_wallet" ? { type: "login_wallet" } : { type: "wallet_group", id: value };
+}
+
+function transferEndpointOptions(selected, exclude = null) {
+  const login = `<option value="login_wallet" ${selected === "login_wallet" ? "selected" : ""} ${exclude === "login_wallet" ? "disabled" : ""}>${t("登录地址", "Login address")}</option>`;
+  return login + state.assets.groups.map((group) => `<option value="${group.groupId}" ${selected === group.groupId ? "selected" : ""} ${exclude === group.groupId ? "disabled" : ""}>${escapeHtml(group.name)} · ${group.walletCount} ${t("个钱包", "wallets")}</option>`).join("");
+}
+
+function renderTransferPanel() {
+  if (!state.assets.transferOpen) return "";
+  const source = state.assets.transferSource;
+  const destination = state.assets.transferDestination || state.assets.groups.find((group) => group.groupId !== source)?.groupId || state.assets.groups[0]?.groupId || null;
+  state.assets.transferDestination = destination;
+  const preview = state.assets.transferPreview;
+  const pairRows = (preview?.allocations || []).slice(0, 6).map((item, index) => `<div class="transfer-pair"><span>${String(index + 1).padStart(2, "0")}</span><code>${escapeHtml(shortAddress(item.sourceWalletId || t("登录地址", "Login address")))}</code><i class="fa-solid fa-arrow-right"></i><code>${escapeHtml(shortAddress(item.destinationWalletId || t("登录地址", "Login address")))}</code><strong>${money(item.amount, preview.currency)}</strong></div>`).join("");
+  return `<section class="transfer-panel">
+    <div class="asset-section-heading"><div><span>${t("资金转移", "Fund transfer")}</span><h2>${t("钱包组转账", "Wallet-group transfer")}</h2></div><button class="icon-button" type="button" data-action="close-transfer" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>
+    <form id="assetTransferForm"><div class="transfer-route"><label class="field-label">${t("转出对象", "From")}<select class="field-select" id="transferSource">${transferEndpointOptions(source, destination)}</select></label><button class="transfer-swap" type="button" data-action="swap-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i></button><label class="field-label">${t("转入对象", "To")}<select class="field-select" id="transferDestination">${transferEndpointOptions(destination, source)}</select></label></div>
+      <div class="transfer-slider-block"><div><span>${t("转账比例", "Transfer ratio")}</span><strong id="transferPercent">${state.assets.transferFraction}%</strong></div><input id="transferFraction" type="range" min="1" max="100" value="${state.assets.transferFraction}" /><div class="slider-ticks"><span>1%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div></div>
+      <div class="transfer-rule"><i class="fa-solid fa-link"></i><div><strong>${source !== "login_wallet" && destination !== "login_wallet" ? t("钱包索引 1:1 配对", "1:1 wallet-index pairing") : source === "login_wallet" ? t("登录地址向钱包组分发", "Login address distributes to a wallet group") : t("钱包组归集到登录地址", "Wallet group collects to login address")}</strong><span>${t("两个钱包组按 Wallet[i] → Wallet[i] 配对，未匹配钱包不参与。当前只生成转账计划，不签名、不广播。", "Two groups pair Wallet[i] → Wallet[i]; unmatched wallets do not participate. This creates a plan only—no signing or broadcast.")}</span></div></div>
+      <div class="transfer-actions"><button class="secondary-button" type="button" data-action="close-transfer">${t("取消", "Cancel")}</button><button class="primary-button" type="submit" ${state.assets.transferBusy || !destination ? "disabled" : ""}><i class="fa-solid fa-eye"></i>${state.assets.transferBusy ? t("生成中…", "Planning…") : t("预览转账计划", "Preview transfer plan")}</button></div></form>
+    ${preview ? `<div class="transfer-preview"><div class="transfer-preview-summary"><span><small>${t("预计金额", "Estimated amount")}</small><strong>${money(preview.estimatedAmount, preview.currency)}</strong></span><span><small>${t("配对数量", "Pairs")}</small><strong>${preview.pairCount}</strong></span><span><small>${t("未匹配", "Unmatched")}</small><strong>${(preview.unmatchedSourceWalletIds?.length || 0) + (preview.unmatchedDestinationWalletIds?.length || 0)}</strong></span><span><small>${t("状态", "Status")}</small><strong>${t("等待确认 · 执行关闭", "Review · execution off")}</strong></span></div><div class="transfer-pair-list">${pairRows}</div><button class="primary-button transfer-confirm" type="button" data-action="confirm-transfer-plan">${t("确认并保存计划", "Confirm and save plan")}</button></div>` : ""}
+    ${state.assets.transferResult ? `<div class="asset-state"><i class="fa-solid fa-circle-check"></i>${t("转账计划已保存，真实签名与广播仍关闭。", "Transfer plan saved; signing and broadcast remain disabled.")}</div>` : ""}
+  </section>`;
+}
+
+function renderAssets() {
+  const liveWallets = state.assets.mode === "encrypted_vault";
+  const selectedGroup = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
+  const periods = ["1d", "7d", "30d", "all"].map((period) => `<button class="period-button ${state.assets.period === period ? "active" : ""}" type="button" data-asset-period="${period}">${period === "all" ? t("全部", "All") : period.toUpperCase()}</button>`).join("");
+  const groupCards = state.assets.groups.map((group) => `<button class="wallet-group-card ${group.groupId === state.assets.selectedGroupId ? "active" : ""}" type="button" data-wallet-group="${group.groupId}"><span class="wallet-group-icon"><i class="fa-solid ${group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i></span><span><strong>${escapeHtml(group.name)}</strong><small>${group.purpose === "cooking" ? t("Cooking · 1 个钱包", "Cooking · 1 wallet") : `${group.walletCount} ${t("个钱包", "wallets")}`}</small></span><b>${money(group.totalBalance, group.balanceAsset)}</b></button>`).join("");
+  const walletRows = state.assets.wallets.map((wallet) => `<tr><td><span class="wallet-label"><i class="fa-solid fa-wallet"></i><strong>${escapeHtml(wallet.label)}</strong></span></td><td><code title="${escapeHtml(wallet.addresses?.solana || wallet.publicAddress)}">SOL ${escapeHtml(shortAddress(wallet.addresses?.solana || wallet.publicAddress))}</code><br><code title="${escapeHtml(wallet.addresses?.bsc || wallet.publicAddress)}">EVM ${escapeHtml(shortAddress(wallet.addresses?.bsc || wallet.publicAddress))}</code></td><td>${money(wallet.balance, wallet.balanceAsset)}</td><td><span class="state-pill">${wallet.provisioningStatus === "active" ? t("已加密", "Encrypted") : t("模拟", "Simulation")}</span></td></tr>`).join("");
+  const status = state.assets.loading ? `<div class="asset-state"><i class="fa-solid fa-circle-notch fa-spin"></i>${t("正在读取资产…", "Loading assets…")}</div>` : state.assets.error ? `<div class="asset-state error"><i class="fa-solid fa-triangle-exclamation"></i><div><strong>${t("资产服务未连接", "Asset service unavailable")}</strong><span>${escapeHtml(state.assets.error)}</span></div><button class="secondary-button" type="button" data-action="refresh-assets">${t("重试", "Retry")}</button></div>` : "";
+  const totalWallets = state.assets.groups.reduce((sum, group) => sum + group.walletCount, 0);
+  const portfolio = state.assets.portfolio;
+  viewRoot.innerHTML = `
+    ${pageHeading("Assets", t("个人资产与钱包组", "Personal assets and wallet groups"), liveWallets ? t("真实多链钱包已在本地加密仓中创建。", "Real multi-chain wallets are stored in the encrypted vault.") : t("统一查看账户表现、钱包组资产与模拟钱包。", "Review account performance, wallet-group assets, and simulated wallets."), `<span class="simulation-pill"><i class="fa-solid fa-shield-halved"></i>${liveWallets ? t("真实钱包 · 加密保存", "Real wallets · Encrypted") : t("模拟资产 · 真实执行关闭", "Mock assets · Live execution off")}</span><button class="secondary-button" type="button" data-action="refresh-assets"><i class="fa-solid fa-arrows-rotate"></i>${t("刷新", "Refresh")}</button>`)}
+    ${status}
+    <section class="asset-overview-panel account-wallet-card"><div class="account-wallet-tabs"><strong>${t("钱包", "Wallets")} (${totalWallets})</strong><div class="period-switcher">${periods}</div><button class="calendar-button" type="button"><i class="fa-regular fa-calendar"></i>${t("盈亏日历", "P&L calendar")}</button></div><div class="account-balance"><span>${t("总余额", "Total balance")}</span><strong>${portfolio ? money(portfolio.totalBalance, portfolio.currency) : "—"}</strong></div><div class="account-profit-grid"><span><small>${t("总成交额", "Total turnover")}</small><strong>${portfolio ? money(portfolio.turnover, portfolio.currency) : "—"}</strong></span><span><small>${t("总盈亏", "Total P&L")}</small><strong class="positive">${portfolio ? money(Number(portfolio.realizedPnl) + Number(portfolio.unrealizedPnl), portfolio.currency) : "—"} (${portfolio?.pnlPercent || "0"}%)</strong></span><span><small>${t("已实现利润", "Realized P&L")}</small><strong>${portfolio ? money(portfolio.realizedPnl, portfolio.currency) : "—"}</strong></span><span><small>${t("未实现利润", "Unrealized P&L")}</small><strong>${portfolio ? money(portfolio.unrealizedPnl, portfolio.currency) : "—"}</strong></span></div><div class="account-wallet-actions"><button type="button" data-action="deposit-disabled"><i class="fa-solid fa-arrow-down"></i><span>${t("充值", "Deposit")}</span></button><button type="button" data-action="withdraw-disabled"><i class="fa-solid fa-arrow-up"></i><span>${t("提取", "Withdraw")}</span></button><button type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i><span>${t("转账", "Transfer")}</span></button></div></section>
+    ${renderTransferPanel()}
+    <section class="wallet-groups-layout">
+      <div class="wallet-groups-panel"><div class="asset-section-heading"><div><span>${t("钱包组资产", "Wallet-group assets")}</span><h2>${t("钱包组", "Wallet groups")}</h2></div><button class="compact-button" type="button" data-action="open-create-group"><i class="fa-solid fa-plus"></i>${t("新建", "New")}</button></div><div class="wallet-group-list">${groupCards || `<div class="empty-state">${t("还没有钱包组", "No wallet groups yet")}</div>`}</div></div>
+      <div class="wallet-detail-panel"><div class="asset-section-heading"><div><span>${t("钱包组管理", "Wallet-group management")}</span><h2>${selectedGroup ? escapeHtml(selectedGroup.name) : t("选择钱包组", "Select a wallet group")}</h2></div>${selectedGroup && selectedGroup.purpose !== "cooking" ? `<button class="compact-button" type="button" data-action="open-add-wallet"><i class="fa-solid fa-plus"></i>${t("添加钱包", "Add wallets")}</button>` : ""}</div>${selectedGroup ? `<div class="wallet-group-metrics"><span><small>${t("钱包数量", "Wallets")}</small><strong>${selectedGroup.walletCount}</strong></span><span><small>${t("组内资产", "Group assets")}</small><strong>${money(selectedGroup.totalBalance, selectedGroup.balanceAsset)}</strong></span><span><small>${t("钱包组用途", "Group purpose")}</small><strong>${selectedGroup.purpose === "cooking" ? "Cooking" : t("常规", "General")}</strong></span></div><div class="wallet-table-wrap"><table class="wallet-table"><thead><tr><th>${t("钱包", "Wallet")}</th><th>${t("公开地址", "Public address")}</th><th>${t("余额", "Balance")}</th><th>${t("状态", "Status")}</th></tr></thead><tbody>${walletRows || `<tr><td colspan="4" class="empty-state">${t("该组暂无钱包", "No wallets in this group")}</td></tr>`}</tbody></table></div>` : `<div class="empty-state large"><i class="fa-solid fa-layer-group"></i>${t("选择一个钱包组查看明细", "Select a wallet group to view details")}</div>`}</div>
+    </section>`;
+  const addWalletButton = viewRoot.querySelector('[data-action="open-add-wallet"]');
+  if (addWalletButton) addWalletButton.insertAdjacentHTML("beforebegin", `<button class="compact-button" type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i>${t("转账", "Transfer")}</button>`);
+}
+
+function renderCurrentView() {
+  viewRoot.classList.toggle("go-workspace-root", state.view === "go");
+  updateNavigation();
+  applyStaticTranslations();
+  if (state.view === "go") renderGo();
+  else if (state.view === "launch") renderLaunch();
+  else if (state.view === "invite") renderInvite();
+  else if (state.view === "assets") renderAssets();
+  else renderPulse();
+}
+
+function drawSparkline(canvas, values, color) {
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (!width || !height) return;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  const context = canvas.getContext("2d");
+  context.scale(ratio, ratio);
+  context.clearRect(0, 0, width, height);
+
+  const padding = 5;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const spread = Math.max(max - min, 1);
+  const points = values.map((value, index) => ({
+    x: padding + (index / (values.length - 1)) * (width - padding * 2),
+    y: height - padding - ((value - min) / spread) * (height - padding * 2),
+  }));
+
+  context.beginPath();
+  context.moveTo(points[0].x, height - padding);
+  points.forEach((point) => context.lineTo(point.x, point.y));
+  context.lineTo(points[points.length - 1].x, height - padding);
+  context.closePath();
+  context.fillStyle = "rgba(45, 205, 99, 0.11)";
+  context.fill();
+
+  context.beginPath();
+  points.forEach((point, index) => {
+    if (index === 0) context.moveTo(point.x, point.y);
+    else context.lineTo(point.x, point.y);
+  });
+  context.lineWidth = 2;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = color;
+  context.stroke();
+
+  const finalPoint = points[points.length - 1];
+  context.beginPath();
+  context.arc(finalPoint.x, finalPoint.y, 3, 0, Math.PI * 2);
+  context.fillStyle = color;
+  context.fill();
+}
+
+function drawVisibleCharts() {
+  document.querySelectorAll("[data-chart]").forEach((canvas) => {
+    const [type, indexString] = canvas.dataset.chart.split("-");
+    const index = Number(indexString);
+    const series = type === "signal" ? signalSeries[index] : intelSeries[index];
+    drawSparkline(canvas, series, type === "signal" ? "#20ca63" : "#57e887");
+  });
 }
 
 function showToast(message) {
-  toast.textContent = translateText(message);
-  toast.classList.add("show");
+  toast.textContent = message;
+  toast.classList.add("visible");
   window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 1800);
+  showToast.timer = window.setTimeout(() => toast.classList.remove("visible"), 2600);
 }
 
-function apiBase() {
-  if (window.location.protocol === "http:" || window.location.protocol === "https:") {
-    return "";
-  }
-  return "http://127.0.0.1:5188";
+function openModal({ kicker = "NarraOps", title, content }) {
+  modalKicker.textContent = kicker;
+  modalTitle.textContent = title;
+  modalBody.innerHTML = content;
+  modal.classList.remove("hidden");
+  modalBackdrop.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  document.querySelector("#closeModalButton").focus();
 }
 
-function appServedFromFile() {
-  return !(window.location.protocol === "http:" || window.location.protocol === "https:");
+function closeModal() {
+  modal.classList.add("hidden");
+  modalBackdrop.classList.add("hidden");
+  document.body.style.overflow = "";
 }
 
-async function loadServerWorkspace() {
-  if (appServedFromFile()) return;
-  try {
-    const response = await fetch(`${apiBase()}/api/workspace`, { cache: "no-store" });
-    if (!response.ok) return;
-    const result = await response.json();
-    if (!hasStoredWorkspace(result.workspace)) {
-      scheduleServerSave(getWorkspacePayload());
-      return;
-    }
-    applyingWorkspace = true;
-    const applied = applyWorkspace(result.workspace);
-    applyingWorkspace = false;
-    if (applied) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(getWorkspacePayload()));
-      render();
-      showToast("Workspace loaded from local server");
-    }
-  } catch {
-    applyingWorkspace = false;
-  }
-}
-
-async function postJson(path, payload) {
-  const response = await fetch(`${apiBase()}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload || {}),
+function openOpportunity(id) {
+  const item = opportunities.find((opportunity) => opportunity.id === id);
+  if (!item) return;
+  openModal({
+    kicker: `${item.source} · ${t("机会简报", "Opportunity brief")}`,
+    title: state.language === "zh" ? item.titleZh : item.titleEn,
+    content: `
+      <p>${state.language === "zh" ? item.bodyZh : item.bodyEn}</p>
+      <div class="modal-metrics"><div class="modal-metric"><span>${t("叙事评分", "Narrative score")}</span><strong>${item.score}</strong></div><div class="modal-metric"><span>${t("传播动量", "Momentum")}</span><strong class="positive">${item.momentum}</strong></div><div class="modal-metric"><span>${t("估算触达", "Estimated reach")}</span><strong>${item.reach}</strong></div></div>
+      <div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("关闭", "Close")}</button><button class="primary-button" type="button" data-modal-action="agent"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${t("交给 Agent 分析", "Analyze with Agent")}</button></div>
+    `,
   });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `HTTP ${response.status}`);
-  }
-
-  return response.json();
 }
 
-function addRecord(type, detail, route, status = "done") {
-  const now = new Date();
-  records.unshift({
-    time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    type,
-    detail,
-    route,
-    status,
+function openAuth(mode) {
+  const isLogin = mode === "login";
+  openModal({
+    kicker: "NarraOps Account",
+    title: isLogin ? t("登录", "Log in") : t("创建账户", "Create account"),
+    content: `
+      <p>${t("认证服务尚未接入，此表单仅用于界面验证。", "Authentication is not connected; this form is for interface validation only.")}</p>
+      <form class="form-stack" id="authForm">
+        <label class="field-label">${t("邮箱", "Email")}<input class="field-input" type="email" autocomplete="email" required placeholder="name@example.com" /></label>
+        <label class="field-label">${t("密码", "Password")}<input class="field-input" type="password" autocomplete="current-password" required placeholder="••••••••" /></label>
+        <div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${isLogin ? t("登录演示", "Demo login") : t("注册演示", "Demo registration")}</button></div>
+      </form>
+    `,
   });
-  saveWorkspace();
-  renderSideStats();
 }
 
-function gradeClass(grade) {
-  return grade.toLowerCase();
+function openCreateGroup() {
+  openModal({
+    kicker: t("钱包组管理", "Wallet-group management"),
+    title: t("新建钱包组", "Create wallet group"),
+    content: `<form class="form-stack" id="createWalletGroupForm"><label class="field-label">${t("钱包组名称", "Group name")}<input class="field-input" name="name" maxlength="48" required placeholder="${t("例如：核心发射组", "e.g. Core launch")}" /></label><label class="field-label">${t("钱包组用途", "Group purpose")}<select class="field-select" name="purpose" id="walletGroupPurpose"><option value="general">${t("常规钱包组", "General wallet group")}</option><option value="cooking">${t("Cooking 钱包组", "Cooking wallet group")}</option></select></label><label class="field-label" id="walletCountField">${t("初始钱包数量", "Initial wallet count")}<input class="field-input" name="walletCount" type="number" min="1" max="100" value="3" required /></label><p id="walletGroupPurposeHint">${t("Cooking 钱包组固定只生成 1 个钱包，可创建多个组并在发射时选择。", "A Cooking group always contains one wallet. Create multiple groups and select one during launch.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("创建钱包组", "Create group")}</button></div></form>`,
+  });
 }
 
-function buildDraft(signal = selectedSignal(), brief = state.customBrief) {
-  const extra = brief.trim() ? `\n\nUser angle: ${brief.trim()}` : "";
-  if (state.language === "zh") {
-    const zhExtra = brief.trim() ? `\n\n用户角度：${brief.trim()}` : "";
+function openAddWallets() {
+  if (!state.assets.selectedGroupId) return;
+  openModal({
+    kicker: t("钱包组管理", "Wallet-group management"),
+    title: t("添加模拟钱包", "Add simulated wallets"),
+    content: `<form class="form-stack" id="addWalletsForm"><label class="field-label">${t("添加数量", "Number to add")}<input class="field-input" name="count" type="number" min="1" max="200" value="1" required /></label><p>${t("钱包仅包含模拟公开地址和余额，不包含任何密钥材料。", "Wallets contain simulated public addresses and balances only, with no key material.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("添加钱包", "Add wallets")}</button></div></form>`,
+  });
+}
+
+function openLaunchImageGenerator(mode = "ai") {
+  openModal({
+    kicker: t("Cooking 图片", "Cooking image"),
+    title: mode === "text" ? t("文生图", "Text to image") : t("AI 生图", "AI image generation"),
+    content: `<form class="form-stack" id="launchImageGeneratorForm"><input type="hidden" name="mode" value="${mode}" /><label class="field-label">${t("画面描述", "Image prompt")}<textarea class="field-input" name="prompt" maxlength="1000" required placeholder="${t("描述角色、场景、风格和色彩", "Describe the character, scene, style, and colors")}"></textarea></label><label class="field-label">${t("画面比例", "Aspect ratio")}<select class="field-select" name="aspectRatio"><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="16:9">16:9</option></select></label><p>${t("生成结果会自动进入发射图片，并在提交前完成元数据固定。", "The result will become the launch image and be pinned with token metadata before submission.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit"><i class="fa-solid fa-wand-magic-sparkles"></i>${t("生成图片", "Generate image")}</button></div></form>`,
+  });
+}
+
+function isFinancialCommand(value) {
+  return /(钱包|转账|提取|发射|买入|卖出|wallet|transfer|withdraw|launch|buy|sell)/i.test(value);
+}
+
+function getAgentResponse(command) {
+  if (/(dev-market|链上行情|dev 钱包|dev wallet)/i.test(command)) {
     return {
-      name: signal.name,
-      ticker: signal.ticker,
-      story: `${signal.angle}${zhExtra}`,
-      launchTweet: `${signal.name} 是把时间线信号变成可交易叙事的 meme。\n\nTicker: $${signal.ticker}\n信号来源：${signal.source}\n核心叙事：${signal.angle}`,
-      telegram:
-        `置顶：$${signal.ticker} 发射房间已开启。\n\n叙事：${signal.angle}\n\n规则：只认官方链接，谨防仿冒，关键动作保留链上凭证。`,
-      operations:
-        `前 24 小时运营计划：\n1. 发布发射长推。\n2. 开启 Telegram meme 素材比赛。\n3. 追踪 CA + $${signal.ticker} 相关提及。\n4. 只有在国库状态清晰后，再准备回购 / 销毁 / 捐赠文案。\n5. 每 4 小时做一次社区情绪检查。`,
-      risk:
-        `风险监控：来源账号情绪为 ${signal.sentiment}；当前叙事风险为 ${signal.risk}。重点观察删帖、创作者反对、恶意引用和仿冒链接。`,
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: "我已生成 Dev 钱包行情概览，按链汇总钱包标签、盈利比例和周期变化。",
+      contentEn: "I generated a dev-wallet market overview with chain-level labels, profitability, and period changes.",
+      suggestionZh: "选择目标链和对比日期后，可继续查看具体 Dev 钱包分组。",
+      suggestionEn: "Choose a target chain and comparison period to inspect individual dev-wallet cohorts.",
+      card: { type: "dev_market", statusZh: "模拟数据", statusEn: "Mock data" },
     };
   }
+
+  if (/(narrative-trends|叙事信号趋势|narrative trend)/i.test(command)) {
+    return {
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: "我已汇总各条链近期发射 Meme 使用的叙事，并生成趋势与评分概览。",
+      contentEn: "I summarized narratives used by recently launched memes across chains and produced a trend and scoring overview.",
+      suggestionZh: "选择一个叙事，可继续拆解传播来源、历史市值和衰减速度。",
+      suggestionEn: "Select a narrative to inspect propagation sources, historical market cap, and decay velocity.",
+      card: { type: "narrative_trends", statusZh: "24 个叙事", statusEn: "24 narratives" },
+    };
+  }
+
+  if (/(analyze-meme|分析 meme|meme 分析|合约地址)/i.test(command)) {
+    return {
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: "分析任务已建立。补充 Meme 合约地址后，将整理庄家集群、关联钱包和异常资金路径。",
+      contentEn: "The analysis task is ready. Add a meme contract address to inspect operator clusters, linked wallets, and abnormal fund paths.",
+      suggestionZh: "请提供 Solana 或 BSC 的 Meme 合约地址。",
+      suggestionEn: "Provide a Solana or BSC meme contract address.",
+      card: { type: "meme_analysis", statusZh: "等待合约地址", statusEn: "Awaiting contract" },
+    };
+  }
+
+  if (/(recent-summary|近期总结|recent summary)/i.test(command)) {
+    return {
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: "我已整理近期用户发射、盈利表现以及 Dev 钱包与钱包组使用概览。",
+      contentEn: "I summarized recent user launches, profitability, and dev-wallet and wallet-group activity.",
+      suggestionZh: "选择时间范围后，可进一步查看单次发射和钱包组明细。",
+      suggestionEn: "Choose a time range to inspect individual launches and wallet-group details.",
+      card: { type: "recent_summary", statusZh: "近 30 天", statusEn: "Last 30 days" },
+    };
+  }
+
+  if (/(社区|community|运营|operation)/i.test(command)) {
+    return {
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: "我已生成一份社区运营框架，覆盖首日内容节奏、Space 议题、创作活动和情绪监测。",
+      contentEn: "I generated a community operations framework covering day-one content, Space topics, creator campaigns, and sentiment monitoring.",
+      suggestionZh: "先确认目标社区与官方账号，再把计划连接到实时社交数据。",
+      suggestionEn: "Confirm the target community and official accounts before connecting the plan to live social data.",
+      card: { type: "community_plan" },
+    };
+  }
+
+  if (/(meme|角色|视觉|素材)/i.test(command)) {
+    return {
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: "我已把叙事拆成角色、冲突、传播钩子和视觉母题，形成一份可继续补充的 Meme 构建包。",
+      contentEn: "I split the narrative into character, conflict, propagation hooks, and a visual motif to create a reviewable meme build package.",
+      suggestionZh: "补充名称、Token 符号和引用链接后，再生成正式素材。",
+      suggestionEn: "Add the name, token symbol, and reference links before generating production assets.",
+      card: { type: "meme_package" },
+    };
+  }
+
+  if (/(发射|launch)/i.test(command)) {
+    return {
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: "Launch Meme 草案已创建。它将组织目标链、发射平台、Dev 钱包、钱包组、X/网站绑定和钱包组买卖决策。",
+      contentEn: "A Launch Meme draft is ready. It organizes the target chain, launchpad, dev wallet, wallet group, X/website binding, and wallet-group trading decisions.",
+      suggestionZh: "先选择目标链并连接 Dev 钱包，再选择钱包组。",
+      suggestionEn: "Choose the target chain and connect the dev wallet before selecting a wallet group.",
+      card: { type: "launch_draft" },
+    };
+  }
+
+  if (isFinancialCommand(command)) {
+    return {
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: "已生成模拟执行计划，未访问钱包、私钥、签名服务或链上节点。",
+      contentEn: "A simulated execution plan is ready without accessing wallets, private keys, signing services, or chain nodes.",
+      suggestionZh: "补充钱包组、网络、资产和金额，再交由人工审核。",
+      suggestionEn: "Add the wallet group, network, asset, and amount before human review.",
+      card: { type: "execution_plan" },
+    };
+  }
+
   return {
-    name: signal.name,
-    ticker: signal.ticker,
-    story: `${signal.angle}${extra}`,
-    launchTweet: `${signal.name} is for the timeline that spots the meme before consensus.\n\nTicker: $${signal.ticker}\nSignal: ${signal.source}\nThesis: ${signal.angle}`,
-    telegram:
-      `Pinned: $${signal.ticker} launch room is live.\n\nNarrative: ${signal.angle}\n\nRules: verify links, avoid impersonators, keep receipts on-chain.`,
-    operations:
-      `First 24h ops:\n1. Publish launch thread.\n2. Open Telegram contest for meme assets.\n3. Track CA + $${signal.ticker} mentions.\n4. Prepare buyback / burn / donation wording only after treasury status is clear.\n5. Run sentiment check every 4 hours.`,
-    risk:
-      `Risk watch: source account sentiment is ${signal.sentiment}; current narrative risk is ${signal.risk}. Monitor deleted posts, creator objections, and hostile quote posts.`,
+    role: "agent",
+    timestamp: getMessageTime(),
+    contentZh: "我已提取角色、冲突、传播钩子和可持续运营角度，并整理为一份可审阅的叙事快照。",
+    contentEn: "I extracted the character, conflict, propagation hook, and sustainable operations angle into a reviewable narrative snapshot.",
+    suggestionZh: "选择一个最强传播角度，再继续构建 Meme 素材。",
+    suggestionEn: "Choose the strongest propagation angle before building the meme assets.",
+    card: { type: "narrative_snapshot" },
   };
 }
 
-function ensureDraft() {
-  if (!state.generated) {
-    state.generated = buildDraft();
-  }
-  return state.generated;
-}
-
-function renderSideStats() {
-  document.getElementById("sideSignalCount").textContent = String(signals.length);
-  document.getElementById("sideArmedCount").textContent = String(state.armedLaunches.length);
-  document.getElementById("treasuryRateText").textContent = `${state.contributionRate}%`;
-  document.getElementById("drawerRateText").textContent = `${state.contributionRate}%`;
-  document.getElementById("contributionRate").value = String(state.contributionRate);
-}
-
-function render() {
-  const [title, subtitle] = titleMap[state.activeView];
-  document.getElementById("pageTitle").textContent = title;
-  document.getElementById("pageSubtitle").textContent = subtitle;
-  document.querySelectorAll(".nav-item").forEach((item) => {
-    item.classList.toggle("active", item.dataset.view === state.activeView);
-  });
-
-  const views = {
-    dashboard: renderDashboard,
-    narratives: renderNarratives,
-    signal: renderSignalToLaunch,
-    builder: renderBuilder,
-    launch: renderLaunchConsole,
-    wallets: renderWalletOps,
-    community: renderCommunityOps,
-    records: renderRecords,
-  };
-  root.innerHTML = views[state.activeView]();
-  renderSideStats();
-  applyLanguage();
-}
-
-function renderDashboard() {
-  const signal = selectedSignal();
-  const draft = ensureDraft();
-  return `
-    <section class="grid-4">
-      <div class="metric-card">
-        <div class="label">Top signal</div>
-        <div class="metric-value">${escapeHtml(signal.grade)} / ${signal.score}</div>
-        <div class="metric-foot">${escapeHtml(signal.network)} · ${escapeHtml(signal.sentiment)}</div>
-      </div>
-      <div class="metric-card">
-        <div class="label">Launch readiness</div>
-        <div class="metric-value">82%</div>
-        <div class="metric-foot">Name, ticker, ops plan ready</div>
-      </div>
-      <div class="metric-card">
-        <div class="label">Wallet groups</div>
-        <div class="metric-value">${walletGroups.length}</div>
-        <div class="metric-foot">SOL + BSC configured</div>
-      </div>
-      <div class="metric-card">
-        <div class="label">Contribution rate</div>
-        <div class="metric-value">${state.contributionRate}%</div>
-        <div class="metric-foot">User selected</div>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <div>
-          <h2>Operator path</h2>
-          <p>Use NarraOps as a working console: discover a meme angle, turn it into launch material, prepare execution, then keep the community alive after launch.</p>
-        </div>
-        <button class="secondary-button" data-action="go-signal">Open watcher</button>
-      </div>
-      <div class="launch-flow">
-        <div class="launch-step"><strong>01 Listen</strong><p>Add X, TikTok, Instagram, Telegram, or custom media sources.</p></div>
-        <div class="launch-step"><strong>02 Score</strong><p>Rank narratives against historical launches and sentiment drift.</p></div>
-        <div class="launch-step"><strong>03 Build</strong><p>Generate token identity, launch copy, and operations plan.</p></div>
-        <div class="launch-step"><strong>04 Operate</strong><p>Run wallet ops, contribution settlement, and community campaigns.</p></div>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <div>
-          <h2>Active narrative</h2>
-          <p>${escapeHtml(signal.angle)}</p>
-        </div>
-        <button class="primary-button" data-action="open-builder">Build meme pack</button>
-      </div>
-      <div class="launch-flow">
-        <div class="launch-step"><strong>Signal</strong><p>${escapeHtml(signal.title)}</p></div>
-        <div class="launch-step"><strong>Meme</strong><p>${escapeHtml(draft.name)} / $${escapeHtml(draft.ticker)}</p></div>
-        <div class="launch-step"><strong>Launch</strong><p>${escapeHtml(state.chain.toUpperCase())} · ${escapeHtml(state.platform)}</p></div>
-        <div class="launch-step"><strong>Ops</strong><p>X posts, Telegram, contest, sentiment loop</p></div>
-      </div>
-    </section>
-
-    <section class="grid-2">
-      <div class="panel">
-        <div class="section-head">
-          <h2>Top signals</h2>
-          <button class="small-button" data-action="go-narratives">Open</button>
-        </div>
-        <div class="signal-list">${signals.slice(0, 3).map(renderSignalCard).join("")}</div>
-      </div>
-      <div class="panel">
-        <div class="section-head">
-          <h2>Recent actions</h2>
-          <button class="small-button" data-action="go-records">All</button>
-        </div>
-        <div class="records-list">${records.slice(0, 5).map(renderRecordRow).join("")}</div>
-      </div>
-    </section>
-  `;
-}
-
-function renderNarratives() {
-  return `
-    <section class="panel">
-      <div class="section-head">
-        <div>
-          <h2>Monitored sources</h2>
-          <p>Tracked accounts, media feeds, and community channels.</p>
-        </div>
-        <button class="primary-button" data-action="scan">Run scan</button>
-      </div>
-      <div class="toolbar">
-        <label class="field">
-          <span class="field-label">Source URL or handle</span>
-          <input class="input" id="newSourceInput" placeholder="@account or https://..." />
-        </label>
-        <label class="field">
-          <span class="field-label">Platform</span>
-          <select class="select" id="newSourcePlatform">
-            <option>X</option>
-            <option>TikTok</option>
-            <option>Instagram</option>
-            <option>Telegram</option>
-          </select>
-        </label>
-        <button class="secondary-button" data-action="add-source">Add source</button>
-      </div>
-      <div class="source-list" style="margin-top:18px;">${sources.map(renderSourceCard).join("")}</div>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <div>
-          <h2>Launchable narratives</h2>
-          <p>Scored against historical cases, media reuse potential, and sentiment drift.</p>
-        </div>
-      </div>
-      <div class="signal-list">${signals.map(renderSignalCard).join("")}</div>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <h2>Historical case memory</h2>
-      </div>
-      <div class="grid-4">
-        ${historicalCases
-          .map(
-            (item) => `
-          <div class="metric-card">
-            <div class="label">${escapeHtml(item.tag)}</div>
-            <div class="metric-value">${escapeHtml(item.name)}</div>
-            <div class="metric-foot">${escapeHtml(item.chain)} · peak ${escapeHtml(item.peak)}</div>
-          </div>`,
-          )
-          .join("")}
-      </div>
-    </section>
-  `;
-}
-
-function renderSignalToLaunch() {
-  const signal = selectedSignal();
-  return `
-    <section class="grid-2">
-      <div class="panel">
-        <h2>Arm trigger</h2>
-        <div class="inline-fields">
-          <label class="field">
-            <span class="field-label">Watch target</span>
-            <input class="input" id="watchTarget" value="@marketobserver" />
-          </label>
-          <label class="field">
-            <span class="field-label">Trigger phrase</span>
-            <input class="input" id="watchTrigger" value="AI mascot OR launchable image" />
-          </label>
-        </div>
-        <div class="inline-fields" style="margin-top:14px;">
-          <label class="field">
-            <span class="field-label">Chain</span>
-            <select class="select" id="chainSelect">
-              <option value="sol" ${state.chain === "sol" ? "selected" : ""}>Solana</option>
-              <option value="bsc" ${state.chain === "bsc" ? "selected" : ""}>BSC</option>
-            </select>
-          </label>
-          <label class="field">
-            <span class="field-label">Mode</span>
-            <select class="select" id="launchModeSelect">
-              <option value="manual" ${state.launchMode === "manual" ? "selected" : ""}>Confirm first</option>
-              <option value="auto" ${state.launchMode === "auto" ? "selected" : ""}>Auto after match</option>
-            </select>
-          </label>
-          <label class="field">
-            <span class="field-label">Wallet group</span>
-            <select class="select" id="walletGroupSelect">
-              ${walletGroups.map((group) => `<option>${escapeHtml(group.name)}</option>`).join("")}
-            </select>
-          </label>
-        </div>
-        <div class="button-row" style="margin-top:20px;">
-          <button class="primary-button" data-action="arm-launch">Arm watcher</button>
-          <button class="secondary-button" data-action="simulate-trigger">Simulate trigger</button>
-        </div>
-      </div>
-      <div class="panel">
-        <h2>Current trigger signal</h2>
-        ${renderSignalCard(signal)}
-        <div class="drawer-card" style="margin-top:14px;">
-          <div class="label">Auto path</div>
-          <p>Signal match -> Agent draft -> launch package -> wallet group execution plan -> community pack.</p>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <h2>Armed launch watchers</h2>
-      </div>
-      <div class="timeline-list">
-        ${state.armedLaunches
-          .map(
-            (item) => `
-            <div class="timeline-item">
-              <strong>${escapeHtml(item.chain)}</strong>
-              <div>
-                <div>${escapeHtml(item.trigger)}</div>
-                <div class="record-meta">${escapeHtml(item.walletGroup)} · ${escapeHtml(item.mode)}</div>
-              </div>
-              <span class="pill green">${escapeHtml(item.status)}</span>
-            </div>`,
-          )
-          .join("")}
-      </div>
-    </section>
-  `;
-}
-
-function renderBuilder() {
-  const signal = selectedSignal();
-  const draft = ensureDraft();
-  return `
-    <section class="grid-2">
-      <div class="panel">
-        <h2>Meme brief</h2>
-        <label class="field">
-          <span class="field-label">Input link, post, or angle</span>
-          <textarea class="textarea" id="briefInput">${escapeHtml(state.customBrief)}</textarea>
-        </label>
-        <div class="drawer-card" style="margin:14px 0;">
-          <div class="label">Selected signal</div>
-          <p>${escapeHtml(signal.title)}</p>
-        </div>
-        <div class="button-row">
-          <button class="primary-button" data-action="generate-draft">Generate launch pack</button>
-          <button class="secondary-button" data-action="send-to-launch">Send to launch</button>
-        </div>
-      </div>
-      <div class="panel">
-        <h2>Identity</h2>
-        <div class="grid-2">
-          <div class="metric-card">
-            <div class="label">Token name</div>
-            <div class="metric-value">${escapeHtml(draft.name)}</div>
-          </div>
-          <div class="metric-card">
-            <div class="label">Ticker</div>
-            <div class="metric-value">$${escapeHtml(draft.ticker)}</div>
-          </div>
-        </div>
-        <div class="drawer-card" style="margin-top:14px;">
-          <div class="label">Narrative</div>
-          <p>${escapeHtml(draft.story)}</p>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <h2>Generated assets</h2>
-      </div>
-      <div class="output-grid">
-        ${renderOutputCard("Launch tweet", draft.launchTweet)}
-        ${renderOutputCard("Telegram pinned message", draft.telegram)}
-        ${renderOutputCard("24h operations plan", draft.operations)}
-        ${renderOutputCard("Narrative risk watch", draft.risk)}
-      </div>
-    </section>
-  `;
-}
-
-function renderLaunchConsole() {
-  const draft = ensureDraft();
-  const launchPackage = state.lastLaunchPackage;
-  const checklist =
-    launchPackage?.checklist || [
-      { item: "Token media", status: "ready" },
-      { item: "X post binding", status: "ready" },
-      { item: "Telegram room", status: "ready" },
-      { item: "Dev wallet", status: "ready" },
-      { item: "Wallet group plan", status: "ready" },
-      { item: "Contribution signature", status: "ready" },
-    ];
-  return `
-    <section class="panel">
-      <div class="section-head">
-        <div>
-          <h2>Launch package</h2>
-          <p>${escapeHtml(draft.name)} / $${escapeHtml(draft.ticker)}</p>
-        </div>
-        <button class="primary-button" data-action="build-package">Build launch package</button>
-      </div>
-      <div class="inline-fields">
-        <label class="field">
-          <span class="field-label">Chain</span>
-          <select class="select" id="launchChain">
-            <option value="sol" ${state.chain === "sol" ? "selected" : ""}>Solana</option>
-            <option value="bsc" ${state.chain === "bsc" ? "selected" : ""}>BSC</option>
-          </select>
-        </label>
-        <label class="field">
-          <span class="field-label">Platform</span>
-          <select class="select" id="platformSelect">
-            <option ${state.platform === "Pump.fun" ? "selected" : ""}>Pump.fun</option>
-            <option ${state.platform === "LetsBonk" ? "selected" : ""}>LetsBonk</option>
-            <option ${state.platform === "FourMeme" ? "selected" : ""}>FourMeme</option>
-            <option ${state.platform === "Clanker" ? "selected" : ""}>Clanker</option>
-          </select>
-        </label>
-        <label class="field">
-          <span class="field-label">Dev wallet</span>
-          <select class="select">
-            <option>Dev Wallet 01</option>
-            <option>Dev Wallet 02</option>
-          </select>
-        </label>
-        <label class="field">
-          <span class="field-label">Wallet group</span>
-          <select class="select">
-            ${walletGroups.map((group) => `<option>${escapeHtml(group.name)}</option>`).join("")}
-          </select>
-        </label>
-      </div>
-    </section>
-
-    <section class="launch-flow">
-      <div class="launch-step"><strong>01 Identity</strong><p>${escapeHtml(draft.name)} · $${escapeHtml(draft.ticker)}</p></div>
-      <div class="launch-step"><strong>02 Social binding</strong><p>X post, Telegram room, launch copy ready.</p></div>
-      <div class="launch-step"><strong>03 Wallet group</strong><p>Buy/sell amounts preconfigured.</p></div>
-      <div class="launch-step"><strong>04 Contribution</strong><p>${state.contributionRate}% selected, profit-only settlement.</p></div>
-    </section>
-
-    <section class="grid-2">
-      <div class="panel">
-        <h2>Launch checklist</h2>
-        <div class="timeline-list">
-          ${checklist
-            .map(
-              (item) => `
-              <div class="timeline-item">
-                <span class="pill ${String(item.status).includes("needs") ? "amber" : "green"}">${escapeHtml(item.status)}</span>
-                <strong>${escapeHtml(item.item)}</strong>
-                <span>OK</span>
-              </div>`,
-            )
-            .join("")}
-        </div>
-      </div>
-      <div class="panel">
-        <h2>${launchPackage ? "API launch package" : "Launch output"}</h2>
-        ${
-          launchPackage
-            ? `<div class="drawer-card" style="margin-bottom:14px;">
-                <div class="label">Package ID</div>
-                <p>${escapeHtml(launchPackage.packageId)} / ${escapeHtml(launchPackage.chain)} / ${escapeHtml(launchPackage.platform)}</p>
-              </div>`
-            : ""
-        }
-        ${renderOutputCard("Description", draft.story)}
-        <div style="height:14px;"></div>
-        ${renderOutputCard("Post", draft.launchTweet)}
-      </div>
-    </section>
-  `;
-}
-
-function renderWalletOps() {
-  return `
-    <section class="wallet-matrix">
-      <div class="panel">
-        <div class="section-head">
-          <div>
-            <h2>Wallet groups</h2>
-            <p>Create operational groups for launch buying, selling, treasury actions, rewards, or settlement routing.</p>
-          </div>
-        </div>
-        <div class="toolbar wallet-toolbar">
-          <label class="field">
-            <span class="field-label">Group name</span>
-            <input class="input" id="walletGroupName" placeholder="Launch Group A" />
-          </label>
-          <label class="field compact-field">
-            <span class="field-label">Chain</span>
-            <select class="select" id="walletGroupChain">
-              <option>SOL</option>
-              <option>BSC</option>
-            </select>
-          </label>
-          <label class="field compact-field">
-            <span class="field-label">Wallets</span>
-            <input class="input" id="walletGroupCount" type="number" min="1" max="500" value="12" />
-          </label>
-          <label class="field compact-field">
-            <span class="field-label">Balance</span>
-            <input class="input" id="walletGroupBalance" type="number" min="0" step="0.001" value="0" />
-          </label>
-          <button class="secondary-button" data-action="add-wallet-group">Add group</button>
-        </div>
-        <div class="grid-2">
-          ${walletGroups
-            .map(
-              (group) => `
-            <div class="wallet-group">
-              <div class="signal-meta">
-                <span class="pill cyan">${escapeHtml(group.chain)}</span>
-                <span class="pill">${group.wallets} wallets</span>
-              </div>
-              <h3>${escapeHtml(group.name)}</h3>
-              <div class="metric-value">${escapeHtml(group.balance)}</div>
-              <div class="mini-table">
-                <div class="mini-row"><span>Buy plan</span><strong>${escapeHtml(group.buyPlan)}</strong><span></span></div>
-                <div class="mini-row"><span>Sell plan</span><strong>${escapeHtml(group.sellPlan)}</strong><span></span></div>
-              </div>
-            </div>`,
-            )
-            .join("")}
-        </div>
-      </div>
-      <div class="panel">
-        <h2>Contribution settlement preview</h2>
-        <div class="drawer-card">
-          <div class="label">Profit rule</div>
-          <p>Compare selected wallet group total balance before buy and after sell. If the group is net profitable, positive wallets route ${state.contributionRate}% of group profit by net-gain share.</p>
-        </div>
-        <div class="mini-table">
-          <div class="mini-row"><span>Before buy</span><strong>18.420 SOL</strong><span></span></div>
-          <div class="mini-row"><span>After sell</span><strong>21.860 SOL</strong><span></span></div>
-          <div class="mini-row"><span>Group profit</span><strong>3.440 SOL</strong><span></span></div>
-          <div class="mini-row"><span>Contribution</span><strong>${(3.44 * state.contributionRate / 100).toFixed(4)} SOL</strong><span></span></div>
-        </div>
-        <button class="secondary-button" style="margin-top:16px;" data-action="open-contribution">Open settlement</button>
-      </div>
-    </section>
-  `;
-}
-
-function renderCommunityOps() {
-  const draft = ensureDraft();
-  const posts =
-    state.language === "zh"
-      ? [
-          {
-            title: "X update",
-            body: `$${draft.ticker} 不是另一个 ticker，而是一个时间线信号：市场先看见了 meme，才看见图表。`,
-          },
-          {
-            title: "Telegram response",
-            body: "CA 已置顶。只从官方频道验证账号链接。比赛细节和奖励规则会在发射稳定后发布。",
-          },
-          {
-            title: "Meme contest",
-            body: `第一轮：创作最好的 ${draft.name} 图片。奖励用 $${draft.ticker} 支付，由社区投票决定获奖者。`,
-          },
-          {
-            title: "Operations action",
-            body: "如果情绪连续 6 小时保持正向，准备销毁或捐赠公告。如果 FUD 上升，优先发布钱包凭证。",
-          },
-        ]
-      : [
-          {
-            title: "X update",
-            body: `$${draft.ticker} is not another ticker. It is a timeline signal: the market saw the meme before it saw the chart.`,
-          },
-          {
-            title: "Telegram response",
-            body: `CA pinned. Verify the account links only from official channels. Contest details and reward rules will be posted after launch stability check.`,
-          },
-          {
-            title: "Meme contest",
-            body: `Round 1: create the best ${draft.name} image. Rewards paid in $${draft.ticker}. Community vote decides winners.`,
-          },
-          {
-            title: "Operations action",
-            body: `If sentiment stays positive for 6h, prepare a burn or donation announcement. If FUD rises, publish wallet receipts first.`,
-          },
-        ];
-  return `
-    <section class="grid-3">
-      <div class="metric-card">
-        <div class="label">Tracked mentions</div>
-        <div class="metric-value">1,284</div>
-        <div class="metric-foot">$${escapeHtml(draft.ticker)} + CA + project name</div>
-      </div>
-      <div class="metric-card">
-        <div class="label">Sentiment</div>
-        <div class="metric-value">68%</div>
-        <div class="metric-foot">positive / creative</div>
-      </div>
-      <div class="metric-card">
-        <div class="label">FUD risk</div>
-        <div class="metric-value">Low</div>
-        <div class="metric-foot">creator account stable</div>
-      </div>
-    </section>
-    <section class="panel">
-      <div class="section-head">
-        <div>
-          <h2>Community content pack</h2>
-          <p>X, Telegram, contest, and treasury action drafts.</p>
-        </div>
-        <button class="primary-button" data-action="refresh-community">Generate new pack</button>
-      </div>
-      <div class="content-grid grid-2">
-        ${posts
-          .map(
-            (post) => `
-            <div class="content-card">
-              <div class="section-head">
-                <h3>${escapeHtml(post.title)}</h3>
-                <button class="copy-button" data-copy="${escapeHtml(post.body)}">Copy</button>
-              </div>
-              <div class="content-body">${escapeHtml(post.body)}</div>
-            </div>`,
-          )
-          .join("")}
-      </div>
-    </section>
-  `;
-}
-
-function renderRecords() {
-  return `
-    <section class="panel">
-      <div class="section-head">
-        <h2>Activity records</h2>
-        <button class="secondary-button" data-action="clear-records">Clear demo records</button>
-      </div>
-      <div class="records-list">${records.map(renderRecordRow).join("")}</div>
-    </section>
-  `;
-}
-
-function renderSignalCard(signal) {
-  return `
-    <button class="signal-card ${signal.id === state.selectedSignalId ? "selected" : ""}" data-action="select-signal" data-id="${escapeHtml(signal.id)}">
-      <div>
-        <div class="signal-meta">
-          <span class="pill cyan">${escapeHtml(signal.network)}</span>
-          <span>${escapeHtml(signal.source)}</span>
-          <span>${escapeHtml(signal.comparable)}</span>
-        </div>
-        <h3>${escapeHtml(signal.title)}</h3>
-        <p>${escapeHtml(signal.angle)}</p>
-        <div class="signal-meta">
-          <span class="pill green">score ${signal.score}</span>
-          <span class="pill ${signal.risk === "low" ? "green" : signal.risk === "watch" ? "amber" : "rose"}">risk ${escapeHtml(signal.risk)}</span>
-          <span class="pill">${escapeHtml(signal.sentiment)}</span>
-        </div>
-      </div>
-      <div class="grade ${gradeClass(signal.grade)}">${escapeHtml(signal.grade)}</div>
-    </button>
-  `;
-}
-
-function renderSourceCard(source) {
-  return `
-    <div class="source-card">
-      <div>
-        <div class="signal-meta">
-          <span class="pill cyan">${escapeHtml(source.platform)}</span>
-          <span class="pill ${source.status === "live" ? "green" : "amber"}">${escapeHtml(source.status)}</span>
-        </div>
-        <h3>${escapeHtml(source.handle)}</h3>
-        <p>${escapeHtml(source.focus)}</p>
-      </div>
-      <div class="label">${escapeHtml(source.lastSeen)}</div>
-    </div>
-  `;
-}
-
-function renderOutputCard(title, body) {
-  return `
-    <div class="output-card">
-      <div class="section-head">
-        <h3>${escapeHtml(title)}</h3>
-        <button class="copy-button" data-copy="${escapeHtml(body)}">Copy</button>
-      </div>
-      <pre>${escapeHtml(body)}</pre>
-    </div>
-  `;
-}
-
-function renderRecordRow(record) {
-  return `
-    <div class="record-row">
-      <strong>${escapeHtml(record.time)}</strong>
-      <div>
-        <div>${escapeHtml(record.type)}</div>
-        <div class="record-meta">${escapeHtml(record.detail)}</div>
-      </div>
-      <span class="pill">${escapeHtml(record.route)}</span>
-      <span class="pill ${record.status === "done" ? "green" : "amber"}">${escapeHtml(record.status)}</span>
-    </div>
-  `;
-}
-
-function selectView(view) {
-  state.activeView = view;
-  saveWorkspace();
-  render();
-}
-
-async function runScan() {
-  try {
-    const result = await postJson("/api/source/scan", { sources, language: state.language });
-    if (Array.isArray(result.sources)) {
-      sources.splice(0, sources.length, ...result.sources);
-    }
-    if (Array.isArray(result.signals) && result.signals.length) {
-      signals.splice(0, signals.length, ...result.signals);
-      state.selectedSignalId = result.signals[0].id;
-      state.generated = null;
-    }
-    addRecord(
-      result.record?.type || "Scan completed",
-      result.record?.detail || `${signals.length} signals refreshed`,
-      result.record?.route || "Narrative API",
-      result.record?.status || "done",
-    );
-    showToast("Scan refreshed by local API");
-    render();
-    return;
-  } catch {
-    sources.forEach((source, index) => {
-      source.status = "live";
-      source.lastSeen = `${index + 1}m`;
-    });
-    signals[0].score = Math.min(99, signals[0].score + 1);
-    addRecord("Scan completed", `${signals.length} signals refreshed`, "Local fallback");
-    showToast("Scan refreshed locally");
-    render();
-  }
-}
-
-function addSource() {
-  const input = document.getElementById("newSourceInput");
-  const platform = document.getElementById("newSourcePlatform");
-  const handle = input?.value.trim();
-  if (!handle) {
-    showToast("Add a source first");
-    return;
-  }
-  sources.unshift({
-    id: `src-${Date.now()}`,
-    platform: platform.value,
-    handle,
-    focus: "new media, repeated phrases, launchable signals",
-    status: "queued",
-    lastSeen: "new",
-  });
-  addRecord("Source added", `${platform.value} · ${handle}`, "Narrative Agent");
-  render();
-}
-
-function addWalletGroup() {
-  const nameInput = document.getElementById("walletGroupName");
-  const chainInput = document.getElementById("walletGroupChain");
-  const countInput = document.getElementById("walletGroupCount");
-  const balanceInput = document.getElementById("walletGroupBalance");
-  const name = nameInput?.value.trim();
-  const chain = chainInput?.value || "SOL";
-  const wallets = Math.max(1, Number(countInput?.value || 1));
-  const balance = Math.max(0, Number(balanceInput?.value || 0));
-
-  if (!name) {
-    showToast("Name the wallet group first");
-    return;
+function submitAgentCommand(value) {
+  const command = value.trim();
+  if (!command) return;
+  const pendingId = `pending-${Date.now()}`;
+  state.conversation.push({ role: "user", content: command, timestamp: getMessageTime() });
+  state.conversation.push({ role: "agent", pending: true, pendingId, timestamp: getMessageTime() });
+  renderConversation();
+  const input = document.querySelector("#agentInput");
+  if (input) {
+    input.value = "";
+    input.style.height = "";
   }
 
-  walletGroups.unshift({
-    name,
-    chain,
-    wallets,
-    balance: `${balance.toFixed(chain === "SOL" ? 3 : 4)} ${chain === "SOL" ? "SOL" : "BNB"}`,
-    buyPlan: "not configured",
-    sellPlan: "25 / 50 / 75 / 100%",
-  });
-  addRecord("Wallet group added", `${name} · ${wallets} wallets`, "Wallet Ops");
-  showToast("Wallet group added");
-  render();
+  window.setTimeout(() => {
+    const pendingIndex = state.conversation.findIndex((message) => message.pendingId === pendingId);
+    if (pendingIndex !== -1) state.conversation.splice(pendingIndex, 1, getAgentResponse(command));
+    renderConversation();
+  }, 0);
 }
 
-async function generateDraft() {
-  const input = document.getElementById("briefInput");
-  state.customBrief = input?.value || "";
-  try {
-    const result = await postJson("/api/narrative/generate", {
-      signal: selectedSignal(),
-      brief: state.customBrief,
-      language: state.language,
-    });
-    state.generated = result.draft || buildDraft(selectedSignal(), state.customBrief);
-    addRecord("Meme pack generated", `$${state.generated.ticker} launch assets`, "Narrative API");
-    showToast("Launch pack generated by local API");
-  } catch {
-    state.generated = buildDraft(selectedSignal(), state.customBrief);
-    addRecord("Meme pack generated", `$${state.generated.ticker} launch assets`, "Local fallback");
-    showToast("Launch pack generated locally");
-  }
-  render();
+function switchView(view) {
+  if (!allowedViews.has(view)) return;
+  state.view = view;
+  window.location.hash = view;
+  renderCurrentView();
+  if (view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
+  if (view === "launch") loadLaunchGroups();
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function armLaunch() {
-  const target = document.getElementById("watchTarget")?.value || "@marketobserver";
-  const trigger = document.getElementById("watchTrigger")?.value || "launchable signal";
-  const chainSelect = document.getElementById("chainSelect");
-  const launchModeSelect = document.getElementById("launchModeSelect");
-  const walletGroupSelect = document.getElementById("walletGroupSelect");
-  state.chain = chainSelect?.value || state.chain;
-  state.launchMode = launchModeSelect?.value || state.launchMode;
-  state.armedLaunches.unshift({
-    id: `arm-${Date.now()}`,
-    trigger: `${target} · ${trigger}`,
-    chain: state.chain === "sol" ? "Solana" : "BSC",
-    walletGroup: walletGroupSelect?.value || walletGroups[0].name,
-    mode: state.launchMode === "auto" ? "Auto after match" : "Confirm first",
-    status: "armed",
-  });
-  addRecord("Launch armed", `${target} watcher configured`, "Signal-to-Launch", "armed");
-  showToast("Watcher armed");
-  render();
-}
-
-function simulateTrigger() {
-  state.generated = buildDraft(selectedSignal(), "Triggered from watched account update.");
-  addRecord("Trigger matched", `${selectedSignal().source} produced launchable signal`, "Signal-to-Launch");
-  state.activeView = "builder";
-  render();
-}
-
-async function buildPackage() {
-  const chain = document.getElementById("launchChain");
-  const platform = document.getElementById("platformSelect");
-  if (chain) state.chain = chain.value;
-  if (platform) state.platform = platform.value;
-  const draft = ensureDraft();
-  try {
-    const result = await postJson("/api/launch/package", {
-      draft,
-      chain: state.chain,
-      platform: state.platform,
-      contributionRate: state.contributionRate,
-      walletGroups,
-      launchMode: state.launchMode,
-      language: state.language,
-    });
-    state.lastLaunchPackage = result.launchPackage || null;
-    addRecord("Launch package built", `${draft.name} on ${state.chain.toUpperCase()} / ${state.platform}`, "Launch API");
-    showToast("Launch package ready");
-  } catch {
-    state.lastLaunchPackage = null;
-    addRecord("Launch package built", `${draft.name} on ${state.chain.toUpperCase()} / ${state.platform}`, "Local fallback");
-    showToast("Launch package ready locally");
-  }
-  render();
-}
-
-function refreshCommunity() {
-  addRecord("Community pack generated", `${ensureDraft().ticker} content set refreshed`, "Community Agent");
-  showToast("Community pack refreshed");
-  render();
-}
-
-function copyText(text) {
-  const value = text || "";
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(value).then(() => showToast("Copied"));
-    return;
-  }
-  const temp = document.createElement("textarea");
-  temp.value = value;
-  document.body.appendChild(temp);
-  temp.select();
-  document.execCommand("copy");
-  temp.remove();
-  showToast("Copied");
-}
-
-function openContribution() {
-  document.getElementById("drawerOverlay").classList.remove("hidden");
-  document.getElementById("contributionDrawer").classList.remove("hidden");
-}
-
-function closeContribution() {
-  document.getElementById("drawerOverlay").classList.add("hidden");
-  document.getElementById("contributionDrawer").classList.add("hidden");
-}
-
-function toggleLanguage() {
-  state.language = state.language === "zh" ? "en" : "zh";
-  localStorage.setItem(LANGUAGE_KEY, state.language);
-  saveWorkspace();
-  render();
-  showToast(state.language === "zh" ? "已切换中文" : "Switched to English");
-}
-
-document.querySelectorAll(".nav-item").forEach((item) => {
-  item.addEventListener("click", () => selectView(item.dataset.view));
+document.querySelectorAll("[data-view]").forEach((button) => {
+  button.addEventListener("click", () => switchView(button.dataset.view));
 });
 
-document.getElementById("languageToggleBtn").addEventListener("click", toggleLanguage);
-document.getElementById("quickScanBtn").addEventListener("click", runScan);
-document.getElementById("openContributionBtn").addEventListener("click", openContribution);
-document.getElementById("closeContributionBtn").addEventListener("click", closeContribution);
-document.getElementById("drawerOverlay").addEventListener("click", closeContribution);
-document.getElementById("contributionRate").addEventListener("input", (event) => {
-  state.contributionRate = Number(event.target.value);
-  localStorage.setItem("narraops.contributionRate", String(state.contributionRate));
-  saveWorkspace();
-  renderSideStats();
-  if (state.activeView === "wallets" || state.activeView === "launch" || state.activeView === "dashboard") {
-    render();
-  }
+document.querySelectorAll("[data-view-trigger]").forEach((button) => {
+  button.addEventListener("click", () => switchView(button.dataset.viewTrigger));
 });
 
-root.addEventListener("click", (event) => {
-  const copyButton = event.target.closest("[data-copy]");
-  if (copyButton) {
-    copyText(copyButton.dataset.copy);
-    return;
-  }
+document.querySelectorAll("[data-auth]").forEach((button) => {
+  button.addEventListener("click", () => openAuth(button.dataset.auth));
+});
 
-  const button = event.target.closest("[data-action]");
+notificationButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const isOpen = !notificationMenu.classList.contains("hidden");
+  notificationMenu.classList.toggle("hidden", isOpen);
+  languageMenu.classList.add("hidden");
+  notificationButton.setAttribute("aria-expanded", String(!isOpen));
+});
+
+languageButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const isOpen = !languageMenu.classList.contains("hidden");
+  languageMenu.classList.toggle("hidden", isOpen);
+  notificationMenu.classList.add("hidden");
+  languageButton.setAttribute("aria-expanded", String(!isOpen));
+});
+
+languageMenu.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-language]");
   if (!button) return;
-  const action = button.dataset.action;
+  state.language = button.dataset.language;
+  localStorage.setItem("narraops-language", state.language);
+  languageMenu.classList.add("hidden");
+  renderCurrentView();
+});
 
-  if (action === "select-signal") {
-    state.selectedSignalId = button.dataset.id;
-    state.generated = buildDraft(selectedSignal(), state.customBrief);
-    saveWorkspace();
-    render();
+themeButton.addEventListener("click", () => {
+  state.theme = state.theme === "dark" ? "soft" : "dark";
+  localStorage.setItem("narraops-theme", state.theme);
+  updateTheme();
+  requestAnimationFrame(drawVisibleCharts);
+});
+
+viewRoot.addEventListener("click", async (event) => {
+  const opportunity = event.target.closest("[data-opportunity]");
+  if (opportunity) {
+    openOpportunity(opportunity.dataset.opportunity);
     return;
   }
-  if (action === "scan") runScan();
-  if (action === "add-source") addSource();
-  if (action === "generate-draft") generateDraft();
-  if (action === "send-to-launch") selectView("launch");
-  if (action === "open-builder") selectView("builder");
-  if (action === "go-narratives") selectView("narratives");
-  if (action === "go-signal") selectView("signal");
-  if (action === "go-records") selectView("records");
-  if (action === "add-wallet-group") addWalletGroup();
-  if (action === "arm-launch") armLaunch();
-  if (action === "simulate-trigger") simulateTrigger();
-  if (action === "build-package") buildPackage();
-  if (action === "refresh-community") refreshCommunity();
-  if (action === "open-contribution") openContribution();
-  if (action === "clear-records") {
-    records.length = 0;
-    saveWorkspace();
-    showToast("Demo records cleared");
-    render();
+
+  const goAction = event.target.closest("[data-go-action]")?.dataset.goAction;
+  if (goAction === "history") {
+    showToast(t("会话历史将在账户与数据库接入后开放。", "Conversation history will be available after account and database integration."));
+    return;
+  }
+  if (goAction === "share") {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}#go`);
+      showToast(t("Go 会话链接已复制。", "Go conversation link copied."));
+    } catch {
+      showToast(t("浏览器未授予剪贴板权限。", "Clipboard permission was not granted."));
+    }
+    return;
+  }
+  if (goAction === "close") {
+    switchView("pulse");
+    return;
+  }
+  if (goAction === "plus") {
+    showToast(t("文件与链接上下文将在后端接入后开放。", "File and link context will be available after backend integration."));
+    return;
+  }
+  const command = event.target.closest("[data-command]");
+  if (command) {
+    const input = document.querySelector("#agentInput");
+    if (input) {
+      input.value = `${command.dataset.command} `;
+      input.focus();
+    }
+    return;
+  }
+
+  const platform = event.target.closest("[data-platform]");
+  if (platform) {
+    state.selectedPlatform = platform.dataset.platform;
+    renderLaunch();
+    return;
+  }
+
+  const launchWalletAction = event.target.closest("[data-launch-wallet]")?.dataset.launchWallet;
+  if (launchWalletAction === "connect") {
+    await connectRobinhoodWallet();
+    return;
+  }
+
+  if (event.target.closest("[data-pons-launch]")) {
+    const form = document.querySelector("#launchParameterForm");
+    if (form) await submitPonsLaunch(form);
+    return;
+  }
+
+  if (event.target.closest("[data-internal-launch]")) {
+    const form = document.querySelector("#launchParameterForm");
+    if (form) await submitInternalLaunch(form);
+    return;
+  }
+
+  const imageAction = event.target.closest("[data-launch-image]")?.dataset.launchImage;
+  if (imageAction === "library") {
+    openModal({ kicker: t("Cooking 图片", "Cooking image"), title: t("图片库", "Image library"), content: `<div class="empty-state large"><i class="fa-regular fa-images"></i>${t("图片库将在对象存储接入后显示已上传和已生成的图片。", "Uploaded and generated images will appear after object storage is configured.")}</div><div class="modal-actions"><button class="primary-button" type="button" data-modal-action="close">${t("知道了", "Done")}</button></div>` });
+    return;
+  }
+  if (imageAction === "text" || imageAction === "ai") {
+    openLaunchImageGenerator(imageAction);
+    return;
+  }
+
+  const period = event.target.closest("[data-asset-period]")?.dataset.assetPeriod;
+  if (period) {
+    state.assets.period = period;
+    await loadAssets();
+    return;
+  }
+
+  const walletGroup = event.target.closest("[data-wallet-group]")?.dataset.walletGroup;
+  if (walletGroup) {
+    state.assets.selectedGroupId = walletGroup;
+    await loadAssets();
+    return;
+  }
+
+  const setting = event.target.closest("[data-setting]");
+  if (setting) {
+    state.settings[setting.dataset.setting] = !state.settings[setting.dataset.setting];
+    renderAssets();
+    return;
+  }
+
+  const action = event.target.closest("[data-action]")?.dataset.action;
+  if (action === "scan") {
+    showToast(t("模拟扫描已完成，未调用真实数据源。", "Simulated scan completed without live data sources."));
+  } else if (action === "view-all") {
+    showToast(t("完整机会库将在数据源接入后开放。", "The full opportunity library opens after source integration."));
+  } else if (action === "copy-invite") {
+    try {
+      await navigator.clipboard.writeText("http://127.0.0.1:5188/app.html#invite");
+      showToast(t("演示邀请链接已复制。", "Demo invite link copied."));
+    } catch {
+      showToast(t("浏览器未授予剪贴板权限。", "Clipboard permission was not granted."));
+    }
+  } else if (action === "language") {
+    state.language = state.language === "zh" ? "en" : "zh";
+    localStorage.setItem("narraops-language", state.language);
+    renderCurrentView();
+  } else if (action === "theme") {
+    themeButton.click();
+    renderCurrentView();
+  } else if (action === "refresh-assets") {
+    await loadAssets();
+  } else if (action === "open-create-group") {
+    openCreateGroup();
+  } else if (action === "open-add-wallet") {
+    openAddWallets();
+  } else if (action === "open-transfer") {
+    state.assets.transferOpen = true;
+    state.assets.transferPreview = null;
+    state.assets.transferResult = null;
+    if (event.target.closest(".wallet-detail-panel") && state.assets.selectedGroupId) state.assets.transferSource = state.assets.selectedGroupId;
+    else state.assets.transferSource = "login_wallet";
+    state.assets.transferDestination = state.assets.groups.find((group) => group.groupId !== state.assets.transferSource)?.groupId || (state.assets.transferSource !== "login_wallet" ? "login_wallet" : null);
+    renderAssets();
+    document.querySelector(".transfer-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  } else if (action === "close-transfer") {
+    state.assets.transferOpen = false;
+    state.assets.transferPreview = null;
+    renderAssets();
+  } else if (action === "swap-transfer") {
+    const previous = state.assets.transferSource;
+    state.assets.transferSource = state.assets.transferDestination;
+    state.assets.transferDestination = previous;
+    state.assets.transferPreview = null;
+    renderAssets();
+  } else if (action === "deposit-disabled" || action === "withdraw-disabled") {
+    showToast(t("真实充值与提取将在认证和签名服务接入后开放。", "Live deposit and withdrawal require authentication and signing services."));
+  } else if (action === "confirm-transfer-plan") {
+    const preview = state.assets.transferPreview;
+    if (!preview) return;
+    try {
+      state.assets.transferBusy = true;
+      const result = await apiRequest("/api/v1/transfers", { method: "POST", headers: { "Idempotency-Key": preview.idempotencyKey }, body: JSON.stringify({ previewToken: preview.previewToken, confirmationToken: preview.confirmationToken, idempotencyKey: preview.idempotencyKey }) });
+      state.assets.transferResult = result;
+      showToast(t("转账计划已保存，真实执行保持关闭。", "Transfer plan saved; live execution remains off."));
+    } catch (error) { showToast(error.message); }
+    finally { state.assets.transferBusy = false; renderAssets(); }
   }
 });
 
-loadWorkspace();
-render();
-loadServerWorkspace();
+viewRoot.addEventListener("submit", async (event) => {
+  if (event.target.id === "assetTransferForm") {
+    event.preventDefault();
+    const idempotencyKey = crypto.randomUUID();
+    state.assets.transferBusy = true;
+    state.assets.transferPreview = null;
+    state.assets.transferResult = null;
+    renderAssets();
+    try {
+      const preview = await apiRequest("/api/v1/transfers/preview", { method: "POST", body: JSON.stringify({ source: transferEndpointValue(state.assets.transferSource), destination: transferEndpointValue(state.assets.transferDestination), amountMode: "fraction", fractionBps: state.assets.transferFraction * 100, distribution: "equal", idempotencyKey }) });
+      state.assets.transferPreview = { ...preview, idempotencyKey };
+    } catch (error) { showToast(error.message); }
+    finally { state.assets.transferBusy = false; renderAssets(); }
+    return;
+  }
+  if (event.target.id !== "agentForm") return;
+  event.preventDefault();
+  submitAgentCommand(document.querySelector("#agentInput")?.value || "");
+});
+
+modal.addEventListener("submit", async (event) => {
+  if (event.target.id === "createWalletGroupForm") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    try {
+      const purpose = form.get("purpose");
+      const group = await apiRequest("/api/v1/wallet-groups", { method: "POST", body: JSON.stringify({ name: form.get("name"), purpose, walletCount: purpose === "cooking" ? 1 : Number(form.get("walletCount")) }) });
+      state.assets.selectedGroupId = group.groupId;
+      closeModal();
+      await loadAssets();
+      showToast(t("钱包组已创建", "Wallet group created"));
+    } catch (error) { showToast(error.message); }
+  }
+  if (event.target.id === "addWalletsForm") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    try {
+      await apiRequest(`/api/v1/wallet-groups/${state.assets.selectedGroupId}/wallets`, { method: "POST", body: JSON.stringify({ count: Number(form.get("count")) }) });
+      closeModal();
+      await loadAssets();
+      showToast(t("钱包已添加", "Wallets added"));
+    } catch (error) { showToast(error.message); }
+  }
+  if (event.target.id === "launchImageGeneratorForm") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    state.launchMedia.generating = true;
+    try {
+      const result = await apiRequest("/api/v1/launch/images", { method: "POST", body: JSON.stringify({ prompt: form.get("prompt"), mode: form.get("mode"), aspectRatio: form.get("aspectRatio") }) });
+      state.launchMedia.previewUrl = result.imageUrl;
+      state.launchMedia.metadataUri = result.metadataUri || null;
+      closeModal();
+      renderLaunch();
+    } catch (error) { showToast(error.message); }
+    finally { state.launchMedia.generating = false; }
+  }
+});
+
+modal.addEventListener("change", (event) => {
+  if (event.target.id !== "walletGroupPurpose") return;
+  const cooking = event.target.value === "cooking";
+  const countField = modal.querySelector("#walletCountField");
+  const countInput = countField?.querySelector("input");
+  if (countField) countField.classList.toggle("hidden", cooking);
+  if (countInput) {
+    countInput.disabled = cooking;
+    if (cooking) countInput.value = "1";
+  }
+});
+
+viewRoot.addEventListener("keydown", (event) => {
+  if (event.target.id !== "agentInput" || event.key !== "Enter" || event.shiftKey) return;
+  event.preventDefault();
+  event.target.form?.requestSubmit();
+});
+
+viewRoot.addEventListener("input", (event) => {
+  if (event.target.id === "transferFraction") {
+    state.assets.transferFraction = Number(event.target.value);
+    state.assets.transferPreview = null;
+    const label = document.querySelector("#transferPercent");
+    if (label) label.textContent = `${state.assets.transferFraction}%`;
+    return;
+  }
+  if (event.target.id !== "agentInput") return;
+  event.target.style.height = "auto";
+  event.target.style.height = `${Math.min(event.target.scrollHeight, 144)}px`;
+});
+
+viewRoot.addEventListener("change", (event) => {
+  if (event.target.id === "launchImageInput") {
+    const [file] = event.target.files || [];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      showToast(t("图片不能超过 10MB。", "Images must be 10MB or smaller."));
+      return;
+    }
+    if (state.launchMedia.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(state.launchMedia.previewUrl);
+    state.launchMedia.file = file;
+    state.launchMedia.previewUrl = URL.createObjectURL(file);
+    state.launchMedia.metadataUri = null;
+    renderLaunch();
+    return;
+  }
+  if (event.target.id === "transferSource") {
+    state.assets.transferSource = event.target.value;
+    if (state.assets.transferDestination === event.target.value) state.assets.transferDestination = event.target.value === "login_wallet" ? state.assets.groups[0]?.groupId : "login_wallet";
+    state.assets.transferPreview = null;
+    renderAssets();
+  }
+  if (event.target.id === "transferDestination") {
+    state.assets.transferDestination = event.target.value;
+    if (state.assets.transferSource === event.target.value) state.assets.transferSource = event.target.value === "login_wallet" ? state.assets.groups[0]?.groupId : "login_wallet";
+    state.assets.transferPreview = null;
+    renderAssets();
+  }
+});
+
+modal.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-modal-action]")?.dataset.modalAction;
+  if (action === "close") closeModal();
+  if (action === "agent") {
+    closeModal();
+    switchView("go");
+    window.setTimeout(() => {
+      const input = document.querySelector("#agentInput");
+      if (input) {
+        input.value = "/narrative ";
+        input.focus();
+      }
+    }, 0);
+  }
+});
+
+modal.addEventListener("submit", (event) => {
+  if (event.target.id !== "authForm") return;
+  event.preventDefault();
+  closeModal();
+  showToast(t("认证尚未接入，未创建真实会话。", "Authentication is not connected; no real session was created."));
+});
+
+document.querySelector("#closeModalButton").addEventListener("click", closeModal);
+modalBackdrop.addEventListener("click", closeModal);
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".action-menu-wrap")) {
+    notificationMenu.classList.add("hidden");
+    languageMenu.classList.add("hidden");
+    notificationButton.setAttribute("aria-expanded", "false");
+    languageButton.setAttribute("aria-expanded", "false");
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeModal();
+    notificationMenu.classList.add("hidden");
+    languageMenu.classList.add("hidden");
+  }
+});
+
+window.addEventListener("hashchange", () => {
+  state.view = getViewFromHash();
+  renderCurrentView();
+  if (state.view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
+  if (state.view === "launch") loadLaunchGroups();
+});
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  window.clearTimeout(resizeTimer);
+  resizeTimer = window.setTimeout(drawVisibleCharts, 120);
+});
+
+updateTheme();
+renderCurrentView();
+if (state.view === "assets") loadAssets();
+if (state.view === "launch") loadLaunchGroups();

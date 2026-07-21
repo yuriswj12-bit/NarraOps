@@ -1,0 +1,435 @@
+openapi: 3.1.0
+info:
+  title: NarraOps API
+  version: 1.0.0
+  description: >-
+    Contract-first API for Agent planning and guarded chain execution. Real-fund
+    execution remains disabled until signer, policy, authentication, and durable
+    idempotency controls are configured.
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      responses:
+        '200':
+          description: API health and integration inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, service, version, mode, time, integrations]
+                properties:
+                  ok: { type: boolean }
+                  service: { type: string }
+                  version: { const: v1 }
+                  mode: { type: string, enum: [mock, live] }
+                  time: { type: string, format: date-time }
+                  integrations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        kind: { type: string }
+                        mode: { type: string, enum: [mock, live, disabled] }
+  /narratives/scan:
+    post:
+      operationId: scanNarratives
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/narrative-scan-request.schema.json' }
+      responses:
+        '202': { $ref: '#/components/responses/TaskAccepted' }
+        '400': { $ref: '#/components/responses/Error' }
+  /narratives/generate:
+    post:
+      operationId: generateNarrative
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                brief: { type: string, maxLength: 4000 }
+                signalId: { type: string, maxLength: 100 }
+                language: { enum: [en, zh] }
+              anyOf:
+                - required: [brief]
+                - required: [signalId]
+      responses:
+        '202': { $ref: '#/components/responses/TaskAccepted' }
+        '400': { $ref: '#/components/responses/Error' }
+  /launch/packages:
+    post:
+      operationId: createLaunchPackage
+      description: Creates a non-executable planning package only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                narrativeId: { type: string, maxLength: 100 }
+                draft: { type: object }
+                chain: { enum: [solana, bsc], default: solana }
+                platform: { type: string, maxLength: 80 }
+              anyOf:
+                - required: [narrativeId]
+                - required: [draft]
+      responses:
+        '202': { $ref: '#/components/responses/TaskAccepted' }
+        '400': { $ref: '#/components/responses/Error' }
+  /launch/auth/fourmeme/nonce:
+    post:
+      operationId: createFourMemeLoginNonce
+      summary: Create the official Four.Meme wallet-login message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [address]
+              properties:
+                address: { type: string, minLength: 42, maxLength: 42 }
+      responses:
+        '200':
+          description: Message that the connected BSC wallet must sign
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [address, nonce, message]
+                properties:
+                  address: { type: string }
+                  nonce: { type: string }
+                  message: { type: string }
+        '400': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /launch/transactions/plan:
+    post:
+      operationId: planLaunchTransaction
+      summary: Build a Pump.fun or Four.Meme launch transaction for the connected wallet to sign
+      description: >-
+        Uploads public token media/metadata and creates a chain transaction payload.
+        NarraOps does not receive the connected wallet private key and does not
+        broadcast this payload; the browser wallet must display and confirm it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [platform, walletAddress, name, symbol, imageBase64, developerBuyAmount]
+              properties:
+                platform: { type: string, enum: [pump, fourmeme] }
+                walletAddress: { type: string, minLength: 32, maxLength: 64 }
+                name: { type: string, minLength: 1, maxLength: 32 }
+                symbol: { type: string, minLength: 1, maxLength: 10 }
+                description: { type: string, maxLength: 1000 }
+                imageBase64: { type: string, maxLength: 8000000 }
+                imageName: { type: string, maxLength: 120 }
+                imageType: { type: string, maxLength: 80 }
+                twitter: { type: string, maxLength: 500 }
+                telegram: { type: string, maxLength: 500 }
+                website: { type: string, maxLength: 500 }
+                developerBuyAmount:
+                  type: string
+                  pattern: '^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,18})?$'
+                loginSignature: { type: string, maxLength: 300 }
+      responses:
+        '201':
+          description: Transaction plan requiring the connected wallet signature
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, broadcastByNarraOps, plan]
+                properties:
+                  status: { const: requires_user_signature }
+                  broadcastByNarraOps: { const: false }
+                  plan: { type: object }
+        '400': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /launch/executions/prepare:
+    post:
+      operationId: prepareCookingWalletLaunch
+      summary: Prepare a Cooking-wallet launch requiring one explicit confirmation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, cookingWalletGroupId, boundBuy, name, symbol, imageBase64, developerBuyAmount]
+              properties:
+                platform: { enum: [pump, fourmeme] }
+                cookingWalletGroupId: { type: string }
+                boundBuy:
+                  $ref: '#/components/schemas/LaunchBoundBuy'
+                name: { type: string }
+                symbol: { type: string }
+                description: { type: string }
+                imageBase64: { type: string }
+                imageName: { type: string }
+                imageType: { type: string }
+                twitter: { type: string }
+                telegram: { type: string }
+                website: { type: string }
+                developerBuyAmount: { type: string }
+      responses:
+        '201': { description: Launch prepared and awaiting confirmation }
+        '400': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /launch/executions/{executionId}/confirm:
+    post:
+      operationId: confirmCookingWalletLaunch
+      parameters:
+        - in: path
+          name: executionId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmationToken]
+              properties:
+                confirmationToken: { type: string }
+      responses:
+        '202': { description: Signed launch submitted to the selected chain }
+        '403': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /launch/executions/{executionId}:
+    get:
+      operationId: getCookingWalletLaunch
+      parameters:
+        - in: path
+          name: executionId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Durable launch, confirmation, and launch-bound-buy state }
+        '404': { $ref: '#/components/responses/Error' }
+  /launch/executions/{executionId}/retry:
+    post:
+      operationId: retryFailedBoundBuys
+      description: Retries failed launch-bound-buy wallet entries only; already submitted wallets are never repeated.
+      parameters:
+        - in: path
+          name: executionId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmRetry]
+              properties:
+                confirmRetry: { const: true }
+      responses:
+        '202': { description: Failed launch-bound-buy entries retried }
+        '409': { $ref: '#/components/responses/Error' }
+  /agent/tasks:
+    post:
+      operationId: createAgentTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { enum: [narrative.scan, narrative.generate, launch.package] }
+                input: { type: object, default: {} }
+      responses:
+        '202': { $ref: '#/components/responses/TaskAccepted' }
+        '400': { $ref: '#/components/responses/Error' }
+  /agent/tasks/{taskId}:
+    get:
+      operationId: getAgentTask
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Current Agent task state
+          content:
+            application/json:
+              schema: { $ref: './schemas/agent-task.schema.json' }
+        '404': { $ref: '#/components/responses/Error' }
+  /executions:
+    post:
+      operationId: createExecution
+      summary: Plan or submit an idempotent execution request
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 255 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExecutionRequest' }
+      responses:
+        '202':
+          description: New execution accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecutionResult' }
+        '200':
+          description: Existing idempotent execution returned without resubmission
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecutionResult' }
+        '409':
+          description: Idempotency key reused with a different payload
+        '422':
+          description: Invalid request or policy rejection
+  /executions/{executionId}:
+    get:
+      operationId: getExecution
+      parameters:
+        - in: path
+          name: executionId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Current execution state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecutionResult' }
+        '404': { description: Execution not found }
+  /events:
+    get:
+      operationId: streamEvents
+      description: >-
+        Authenticated SSE stream for Agent tasks and execution progress. Clients
+        should handle task.created, task.progress, task.completed, task.failed,
+        execution.submitted, execution.confirmed, and execution.failed.
+      responses:
+        '200':
+          description: Server-sent task and execution events
+          content:
+            text/event-stream:
+              schema: { type: string }
+components:
+  responses:
+    TaskAccepted:
+      description: Agent task accepted for asynchronous processing
+      headers:
+        X-Request-Id:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: './schemas/agent-task.schema.json' }
+    Error:
+      description: Structured API error
+      content:
+        application/json:
+          schema: { $ref: './schemas/error.schema.json' }
+  schemas:
+    LaunchBoundBuy:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+        walletGroupId: { type: string, minLength: 1, maxLength: 64 }
+        timing:
+          type: object
+          additionalProperties: false
+          required: [mode, blockOffset]
+          properties:
+            mode: { type: string, enum: [T0_BUNDLE, BLOCK_OFFSET] }
+            blockOffset: { type: integer, minimum: 0, maximum: 5 }
+        allocation:
+          type: object
+          additionalProperties: false
+          required: [mode]
+          properties:
+            mode: { type: string, enum: [PER_WALLET_EQUAL, PER_WALLET_CUSTOM] }
+            amountPerWallet: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
+            customAmounts:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [walletId, amount]
+                properties:
+                  walletId: { type: string, minLength: 1, maxLength: 128 }
+                  amount: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
+        slippageBps: { type: integer, minimum: 1, maximum: 5000, default: 500 }
+        deadlineBlocks: { type: integer, minimum: 1, maximum: 20, default: 5 }
+    ExecutionRequest:
+      type: object
+      additionalProperties: false
+      required: [requestId, operation, chain, walletGroupId, amountMode, amounts, slippageBps, priorityFee, idempotencyKey]
+      properties:
+        requestId: { type: string, minLength: 1, maxLength: 128 }
+        operation: { type: string, enum: [token.launch, transfer.distribute, transfer.multi, trade.batchBuy, trade.batchSell, token.collect, token.burn, liquidity.lock] }
+        chain: { type: string, enum: [solana, bsc, base] }
+        walletGroupId: { type: string, minLength: 1, maxLength: 128 }
+        tokenAddress: { type: [string, 'null'], maxLength: 128 }
+        amountMode: { type: string, enum: [fixed, random, percentage, per_wallet] }
+        amounts:
+          type: array
+          minItems: 1
+          items: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
+        slippageBps: { type: integer, minimum: 0, maximum: 10000 }
+        priorityFee: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 255 }
+    ExecutionResult:
+      type: object
+      required: [executionId, status, submittedCount, confirmedCount, failedCount, transactions, startedAt, timing]
+      properties:
+        executionId: { type: string }
+        status: { type: string, enum: [planned, signing, submitted, confirmed, partially_failed, failed, timed_out] }
+        submittedCount: { type: integer, minimum: 0 }
+        confirmedCount: { type: integer, minimum: 0 }
+        failedCount: { type: integer, minimum: 0 }
+        transactions:
+          type: array
+          items: { $ref: '#/components/schemas/TransactionRecord' }
+        startedAt: { type: string, format: date-time }
+        submittedAt: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        timing: { $ref: '#/components/schemas/ExecutionTiming' }
+    TransactionRecord:
+      type: object
+      required: [chain, fromAddress, status, createdAt]
+      properties:
+        txHash: { type: [string, 'null'] }
+        chain: { type: string, enum: [solana, bsc, base] }
+        fromAddress: { type: string }
+        status: { type: string, enum: [planned, signing, submitted, confirmed, failed, timed_out] }
+        errorCode: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        submittedAt: { type: [string, 'null'], format: date-time }
+        confirmedAt: { type: [string, 'null'], format: date-time }
+    ExecutionTiming:
+      type: object
+      required: [planningMs, signingMs, submissionMs, confirmationMs, totalMs]
+      properties:
+        planningMs: { type: integer, minimum: 0 }
+        signingMs: { type: integer, minimum: 0 }
+        submissionMs: { type: integer, minimum: 0 }
+        confirmationMs: { type: integer, minimum: 0 }
+        totalMs: { type: integer, minimum: 0 }

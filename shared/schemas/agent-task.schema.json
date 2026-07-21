@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/agent-task.schema.json",
+  "title": "Agent Task",
+  "type": "object",
+  "required": ["taskId", "type", "status", "progress", "createdAt", "updatedAt"],
+  "properties": {
+    "taskId": { "type": "string", "format": "uuid" },
+    "type": { "enum": ["narrative.scan", "narrative.generate", "launch.package"] },
+    "status": { "enum": ["queued", "running", "succeeded", "failed", "cancelled"] },
+    "progress": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "result": {},
+    "failure": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    }
+  },
+  "additionalProperties": false
+}

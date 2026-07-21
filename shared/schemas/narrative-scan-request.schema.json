@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/narrative-scan-request.schema.json",
+  "title": "Narrative Scan Request",
+  "type": "object",
+  "properties": {
+    "query": { "type": "string", "maxLength": 500 },
+    "language": { "enum": ["en", "zh"] },
+    "sources": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": ["platform", "handle"],
+        "properties": {
+          "platform": { "type": "string", "maxLength": 40 },
+          "handle": { "type": "string", "maxLength": 200 },
+          "focus": { "type": "string", "maxLength": 500 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "anyOf": [{ "required": ["query"] }, { "required": ["sources"] }],
+  "additionalProperties": false
+}
