@@ -175,3 +175,10 @@ Remaining integration work:
 - Add the frontend Supabase client, E.164 normalization, deterministic login-alias helper, and phone/password forms in the frontend worktree.
 - Add backend JWT verification and authenticated actor scoping before exposing account or execution routes in production.
 
+GitHub sync:
+
+- Pulse commit: `398d39c` (`Add Pulse discovery evidence pipeline`).
+- Supabase commit: `caca088` (`Add Supabase MVP auth foundation`).
+- Validation before publish: Pulse Python tests 10/10; backend API tests 40/40; credential-pattern scan clean.
+- Published branch: `feat/backend-agent`; Draft PR targets `main`.
+
