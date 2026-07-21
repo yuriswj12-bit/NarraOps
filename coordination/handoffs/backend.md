@@ -127,3 +127,51 @@ Production blockers:
 
 Verification after this section: `npm test` passes 32/32 tests, including portfolio decimal strings, wallet creation/listing, protected two-step deletion, export gates/audit, transfer idempotency, and disabled planned submission.
 
+## 2026-07-20 Pulse public-evidence processor
+
+- Added `backend/integrations/pulse-evidence/evidence_processor.py` for read-only enrichment of the historical Pulse JSONL dataset.
+- Preserves `provided_sources`; writes separate `evidence_details` with fetch status, source adapter, title, relevant excerpt, content hash, evidence signals, and shared-source metadata.
+- Static public webpages are fetched with SSRF protection, redirect revalidation, response-size/content-type limits, and explicit failure states.
+- X, Instagram, and TikTok are not falsely treated as fetched: they return `dynamic_render_required` pending an official API or authenticated-browser adapter.
+- Added pinned dependencies and five unit tests covering unsafe URL rejection, dynamic-source honesty, shared-source detection, JSONL round-trip, and relevant-excerpt selection.
+- Live five-token smoke run produced 5/5 successful static webpage fetches and 5/5 honest `dynamic_render_required` X results. The generated result is locally available under the ignored `artifacts/test-five-output.jsonl`.
+- The canonical 200-row research input loads successfully as UTF-8 with all 200 rows. Avoid Windows PowerShell's default `Get-Content` decoding for transformations because it can display UTF-8 annotations as mojibake; the Python loader is the canonical path.
+
+Verification: isolated Python 3.14 environment; `python -m unittest test_evidence_processor.py -v` passes 5/5.
+
+Full historical run:
+
+- Added bounded concurrency (`--workers`, capped at 16); the 200-token / 373-source run completed in about 90 seconds with 8 workers.
+- Result counts: 101 static successes, 224 dynamic-social deferrals, 8 unsafe/invalid URLs, 4 blocked, 27 upstream errors, 4 timeouts, 2 oversized responses, 1 rate limit, 1 not found, and 1 other unavailable response.
+- Output and cohort summary are under the locally ignored `backend/integrations/pulse-evidence/artifacts/` directory.
+- Current evidence suggests high-ATH cohorts more often have readable sources naming the token, but this is likely partly post-launch survivorship. Current website availability, later endorsements, and later licensing must not leak into the pre-launch scoring feature set.
+- Added `PRELAUNCH_FEATURE_SCHEMA.md` and `build_prelaunch_sample.py`. The sampler deterministically selects 10 records from each L0-L4 cohort while balancing four evidence-coverage tiers.
+- Generated a 50-row blind review packet plus a separate outcome-label file. The blind packet contains no `outcome_label`; alignment and uniqueness checks pass, preventing ATH labels from influencing feature extraction before evaluation.
+- Completed the 50-row blind baseline, then joined the hidden labels only for evaluation. The baseline's L4-vs-rest pairwise AUC is 0.83; it does not reliably distinguish L0-L3, so Pulse must not expose one aggregate score as a success probability.
+- Added `review_prelaunch_sample.py`, `evaluate_prelaunch_sample.py`, and `PULSE_V0_RULES.md`. The operational model is now evidence eligibility -> narrative gate -> amplification gate -> Reject/Watch/Review/High priority.
+
+## 2026-07-20 Pulse discovery MVP
+
+- Added `pulse_discovery.py`, `pulse-sources.example.json`, `PULSE_DISCOVERY_README.md`, and `test_pulse_discovery.py` under `backend/integrations/pulse-evidence/`.
+- The worker fetches bounded RSS/Atom sources with URL validation, redirect revalidation, timeouts, and response-size limits; normalizes candidate fields; performs exact dedupe; and clusters events conservatively using title similarity and low-frequency named entities.
+- Event clustering keeps a fixed representative instead of unioning cluster vocabularies, preventing unrelated chain-merges. Short hook matching uses word boundaries, so `cat` no longer matches `catalog`.
+- Pulse cards preserve evidence URLs/publishers, story/amplification gate results, risk/missing-evidence fields, and one of `reject`, `watch`, `review`, or `high_priority`. No profitability score is exposed.
+- A real three-source RSS run collected 90 bounded candidates, produced 73 auditable clusters, rejected 33, and emitted 40 active cards. The Jimothy event consolidated four independent media sources.
+- Generated live artifacts are ignored under `artifacts/discovery-live/`; `pulse-active.jsonl` is the current product-consumption fixture. Public API exposure still requires an integration-owned shared contract update.
+
+Verification: 10/10 Python unit tests pass across evidence and discovery modules; real RSS source health was 3/3 successful.
+
+## 2026-07-21 Supabase MVP authentication and analytics
+
+- Added `database/migrations/008_supabase_mvp_auth_analytics.sql` with user profiles, per-user counters, append-only analytics events, RLS policies, an Auth signup trigger, and a transactional analytics RPC.
+- Hosted Supabase requires an SMS provider for native Phone Auth. The MVP therefore keeps Phone disabled and uses Email/Password internally behind a phone-number-and-password UI.
+- Phone numbers are normalized and converted to deterministic internal login aliases. The normalized phone is stored in Auth metadata and copied into `public.profiles` by the signup trigger.
+- Email confirmation is disabled for this alias flow. Phone ownership is not verified, and password recovery remains unavailable until a verified recovery method is added.
+- Added `backend/api/SUPABASE_MVP_SETUP.md` and placeholder-only Supabase variables in `.env.example`. The secret/service-role key remains server-only and is not required for basic client Auth or RLS-protected reads.
+
+Remaining integration work:
+
+- Run migration `008` in the hosted Supabase SQL Editor and verify RLS with two test accounts.
+- Add the frontend Supabase client, E.164 normalization, deterministic login-alias helper, and phone/password forms in the frontend worktree.
+- Add backend JWT verification and authenticated actor scoping before exposing account or execution routes in production.
+
