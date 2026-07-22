@@ -4,6 +4,7 @@
   "private": true,
   "description": "NarraOps AI-native narrative discovery workspace",
   "scripts": {
+    "build": "npm run build:vercel",
     "build:frontend": "esbuild frontend/src/app.ts --bundle --format=iife --platform=browser --target=es2022 --outfile=app.js",
     "build:vercel": "npm run build:frontend && node scripts/deploy/prepare-vercel-static.mjs",
     "start": "npm run build:frontend && powershell -ExecutionPolicy Bypass -File scripts/start-narraops.ps1",

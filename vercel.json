@@ -1,5 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist/vercel"
+      }
+    }
+  ],
   "buildCommand": "npm run build:vercel",
   "outputDirectory": "dist/vercel",
   "cleanUrls": true,
@@ -22,10 +32,14 @@
       ]
     }
   ],
-  "rewrites": [
+  "routes": [
     {
-      "source": "/app",
-      "destination": "/app.html"
+      "src": "/app",
+      "dest": "/app.html"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
     }
   ]
 }
