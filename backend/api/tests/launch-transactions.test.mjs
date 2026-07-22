@@ -77,7 +77,10 @@ test("confirmed Pump launch still returns mint and tx when bound buys fail", asy
     signingService: { signAndBroadcast: async () => ({ transactionHash: "launchTx", mintAddress: "Mint111111111111111111111111111111111111111" }) },
     walletGroupRepository,
     vaultPassword: "test-password",
-    confirmationProvider: { wait: async () => ({ tokenAddress: "Mint111111111111111111111111111111111111111", blockNumber: 100 }) },
+    confirmationProvider: {
+      wait: async () => ({ tokenAddress: "Mint111111111111111111111111111111111111111", blockNumber: 100 }),
+      waitForBoundBuyWindow: async () => ({ earliestBlock: 101, latestBlock: 105, observedBlock: 101, actualOffset: 1 }),
+    },
     followBuyExecutor: {
       prepareAllocation: ({ wallets }) => wallets.map((wallet) => ({ walletId: wallet.walletId, amountAtomic: "1000000" })),
       execute: async () => { throw new Error("follow buy failed"); },

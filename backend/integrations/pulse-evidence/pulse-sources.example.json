@@ -1,0 +1,20 @@
+[
+  {
+    "name": "Google News - viral animals",
+    "platform": "news_rss",
+    "url": "https://news.google.com/rss/search?q=viral%20animal&hl=en-US&gl=US&ceid=US:en",
+    "enabled": true
+  },
+  {
+    "name": "Google News - internet culture",
+    "platform": "news_rss",
+    "url": "https://news.google.com/rss/search?q=internet%20culture%20viral&hl=en-US&gl=US&ceid=US:en",
+    "enabled": true
+  },
+  {
+    "name": "Google News - AI agents",
+    "platform": "news_rss",
+    "url": "https://news.google.com/rss/search?q=AI%20agents&hl=en-US&gl=US&ceid=US:en",
+    "enabled": true
+  }
+]

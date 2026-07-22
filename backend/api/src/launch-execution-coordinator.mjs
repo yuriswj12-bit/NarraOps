@@ -71,7 +71,15 @@ export class LaunchExecutionCoordinator {
       const chain = execution.platform === "pump" ? "solana" : "bsc";
       const wallets = this.walletGroups.getExecutionWallets(execution.boundBuy.walletGroupId, chain);
       const allocation = { mode: "PER_WALLET_CUSTOM", customAmountsAtomic: execution.preparedBoundBuys.map(({ walletId, amountAtomic }) => ({ walletId, amountAtomic })) };
-      execution = this.repository.update(executionId, { status: "bound_buy_signing" }, "bound_buys.signing");
+      execution = this.repository.update(executionId, { status: "waiting_bound_buy_block" }, "bound_buys.waiting_for_block");
+      const timing = await this.confirmationProvider.waitForBoundBuyWindow({ platform: execution.platform, launchBlockNumber: confirmation.blockNumber });
+      execution = this.repository.update(executionId, {
+        status: "bound_buy_signing",
+        boundBuyEarliestBlock: timing.earliestBlock,
+        boundBuyLatestBlock: timing.latestBlock,
+        boundBuyObservedBlock: timing.observedBlock,
+        boundBuyActualOffset: timing.actualOffset,
+      });
       try {
         const boundBuys = await this.followBuyExecutor.execute({ platform: execution.platform, tokenAddress: confirmation.tokenAddress, wallets, allocation, password: this.vaultPassword, slippageBps: execution.boundBuy.slippageBps });
         const failedCount = boundBuys.filter(({ status }) => status === "failed").length;
