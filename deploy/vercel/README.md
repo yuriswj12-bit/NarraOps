@@ -45,7 +45,7 @@ Output Directory: dist/vercel
 Install Command: npm ci
 ```
 
-If the dashboard asks for a framework preset, choose `Other`. If Vercel auto-selects `Node`, the repository includes `.vercelignore` so `server.js` and backend-only files are excluded from the static beta deployment.
+If the dashboard asks for a framework preset, choose `Other`. If Vercel auto-selects `Node`, the repository includes `.vercelignore` and an explicit static-build configuration so `server.js` and backend-only files are excluded from the static beta deployment.
 
 ## Domains
 
