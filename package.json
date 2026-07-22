@@ -4,11 +4,12 @@
   "private": true,
   "description": "NarraOps AI-native narrative discovery workspace",
   "scripts": {
-    "start": "powershell -ExecutionPolicy Bypass -File scripts/start-narraops.ps1",
-    "start:frontend": "node server.js",
+    "build:frontend": "esbuild frontend/src/app.ts --bundle --format=iife --platform=browser --target=es2022 --outfile=app.js",
+    "start": "npm run build:frontend && powershell -ExecutionPolicy Bypass -File scripts/start-narraops.ps1",
+    "start:frontend": "npm run build:frontend && node server.js",
     "start:api": "powershell -ExecutionPolicy Bypass -Command \"Set-Location backend/api; node --env-file-if-exists=../../.env src/server.mjs\"",
-    "typecheck": "tsc -p shared/tsconfig.json",
-    "check": "node --check app.js && node --check server.js && node --check backend/execution/service.js",
+    "typecheck": "tsc -p shared/tsconfig.json && tsc -p frontend/tsconfig.json",
+    "check": "npm run build:frontend && node --check app.js && node --check server.js && node --check backend/execution/service.js",
     "test:execution": "node --test backend/execution/test/*.test.js"
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
+    "esbuild": "^0.25.12",
     "typescript": "^5.9.3"
   }
 }

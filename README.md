@@ -59,6 +59,13 @@ cd .\narraops-product
 npm start
 ```
 
+`npm start` builds the TypeScript frontend entry before starting the local services. Run the engineering checks directly with:
+
+```powershell
+npm run typecheck
+npm run check
+```
+
 Then open:
 
 ```text

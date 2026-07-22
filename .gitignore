@@ -4,6 +4,7 @@ node_modules/
 skills-lock.json
 dist/
 build/
+/app.js
 qa/
 design-qa.md
 

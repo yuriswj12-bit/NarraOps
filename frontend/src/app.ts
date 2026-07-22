@@ -1,3 +1,8 @@
+// @ts-nocheck
+// Transitional TypeScript entrypoint. New modules must remain strict; this
+// monolith is migrated incrementally while behavior is covered by regression tests.
+import { apiRequest } from "./lib/api-client";
+
 const viewRoot = document.querySelector("#viewRoot");
 const toast = document.querySelector("#toast");
 const modal = document.querySelector("#modal");
@@ -971,19 +976,6 @@ function money(value, currency = "USD") {
 function shortAddress(value) {
   const address = String(value || "");
   return address.length > 18 ? `${address.slice(0, 9)}…${address.slice(-6)}` : address;
-}
-
-async function apiRequest(path, options = {}) {
-  const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(body?.error?.message || body?.message || `HTTP ${response.status}`);
-    error.code = body?.error?.code;
-    error.details = body?.error?.details;
-    error.status = response.status;
-    throw error;
-  }
-  return body;
 }
 
 async function loadAssets({ keepGroup = true } = {}) {

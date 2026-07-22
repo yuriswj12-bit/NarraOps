@@ -23,6 +23,14 @@ Do not rewrite the whole product just to change languages.
 
 Keep existing JavaScript/MJS code running while behavior is still moving. New core modules should be designed so they can migrate toward TypeScript without changing product contracts.
 
+## Migration status
+
+- The browser application source now lives at `frontend/src/app.ts` and is built with esbuild.
+- Root `app.js` is generated output and is no longer committed as source.
+- `frontend/src/lib/api-client.ts` owns the typed relative `/api/v1` request boundary.
+- The legacy UI monolith is temporarily marked `@ts-nocheck`; new extracted modules must compile under strict TypeScript.
+- The next migration target is Backend API, Agent, Auth, and Repository code. Execution adapters move only after those boundaries are typed and stable.
+
 ## TypeScript First Areas
 
 Prioritize TypeScript for:

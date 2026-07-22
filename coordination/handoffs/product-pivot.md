@@ -28,7 +28,7 @@ Remove `Launch` as a first-level navigation item.
 Recommended V1 navigation:
 
 ```text
-Go / Pulse / Assets / Invite
+Go / Pulse / Assets
 ```
 
 `Launch` routes, backend adapters, launch drafts, and execution contracts should be preserved where they support Go workflows. Do not delete the backend Launch Adapter layer as part of this pivot.
@@ -99,9 +99,9 @@ Go can call launch tools after explicit user confirmation. The model may fill an
 
 Assets remains a support workspace for wallet-group configuration, public wallet references, budget planning, and execution preparation. It is not the main product selling point.
 
-### Invite
+### Deferred growth work
 
-Invite remains useful for beta access, early contribution tracking, and community growth. It has lower priority than Pulse and Go.
+Invite, referral, and contribution tracking are not current product surfaces. Revisit them only after the Pulse/Go/Assets loop and SaaS usage model are validated.
 
 ## Bitget Wallet reference
 

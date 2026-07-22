@@ -4,14 +4,13 @@ This document describes the implementation boundaries Codex and other AI coding 
 
 ## Current product shape
 
-NarraOps is organized around two primary product surfaces:
+NarraOps is organized around three first-level product surfaces:
 
 - Pulse: narrative discovery and evidence-backed opportunity cards.
 - Go: Agent workspace that turns selected narratives into launch-ready plans.
+- Assets: wallet-group, asset visibility, and execution preparation behind safety gates.
 
-Assets and Invite remain supporting modules.
-
-Launch is no longer a primary navigation surface. Launch-related code can remain as backend adapters, contracts, and review-only plan generation.
+Invite is deferred. Launch is no longer a primary navigation surface. Launch-related code can remain as backend adapters, contracts, and review-only plan generation.
 
 ## High-level flow
 
@@ -150,7 +149,7 @@ Not allowed:
 The primary navigation should move toward:
 
 ```text
-Go / Pulse / Assets / Invite
+Go / Pulse / Assets
 ```
 
 Launch may appear as a card, action, or internal workflow inside Go. It should not be restored as a first-class tab unless a later product decision records that change.
