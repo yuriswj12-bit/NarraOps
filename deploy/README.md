@@ -6,7 +6,9 @@ The Compose file builds both frontend and backend images and keeps real executio
 
 Never bake `.env`, wallet material, API keys, mnemonic phrases, or signer credentials into an image. Production signing must use an isolated signer backed by KMS/HSM with policy checks, per-operation limits, approval records, and auditable key access.
 
-For Alibaba Cloud deployment, use `deploy/alicloud/README.md`. The Alibaba Cloud path runs the NarraOps Docker stack on `127.0.0.1:8080` and uses Caddy on the host for HTTPS.
+For the current lightweight public beta, use `deploy/vercel/README.md`. It deploys the static frontend to Vercel and keeps Supabase as the hosted auth/database/storage path.
+
+For Alibaba Cloud deployment, use `deploy/alicloud/README.md`. The Alibaba Cloud path runs the NarraOps Docker stack on `127.0.0.1:8080` and uses Caddy on the host for HTTPS. Keep it as a later self-hosted path, not the current beta blocker.
 
 ## Public Beta scope
 
