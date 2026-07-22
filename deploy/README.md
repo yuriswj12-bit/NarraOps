@@ -6,6 +6,8 @@ The Compose file builds both frontend and backend images and keeps real executio
 
 Never bake `.env`, wallet material, API keys, mnemonic phrases, or signer credentials into an image. Production signing must use an isolated signer backed by KMS/HSM with policy checks, per-operation limits, approval records, and auditable key access.
 
+For Alibaba Cloud deployment, use `deploy/alicloud/README.md`. The Alibaba Cloud path runs the NarraOps Docker stack on `127.0.0.1:8080` and uses Caddy on the host for HTTPS.
+
 ## Public Beta scope
 
 Expose only:
