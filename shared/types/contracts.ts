@@ -13,7 +13,6 @@ export interface NarrativeEvidence {
   capturedAt: string;
   status: EvidenceStatus;
 }
-
 export interface PulseOpportunityCard {
   opportunityId: string;
   title: string;
@@ -44,4 +43,3 @@ export interface GoLaunchReadyPlan {
   createdAt: string;
   updatedAt: string;
 }
-

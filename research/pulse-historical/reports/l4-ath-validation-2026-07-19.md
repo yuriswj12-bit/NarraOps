@@ -1,7 +1,7 @@
 # 原始 L4 ATH 数据验证
 
-日期：2026-07-19  
-链：Solana  
+日期：2026-07-19
+链：Solana
 输入：GMGN `history_highest_market_cap` 原始 L4 样本 12 个
 
 ## 结果

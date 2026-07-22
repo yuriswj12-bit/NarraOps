@@ -13,4 +13,3 @@ USER node
 EXPOSE 5190
 
 CMD ["node", "backend/api/src/server.mjs"]
-
