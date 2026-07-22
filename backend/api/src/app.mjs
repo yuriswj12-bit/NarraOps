@@ -1,6 +1,6 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
-import { ApiError, errorPayload } from "./errors.mjs";
+import { ApiError, errorPayload, statusCodeFor } from "./errors.mjs";
 import {
   validateAgentTask,
   validateLaunchPackage,
@@ -374,6 +374,54 @@ export function createApplication({ config, logger, repository, conversationRepo
         const body = await readJson(req, config.bodyLimitBytes);
         let task;
 
+        if (url.pathname === "/api/v1/chains/solana/send-transaction") {
+          const signedTransactionBase64 = typeof body?.signedTransactionBase64 === "string" ? body.signedTransactionBase64.trim() : "";
+          if (!/^[A-Za-z0-9+/=]+$/.test(signedTransactionBase64)) {
+            throw new ApiError(400, "INVALID_SIGNED_TRANSACTION", "signedTransactionBase64 is required");
+          }
+          const sendResponse = await fetch(config.solanaRpcUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: requestId,
+              method: "sendTransaction",
+              params: [signedTransactionBase64, { encoding: "base64", skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 }],
+            }),
+            signal: AbortSignal.timeout(config.externalTimeoutMs || 8_000),
+          });
+          const sendPayload = await sendResponse.json().catch(() => null);
+          if (!sendResponse.ok || sendPayload?.error || !sendPayload?.result) {
+            throw new ApiError(502, "SOLANA_TRANSACTION_REJECTED", "Solana RPC rejected the signed transaction", {
+              rpcStatus: sendResponse.status,
+              rpcCode: sendPayload?.error?.code,
+              rpcMessage: sendPayload?.error?.message,
+            });
+          }
+          const signature = sendPayload.result;
+          let confirmed = false;
+          let slot = null;
+          for (let attempt = 0; attempt < 12; attempt += 1) {
+            const statusResponse = await fetch(config.solanaRpcUrl, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ jsonrpc: "2.0", id: `${requestId}-${attempt}`, method: "getSignatureStatuses", params: [[signature], { searchTransactionHistory: false }] }),
+              signal: AbortSignal.timeout(config.externalTimeoutMs || 8_000),
+            });
+            const statusPayload = await statusResponse.json().catch(() => null);
+            const status = statusPayload?.result?.value?.[0];
+            if (status?.err) throw new ApiError(502, "SOLANA_TRANSACTION_FAILED", "Solana transaction failed", { signature, error: status.err });
+            if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized") {
+              confirmed = true;
+              slot = status.slot;
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 800));
+          }
+          sendJson(res, 202, { signature, txHash: signature, status: confirmed ? "confirmed" : "submitted", confirmed, slot }, requestId);
+          return;
+        }
+
         if (url.pathname === "/api/v1/auth/web3/challenge") {
           if (!authService) throw new ApiError(503, "AUTH_UNAVAILABLE", "Web3 authentication is not configured");
           sendJson(res, 201, authService.createChallenge({ chain: body.chain, address: body.address, chainId: body.chainId == null ? undefined : Number(body.chainId) }), requestId);
@@ -615,8 +663,8 @@ export function createApplication({ config, logger, repository, conversationRepo
 
       throw new ApiError(404, "ROUTE_NOT_FOUND", "API route was not found");
     } catch (error) {
-      const statusCode = error instanceof ApiError ? error.statusCode : 500;
-      logger.error("request_failed", { requestId, method: req.method, path: url.pathname, code: error.code || "INTERNAL_ERROR" });
+      const statusCode = statusCodeFor(error);
+      logger.error("request_failed", { requestId, method: req.method, path: url.pathname, code: error.code || "INTERNAL_ERROR", message: error.message });
       if (!res.headersSent) sendJson(res, statusCode, errorPayload(error, requestId), requestId);
       else res.end();
     } finally {

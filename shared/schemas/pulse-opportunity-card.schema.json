@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/pulse-opportunity-card.schema.json",
+  "title": "Pulse Opportunity Card",
+  "type": "object",
+  "required": ["opportunityId", "title", "summary", "status", "evidence", "riskFlags", "missingEvidence", "firstObservedAt", "updatedAt"],
+  "properties": {
+    "opportunityId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "status": { "enum": ["reject", "watch", "review", "high_priority"] },
+    "stage": { "enum": ["emerging", "spreading", "crowded", "fading", "unknown"] },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "./narrative-evidence.schema.json" }
+    },
+    "riskFlags": { "type": "array", "items": { "type": "string", "maxLength": 256 }, "uniqueItems": true },
+    "missingEvidence": { "type": "array", "items": { "type": "string", "maxLength": 256 }, "uniqueItems": true },
+    "similarTokenCount": { "type": ["integer", "null"], "minimum": 0 },
+    "firstObservedAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}
+

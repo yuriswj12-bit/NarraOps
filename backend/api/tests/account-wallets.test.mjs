@@ -253,3 +253,135 @@ test("wallet-group transfers pair wallets by index and support the login wallet 
   assert.equal(loginDestination.status, 201);
   assert.equal((await loginDestination.json()).pairingMode, "wallet_group_to_login");
 });
+
+test("live wallet-group transfer distributes one source wallet across all destination wallets", async (t) => {
+  const walletGroupRepository = new InMemoryWalletGroupRepository({ seed: false });
+  const source = walletGroupRepository.createGroup({ name: "Cooking", purpose: "cooking", walletCount: 1 });
+  const destination = walletGroupRepository.createGroup({ name: "General", purpose: "general", walletCount: 3 });
+  for (const wallet of walletGroupRepository.listWallets(source.groupId)) {
+    walletGroupRepository.activateWallet(wallet.walletId, {
+      publicAddress: `source-${wallet.walletId}`,
+      addresses: { solana: `source-${wallet.walletId}` },
+      signerReferences: { solana: `ref-${wallet.walletId}` },
+      custodyMode: "narraops_encrypted_vault",
+      provisioningStatus: "active",
+    });
+  }
+  for (const wallet of walletGroupRepository.listWallets(destination.groupId)) {
+    walletGroupRepository.activateWallet(wallet.walletId, {
+      publicAddress: `dest-${wallet.walletId}`,
+      addresses: { solana: `dest-${wallet.walletId}` },
+      signerReferences: { solana: `ref-${wallet.walletId}` },
+      custodyMode: "narraops_encrypted_vault",
+      provisioningStatus: "active",
+    });
+  }
+  const transfers = [];
+  const batches = [];
+  const assetService = {
+    balances: async () => ({ solana: { asset: "SOL", amount: "1", atomic: "1000000000", status: "live" } }),
+    transfer: async (input) => {
+      transfers.push(input);
+      return { status: "confirmed", txHash: `sig-test-${transfers.length}` };
+    },
+    transferBatch: async (input) => {
+      batches.push(input);
+      return input.transfers.map((transfer, index) => ({ status: "confirmed", txHash: "sig-batch-test", amount: transfer.amount, batchIndex: index }));
+    },
+  };
+  const { application, baseUrl } = await startApi({ walletGroupRepository, assetService });
+  t.after(() => application.close());
+
+  const response = await post(baseUrl, "/api/v1/transfers/preview", {
+    chain: "solana",
+    source: { type: "wallet_group", id: source.groupId },
+    destination: { type: "wallet_group", id: destination.groupId },
+    amountMode: "fraction",
+    fractionBps: 3000,
+    distribution: "equal",
+    idempotencyKey: "one-to-many-live-preview",
+  });
+  assert.equal(response.status, 201);
+  const preview = await response.json();
+  assert.equal(preview.pairingMode, "source_group_to_destination_group_distribution");
+  assert.equal(preview.pairCount, 3);
+  assert.equal(preview.allocations.length, 3);
+  assert.equal(preview.estimatedAmount, "0.3");
+  assert.deepEqual(preview.allocations.map(({ amount }) => amount), ["0.1", "0.1", "0.1"]);
+  assert.ok(preview.allocations.every(({ sourceWalletId }) => sourceWalletId === walletGroupRepository.listWallets(source.groupId)[0].walletId));
+  assert.deepEqual(preview.unmatchedDestinationWalletIds, []);
+
+  const submitResponse = await post(baseUrl, "/api/v1/transfers", {
+    previewToken: preview.previewToken,
+    confirmationToken: preview.confirmationToken,
+    idempotencyKey: "one-to-many-live-preview",
+  }, { "idempotency-key": "one-to-many-live-preview" });
+  assert.equal(submitResponse.status, 202);
+  const submitted = await submitResponse.json();
+  assert.equal(submitted.status, "confirmed");
+  assert.equal(submitted.transactions.length, 3);
+  assert.equal(transfers.length, 0);
+  assert.equal(batches.length, 1);
+  assert.deepEqual(batches[0].transfers.map(({ to }) => to), preview.allocations.map(({ to }) => to));
+});
+
+test("live wallet-group transfer collects only funded source wallets into one destination wallet", async (t) => {
+  const walletGroupRepository = new InMemoryWalletGroupRepository({ seed: false });
+  const source = walletGroupRepository.createGroup({ name: "General", purpose: "general", walletCount: 3 });
+  const destination = walletGroupRepository.createGroup({ name: "Cooking", purpose: "cooking", walletCount: 1 });
+  for (const wallet of [...walletGroupRepository.listWallets(source.groupId), ...walletGroupRepository.listWallets(destination.groupId)]) {
+    walletGroupRepository.activateWallet(wallet.walletId, {
+      publicAddress: `address-${wallet.walletId}`,
+      addresses: { solana: `address-${wallet.walletId}` },
+      signerReferences: { solana: `ref-${wallet.walletId}` },
+      custodyMode: "narraops_encrypted_vault",
+      provisioningStatus: "active",
+    });
+  }
+  const fundedAddress = walletGroupRepository.listWallets(source.groupId)[0].addresses.solana;
+  const transfers = [];
+  const assetService = {
+    balances: async ({ addresses }) => ({
+      solana: addresses.solana === fundedAddress
+        ? { asset: "SOL", amount: "0.035635498", atomic: "35635498", status: "live" }
+        : { asset: "SOL", amount: "0", atomic: "0", status: "live" },
+    }),
+    transfer: async (input) => {
+      transfers.push(input);
+      return { status: "confirmed", txHash: `sig-collect-${transfers.length}` };
+    },
+  };
+  const { application, baseUrl } = await startApi({ walletGroupRepository, assetService });
+  t.after(() => application.close());
+
+  const response = await post(baseUrl, "/api/v1/transfers/preview", {
+    chain: "solana",
+    source: { type: "wallet_group", id: source.groupId },
+    destination: { type: "wallet_group", id: destination.groupId },
+    amountMode: "fraction",
+    fractionBps: 10000,
+    distribution: "equal",
+    idempotencyKey: "many-to-one-funded-preview",
+  });
+  assert.equal(response.status, 201);
+  const preview = await response.json();
+  assert.equal(preview.pairingMode, "wallet_group_collect_to_single_destination");
+  assert.equal(preview.pairCount, 1);
+  assert.equal(preview.allocations.length, 1);
+  assert.equal(preview.allocations[0].from, fundedAddress);
+  assert.equal(preview.allocations[0].amount, "0.035630498");
+  assert.equal(preview.unmatchedSourceWalletIds.length, 2);
+
+  const submitResponse = await post(baseUrl, "/api/v1/transfers", {
+    previewToken: preview.previewToken,
+    confirmationToken: preview.confirmationToken,
+    idempotencyKey: "many-to-one-funded-preview",
+  }, { "idempotency-key": "many-to-one-funded-preview" });
+  assert.equal(submitResponse.status, 202);
+  const submitted = await submitResponse.json();
+  assert.equal(submitted.status, "confirmed");
+  assert.equal(submitted.transactions.length, 1);
+  assert.equal(transfers.length, 1);
+  assert.equal(transfers[0].from, fundedAddress);
+  assert.equal(transfers[0].to, preview.allocations[0].to);
+});

@@ -1,12 +1,12 @@
 # NarraOps Product Context
 
-更新时间：2026-07-15
+更新时间：2026-07-22
 
 ## 如何使用这份文档
 
 这是一份面向产品讨论、合作沟通和 AI 协作的统一上下文，不是上线公告。
 
-与 GPT 或合作方讨论 NarraOps 时，应以本文描述的产品定位、V1 边界和安全约束为准。任何标记为 Mock、Simulation、Review-only、Disabled 或 Roadmap 的能力，都不得描述为已经可用于真实资金。
+与 GPT 或合作方讨论 NarraOps 时，应以本文描述的产品定位、当前产品边界和安全约束为准。任何标记为 Mock、Simulation、Review-only、Disabled 或 Roadmap 的能力，都不得描述为已经可用于真实资金。
 
 ## 产品身份
 
@@ -14,56 +14,56 @@
 - **Token Name:** NarraOps
 - **Ticker:** `NARRA`
 - **Category:** On-chain
-- **Positioning:** Agentic Meme Launch and Operations OS
-- **Current stage:** 本地产品原型，尚未正式上线
+- **Positioning:** AI-native Narrative Discovery and Meme Operations Workspace
+- **Current stage:** 产品建设中，尚未正式上线
 
 一句话介绍：
 
-> NarraOps helps meme creators find the narrative, build the launch and operate the signal.
+> NarraOps helps Meme Devs discover, filter and explain memeable internet narratives, then turn selected narratives into reviewable launch-ready plans.
 
 扩展介绍：
 
-> NarraOps is an agentic meme launch and operations assistant that turns emerging social and on-chain narratives into reviewable opportunity briefs, meme launch assets, launch plans and post-launch operating signals.
+> NarraOps is an AI-native narrative discovery workspace that turns public internet signals into evidence-backed opportunity briefs and structured launch-ready plans. Execution tooling remains a controlled backend capability rather than the primary product surface.
 
 ## 愿景
 
-NarraOps 的目标是降低成为 Meme Dev 和组织链上项目运营的门槛，让更多普通玩家能够提升自己的链上生态位。
+NarraOps 的目标是降低 Meme Dev 发现、筛选和判断互联网叙事的成本，让更多有想法的创作者和链上用户能够把叙事转化为可审阅、可执行边界清晰的 Meme 项目预案。
 
-产品希望把过去集中在少数专业团队手中的叙事发现、Meme 构建、发射准备、钱包协作和持续运营能力，转化为可理解、可审阅、可追踪的 Agent 工作流，并逐步向更广泛的创作者和社区开放。
+产品希望把过去依赖人工盯盘、社交平台浏览和经验判断的叙事研究流程，转化为可解释、有证据、可复核的 Agent 工作流，并逐步沉淀为 Meme Dev 的叙事情报系统。
 
 核心使命：
 
 1. 发现具有传播潜力的 Meme 叙事。
-2. 将叙事转化为可审阅的定位、内容素材和发射方案。
+2. 将叙事转化为可审阅的定位、内容素材和 launch-ready plan。
 3. 降低用户完成链上项目创建与运营的技术门槛。
-4. 在发射后持续追踪传播信号、项目状态和运营任务。
+4. 保留钱包组、资产视图和执行准备能力，但不把真实执行作为 V1 主叙事。
 5. 推动更开放、更丰富的 Meme 文化发展。
 
 NarraOps 不以操纵市场、制造虚假交易或承诺收益为产品目标。所有资金相关能力必须具备明确授权、风险提示、审计记录和用户确认。
 
 ## 目标用户
 
-- 想成为 Meme Dev，但缺少完整技术和运营团队的链上用户。
-- 能发现叙事，但不熟悉发射材料、钱包协作和执行流程的创作者。
-- 希望将社交信号、链上数据和发射操作放在同一工作流中的小型团队。
-- 需要批量化、结构化管理 Meme 项目运营任务的专业用户。
+- 有经验的 Meme Dev：已会使用 GMGN、Axiom 或 Launchpad，但缺少足够的叙事覆盖和筛选效率。
+- 准 Meme Dev：能发现内容或掌握流量，但不熟悉发射字段、钱包组和执行准备。
+- 观察型用户：不一定立即发射，只想查看互联网叙事趋势、证据和机会状态。
 
 ## 核心产品循环
 
 ```text
-发现叙事 -> 评估机会 -> 构建 Meme -> 审阅发射方案
--> 用户确认 -> 发射与资产协作 -> 传播追踪 -> 持续运营
+Pulse 发现叙事 -> 证据解释与机会筛选 -> Send to Go
+-> Go 生成 launch-ready plan -> 用户审阅和编辑
+-> Assets 提供钱包组与执行准备
 ```
 
 Agent 负责理解意图、整理信息、生成方案和编排任务。涉及钱包、签名、转账、买卖和真实发射时，必须由确定性后端策略与隔离执行层处理，模型不得直接接触私钥或绕过用户确认。
 
-## 产品导航与功能区
+## 产品核心面
 
 ### Go
 
 产品核心 Agent 入口。
 
-用户可以输入自然语言或 `/` 命令，生成机会分析、叙事简报、Meme 方案、发射草案和结构化任务卡片。
+用户可以输入自然语言、链接、图片或接收 Pulse 传来的结构化机会，生成机会分析、叙事简报、Meme 方案、launch-ready plan 和结构化任务卡片。
 
 计划覆盖的指令类型包括：
 
@@ -71,37 +71,17 @@ Agent 负责理解意图、整理信息、生成方案和编排任务。涉及�
 - X、TikTok、抖音等平台的 Meme 化叙事推荐。
 - On-chain Market、Dev Wallet 和 Meme 项目分析。
 - 钱包组创建、转账、资金提取计划。
-- Meme 发射、批量买入和批量卖出计划。
+- Launch-ready plan 生成和可审阅执行准备。
 
-当前状态：对话工作台和多类结构化结果卡片已完成原型；资金相关结果仅允许 Simulation/Disabled。
+当前状态：对话工作台和多类结构化结果卡片已具备基础实现；资金相关结果仅允许 Simulation/Disabled。
 
 ### Pulse
 
-机会发现和信号终端。
+机会发现和叙事证据终端。
 
-展示由社交传播、叙事共振、链上环境和历史数据形成的机会简报，包括热度、来源、建议链和风险等级。
+展示由公共互联网内容、社交传播、历史 Meme 样本和链上环境形成的机会简报，包括故事摘要、原始来源、证据质量、机会状态、风险和同类拥挤度。
 
-当前状态：页面与 Mock API 合同已具备；生产数据源、来源证明和稳定评分模型仍待接入。
-
-### Launch
-
-将叙事整理成可审阅的发射包。
-
-发射包包含名称、Ticker、简介、图片、X、网站、目标链、钱包组和发射参数。当前规划的平台包括：
-
-- Pump.fun / Solana
-- Four.Meme / BSC
-- Pons / Robinhood Chain
-
-Pons 原型已包含浏览器钱包连接、网络切换、余额读取、Gas 估算、二次确认和工厂调用适配；正式启用仍依赖官方源码/ABI 校验、图片与 IPFS 服务、安全审计和生产 RPC。
-
-当前状态：发射准备与部分链适配原型已存在，但产品整体不应被描述为已支持无人值守真实发射。
-
-### Invite
-
-管理邀请码、邀请记录、早期贡献记录和社区参与身份。
-
-当前状态：Mock 数据和接口合同已具备；正式归因、反作弊与结算规则待定。
+当前状态：页面与 API 合同已具备；Pulse 证据处理、历史分层研究和 RSS 发现基础实现已存在，生产数据源、稳定持久化和前端消费仍待接入。
 
 ### Assets
 
@@ -115,7 +95,19 @@ Pons 原型已包含浏览器钱包连接、网络切换、余额读取、Gas �
 - 生成组间转账、资金提取和批量操作计划。
 - 管理钱包删除、导出和恢复流程。
 
-当前状态：资产概览、钱包组、转账预览和安全门禁具有 Mock/API 原型。真实托管、私钥导出、签名和广播默认关闭。
+当前状态：资产概览、钱包组、转账预览和安全门禁具有 API 与界面基础实现。真实托管、私钥导出、签名和广播默认关闭。
+
+### 后端 Launch 工具
+
+Launch 相关能力不再作为一级产品面，但保留为 Go 可调用的后端工具能力。
+
+当前保留的适配方向包括：
+
+- Pump.fun / Solana
+- Four.Meme / BSC
+- Pons / Robinhood Chain
+
+这些能力必须服从用户确认、安全开关、审计记录和真实执行默认关闭的边界。
 
 ## Agent 输出形式
 
@@ -126,9 +118,8 @@ Agent 不只返回聊天文本，还应返回可审阅的结构化结果：
 - Dev Market Report
 - Meme Analysis
 - Meme Package
-- Launch Draft
+- Launch-ready Plan
 - Execution Plan
-- Community Plan
 - Recent Summary
 - Task Progress / Failure / Recovery Card
 
@@ -136,17 +127,16 @@ Agent 不只返回聊天文本，还应返回可审阅的结构化结果：
 
 ## V1 上线边界
 
-### V1 应该可用
+### 当前产品应完成
 
-- 使用 Go 生成机会分析、叙事简报、Meme 方案和发射草案。
+- 使用 Go 生成机会分析、叙事简报、Meme 方案和 launch-ready plan。
 - 使用 Pulse 查看带来源与风险说明的机会简报。
-- 创建和审阅标准化发射包。
-- 管理邀请与早期贡献记录。
+- 创建、编辑和保存标准化发射预案。
 - 创建和管理钱包组及资产视图。
 - 查看 Agent 任务状态和结构化结果卡片。
 - 对敏感操作生成明确标记的模拟计划。
 
-### V1 不承诺
+### 当前产品不承诺
 
 - 不承诺收益、Token 价格或发射成功率。
 - 不进行未经用户确认的真实自动交易。
@@ -171,13 +161,13 @@ Agent 不只返回聊天文本，还应返回可审阅的结构化结果：
 已经具备：
 
 - 顶部导航式深色产品工作台。
-- Go、Pulse、Launch、Invite、Assets 页面原型。
+- Go、Pulse、Assets 三个一级产品面；Launch 和 Invite 旧代码仅作为内部可复用能力或后续材料保留，不再作为当前主叙事。
 - 中英文切换、响应式布局和结构化 Agent 卡片。
-- `/api/v1` Agent、Pulse、Launch、Invite、Assets Mock API。
+- `/api/v1` Agent、Pulse、Launch、Invite、Assets API 骨架；当前产品入口以 Agent、Pulse 和 Assets 为主。
 - Agent 会话、任务、SSE 事件与回放原型。
 - 规划型执行状态机、幂等与敏感字段拒绝测试。
 - GMGN、HertzFlow 和 Launch Platform 的适配层骨架。
-- 钱包组、转账、发射草案和数据库迁移草案。
+- 钱包组、转账、发射预案和数据库迁移草案。
 - Pons 发射与跟买编排原型。
 
 尚未达到生产条件：
@@ -210,45 +200,52 @@ Roadmap 方向：
 
 ## Platform Revenue
 
-NarraOps 当前不计划采用传统 SaaS 订阅。
+当前商业模式以 SaaS 订阅和使用额度为主。
 
-长期设想是：只有用户获得可归因的正向已实现净利润，平台才可能获得收入。用户可自主选择将正向净利润的 `1%-10%` 作为平台贡献比例；没有正向利润，则产品收入为零。
+可行分层：
 
-该模式不在 V1 收费。启用前必须完成归因范围、Gas/DEX/Launchpad 成本、外部转账、可复算账本、申诉机制和法律审查。
+- Free：少量 Pulse 卡片、基础 Go 分析和有限保存。
+- Pro：更多卡片、更高刷新频率、更深证据、更多 Go 预案额度。
+- Team：多人项目、共享保存、导出、协作和更高 API/worker 额度。
 
-## Launch 计划
-
-目标是在产品最终验收完成后的第二天，即 `T+1`，向合作方提交正式 launch。
-
-准确日历日期尚未锁定。最终首发链与平台将结合 launch 前三日的资金热度、用户注意力、流动性条件和合作方要求决定，目前重点比较 Solana 与 Robinhood Chain 方向。
+暂不主打利润分成、发射抽成、交易抽成或收益承诺。这些模式会提前引入归因、成本核算、合规和申诉问题。
 
 ## 最适合外部传播的叙事
 
-NarraOps 不是一个只负责生成 Meme 文案的聊天机器人，也不是承诺自动盈利的交易机器人。
+NarraOps 不是一个只负责生成 Meme 文案的聊天机器人，也不是承诺自动盈利的交易机器人，更不是 GMGN 或 Axiom 的替代交易终端。
 
-它是连接以下环节的 Agentic Meme Launch and Operations OS：
+它是面向 Meme Dev 的 AI 叙事发现与预案工作台：
 
 ```text
 Narrative Discovery
--> Meme Construction
--> Launch Preparation
--> Wallet Coordination
--> Signal Tracking
--> Continuous Operations
+-> Evidence-backed Opportunity Filtering
+-> Launch-ready Plan
+-> Wallet Group and Asset Preparation
 ```
+
+## 工程语言方向
+
+NarraOps 不应长期停留在简单 JavaScript 原型形态。后续按模块分语言：
+
+- TypeScript：产品 UI、API、Agent 流程、权限、状态机、钱包组、订阅和 Launch Adapter 合同。
+- Python：Pulse 数据采集、证据处理、网页解析、叙事聚类、历史样本评估和评分实验。
+- SQL / Supabase Postgres：用户、profile、统计、Pulse 卡片、Go 会话、预案、钱包组、额度和审计。
+- OpenAPI / JSON Schema：跨语言合同来源。
+- Markdown：产品上下文、协作规则、handoff 和 Codex 任务边界。
+
+现有 JS/MJS 代码可以继续保留可运行状态，但新增核心合同和高风险状态应逐步迁向 TypeScript，不做一次性重写。
 
 ## 后续需要讨论和决定的问题
 
 与 GPT、产品顾问或合作方继续讨论时，优先回答：
 
-1. V1 首发时，Go、Pulse、Launch、Assets 各自必须完成到什么深度？
-2. 首发链应选择 Solana、Robinhood Chain，还是保留多链但只开放一条真实执行链？
-3. 用户从发现叙事到完成发射，最短且安全的主路径是什么？
-4. NarraOps 应优先服务个人 Dev、小型团队还是社区型项目？
-5. 哪些 Agent 任务免费，哪些需要 Token 权限或贡献记录？
-6. 正向净利润归因模型是否可验证、可申诉并符合法律要求？
-7. 哪些能力必须由 NarraOps 自建，哪些应交给 Virtuals、钱包服务商或 Launchpad？
-8. V1 如何证明产品价值，而不依赖真实自动交易或收益承诺？
+1. Pulse V1 应接入哪些够用且稳定的数据源？
+2. 历史 Meme 样本如何转化为可解释的 Reject / Watch / Review / High Priority 规则？
+3. Go 的 launch-ready plan 固定字段、编辑流和保存流如何定义？
+4. Assets 在 V1 中保留到什么深度，哪些资金执行入口必须隐藏？
+5. Supabase Auth、profile、usage stats 和 analytics 如何接入前端与 API？
+6. Free / Pro / Team 的额度边界如何设置？
+7. 哪些核心 JS/MJS 模块优先 TS 化，哪些保留到后续？
+8. 当前产品如何证明产品价值，而不依赖真实自动交易或收益承诺？
 9. 上线前必须关闭或隐藏哪些尚未达到生产安全要求的入口？
-10. 首发传播应突出“降低 Dev 门槛”“叙事到发射”还是“持续运营 OS”？
-
+10. 首发传播应突出“叙事发现”“证据筛选”还是“降低 Meme Dev 研究成本”？

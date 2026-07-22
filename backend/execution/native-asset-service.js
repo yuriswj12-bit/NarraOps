@@ -65,6 +65,28 @@ export class NativeAssetService {
     }
   }
 
+  async transferBatch({ chain, walletReferenceId, from, transfers }) {
+    if (!this.executionEnabled) throw new ExecutionError("REAL_EXECUTION_DISABLED", "Real asset broadcasting is disabled");
+    if (!Array.isArray(transfers) || transfers.length === 0) throw new ExecutionError("EMPTY_TRANSFER_BATCH", "Transfer batch is empty");
+    const envelope = await this.walletRepository.getEncryptedWallet(walletReferenceId);
+    if (!envelope || envelope.publicAddress.toLowerCase() !== String(from).toLowerCase()) {
+      throw new ExecutionError("WALLET_NOT_FOUND", "Encrypted wallet reference does not match the sender");
+    }
+    const password = Buffer.from(this.vaultPassword, "utf8");
+    const privateKey = openWalletSecret(envelope, password);
+    try {
+      if (chain === "solana") return await this.#transferSolanaBatch({ from, transfers, privateKey });
+      const results = [];
+      for (const transfer of transfers) {
+        results.push(await this.#transferEvm({ chain, from, to: transfer.to, amount: transfer.amount, privateKey }));
+      }
+      return results;
+    } finally {
+      privateKey.fill(0);
+      password.fill(0);
+    }
+  }
+
   async #transferSolana({ from, to, amount, privateKey }) {
     const lamports = decimalToLamports(amount);
     if (lamports <= 0n || lamports > BigInt(Number.MAX_SAFE_INTEGER)) throw new ExecutionError("INVALID_AMOUNT", "SOL transfer amount is outside the supported range");
@@ -79,6 +101,35 @@ export class NativeAssetService {
       const confirmation = await this.solanaConnection.confirmTransaction({ signature, ...latest }, "confirmed");
       if (confirmation.value.err) throw new ExecutionError("TRANSACTION_FAILED", "Solana transfer was rejected", { signature, error: confirmation.value.err });
       return { chain: "solana", asset: "SOL", amount: lamportsToDecimal(lamports), txHash: signature, status: "confirmed" };
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  async #transferSolanaBatch({ from, transfers, privateKey }) {
+    const secret = Buffer.from(privateKey.toString("utf8"), "base64");
+    try {
+      const signer = Keypair.fromSecretKey(secret);
+      if (signer.publicKey.toBase58() !== new PublicKey(from).toBase58()) throw new ExecutionError("SIGNER_ADDRESS_MISMATCH", "Solana signer does not match sender");
+      const latest = await this.solanaConnection.getLatestBlockhash("confirmed");
+      const transaction = new Transaction({ feePayer: signer.publicKey, ...latest });
+      const normalized = transfers.map((transfer) => {
+        const lamports = decimalToLamports(transfer.amount);
+        if (lamports <= 0n || lamports > BigInt(Number.MAX_SAFE_INTEGER)) throw new ExecutionError("INVALID_AMOUNT", "SOL transfer amount is outside the supported range");
+        transaction.add(SystemProgram.transfer({ fromPubkey: signer.publicKey, toPubkey: new PublicKey(transfer.to), lamports: Number(lamports) }));
+        return { ...transfer, lamports };
+      });
+      transaction.sign(signer);
+      const signature = await this.solanaConnection.sendRawTransaction(transaction.serialize(), { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 });
+      const confirmation = await this.solanaConnection.confirmTransaction({ signature, ...latest }, "confirmed");
+      if (confirmation.value.err) throw new ExecutionError("TRANSACTION_FAILED", "Solana transfer batch was rejected", { signature, error: confirmation.value.err });
+      return normalized.map((transfer) => ({
+        chain: "solana",
+        asset: "SOL",
+        amount: lamportsToDecimal(transfer.lamports),
+        txHash: signature,
+        status: "confirmed",
+      }));
     } finally {
       secret.fill(0);
     }

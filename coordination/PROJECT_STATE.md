@@ -20,3 +20,19 @@ Project: NarraOps (`C:\Users\hek\Documents\SOL单兵\narraops-product`)
 - Pulse expansion is paused by product decision. See `PRODUCT_WORKFLOW_STATUS_CN.md` for current priorities.
 
 Last integration update: 2026-07-18.
+
+## 2026-07-19 product pivot
+
+- The current product direction is defined in `coordination/PRODUCT_DIRECTION_2026-07-19_CN.md`.
+- Pulse is no longer paused. Historical narrative research and a live discovery pipeline are now the highest product priorities.
+- Launch is no longer a first-level product surface; existing launch adapters and safety work remain reusable backend capabilities for Go.
+- The historical research contract is defined in `coordination/PULSE_HISTORICAL_RESEARCH_SPEC_CN.md`.
+- The dirty integration worktree contains pre-pivot wallet, transfer, and Pump launch changes. Preserve them and avoid overlapping edits until their ownership and disposition are confirmed.
+
+## 2026-07-22 product language update
+
+- Current product surfaces are Go, Pulse, and Assets.
+- Invite is removed from the current product surface; growth, waitlist, and referral mechanics are deferred.
+- Product narrative should focus on lowering Meme Dev narrative research cost through discovery, evidence filtering, and launch-ready plans.
+- Engineering direction is no longer simple JavaScript-only: TypeScript owns product/API boundaries, Python owns Pulse data intelligence, SQL/Supabase owns durable state, and OpenAPI/JSON Schema owns cross-language contracts.
+- NarraOps should not be described as having a separate early-stage product phase. Use current product state, current product boundary, and production readiness instead.

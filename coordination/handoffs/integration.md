@@ -101,3 +101,15 @@
 - Confirmation and failed-wallet retry reuse the frozen allocation and never randomize a second time.
 - ForgeX reference note: ForgeX launch accepts explicit per-wallet sniper amounts (or defaults each to 0.01); its unrelated robot random mode does not preserve a fixed group total, so NarraOps uses its own auditable fixed-total behavior.
 - Verification: backend 40/40, execution 38/38, frontend syntax check passed.
+
+## 2026-07-22 public Beta and language foundation
+
+- Preserved the existing dirty integration worktree; no prior wallet, transfer, execution, product-pivot, or research changes were discarded.
+- Added buildable frontend/backend Docker definitions, container health checks, persistent data volume wiring, an ingress health endpoint, and public-Beta deployment/rollback guidance.
+- Deployment configuration forces `REAL_EXECUTION_ENABLED=false` for the public Beta.
+- Added the first cross-language contracts for narrative evidence, Pulse opportunity cards, and Go launch-ready plans.
+- Added strict shared TypeScript types plus a minimal `tsconfig` and `npm run typecheck`; existing JS/MJS behavior remains unchanged.
+- Added `coordination/PUBLIC_BETA_CHECKLIST.md` for product, safety, operations, and Build in Public acceptance.
+- Verification: root syntax check passed; shared TypeScript check passed; backend API 48/48; execution 43/43; JSON schemas parse successfully.
+- Docker runtime verification is still pending because Docker is not installed in the current Windows environment.
+- External deployment remains pending a selected host, public domain/origin, TLS, secret configuration, monitoring destination, and rollback target.

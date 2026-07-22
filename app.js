@@ -12,7 +12,7 @@ const languageMenu = document.querySelector("#languageMenu");
 const themeButton = document.querySelector("#themeButton");
 const accountAssetsButton = document.querySelector("#accountAssetsButton");
 
-const allowedViews = new Set(["pulse", "go", "launch", "invite", "assets"]);
+const allowedViews = new Set(["pulse", "go", "assets"]);
 const storedLanguage = localStorage.getItem("narraops-language");
 const storedTheme = localStorage.getItem("narraops-theme");
 
@@ -34,6 +34,10 @@ const state = {
     metadataUri: null,
     generating: false,
   },
+  launchResult: (() => {
+    try { return JSON.parse(sessionStorage.getItem("narraops-last-launch-result") || "null"); }
+    catch { return null; }
+  })(),
   settings: {
     x: true,
     tiktok: true,
@@ -77,6 +81,7 @@ const state = {
     transferDistribution: "equal",
     transferPreview: null,
     transferResult: null,
+    transferError: null,
     transferBusy: false,
     launchGroupsLoading: false,
     accountAssetChain: "solana",
@@ -89,7 +94,7 @@ const translations = {
   notifications: ["通知", "Notifications"],
   newSignal: ["新的叙事信号", "New narrative signal"],
   newSignalBody: ["跨平台讨论速度进入加速区间。", "Cross-platform discussion velocity is accelerating."],
-  simulationOnly: ["模拟模式已开启", "Simulation mode is active"],
+  simulationOnly: ["执行保护已开启", "Execution guard is active"],
   simulationBody: ["资金与发射动作不会提交至链上。", "Fund and launch actions will not be submitted on-chain."],
 };
 
@@ -216,8 +221,8 @@ function pageHeading(kicker, title, subtitle, actions = "") {
 
 function renderPulse() {
   const actions = `
-    <span class="simulation-pill"><i class="fa-solid fa-flask" aria-hidden="true"></i>${t("示例信号", "Sample signals")}</span>
-    <button class="secondary-button" type="button" data-action="scan"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> ${t("运行模拟扫描", "Run simulated scan")}</button>
+    <span class="simulation-pill"><i class="fa-solid fa-database" aria-hidden="true"></i>${t("样本信号", "Sample signals")}</span>
+    <button class="secondary-button" type="button" data-action="scan"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> ${t("刷新样本", "Refresh samples")}</button>
   `;
 
   const signalCards = [
@@ -301,9 +306,8 @@ function getInitialConversation() {
     {
       role: "agent",
       timestamp: getMessageTime(),
-      demo: true,
-      contentZh: "这是 Go 工作台的演示引导。发送命令后，结果将来自 NarraOps 后端任务与实时事件流。",
-      contentEn: "This is a demo introduction to Go. After you send a command, results come from NarraOps backend tasks and the live event stream.",
+      contentZh: "Go 工作台已就绪。发送链接、文本或命令后，NarraOps 会返回结构化任务卡片和实时事件流。",
+      contentEn: "Go is ready. Send a link, text, or command and NarraOps will return structured task cards and live event updates.",
     },
   ];
 }
@@ -313,7 +317,7 @@ function renderStructuredCard(card) {
   const cardMeta = {
     narrative_snapshot: ["fa-solid fa-wave-square", "叙事快照", "Narrative Snapshot"],
     meme_package: ["fa-solid fa-shapes", "Meme 构建包", "Meme Build Package"],
-    launch_draft: ["fa-solid fa-rocket", "发射草案", "Launch Draft"],
+    launch_draft: ["fa-solid fa-file-signature", "发射预案", "Launch-ready Plan"],
     execution_plan: ["fa-solid fa-diagram-project", "执行计划", "Execution Plan"],
     community_plan: ["fa-solid fa-users-rays", "社区运营计划", "Community Operations Plan"],
     dev_market: ["fa-solid fa-chart-line", "链上行情", "On-chain Market"],
@@ -380,12 +384,11 @@ function renderMessageContent(message) {
     </div>
   ` : "";
 
-  const demo = message.demo ? `<span class="go-demo-label">${t("演示引导", "Demo guide")}</span>` : "";
   const error = message.lifecycle === "failed" ? `
     <div class="go-agent-error"><strong>${t("任务失败", "Task failed")}</strong><span>${escapeHtml(message.error || t("Agent 服务当前不可用。", "The Agent service is currently unavailable."))}</span><button type="button" data-agent-retry>${t("重试", "Retry")}</button></div>
   ` : "";
   const cards = [...(message.cards || []), ...(message.card ? [message.card] : [])].map(renderStructuredCard).join("");
-  return `${demo}${content ? `<p>${escapeHtml(content)}</p>` : ""}${suggestion}${cards}${error}`;
+  return `${content ? `<p>${escapeHtml(content)}</p>` : ""}${suggestion}${cards}${error}`;
 }
 
 function renderConversation() {
@@ -420,11 +423,11 @@ function renderConversation() {
 function renderGo() {
   if (!state.conversation.length) state.conversation = getInitialConversation();
   const quickActions = [
-    ["/dev-market", "fa-solid fa-chart-line", "链上行情", "On-chain Market", "按链标记 Dev 钱包，统计盈利并对比上一周期。", "Tag dev wallets by chain, compare profit across periods."],
-    ["/launch", "fa-solid fa-rocket", "Launch Meme", "Launch Meme", "选择链、连接 Dev 钱包与钱包组，绑定社交资料并生成买卖决策。", "Choose a chain, connect dev wallets and wallet groups, bind socials, and plan trading decisions."],
-    ["/narrative-trends", "fa-solid fa-arrow-trend-up", "叙事信号趋势", "Narrative Trends", "统计各链已发射 Meme 使用的叙事并生成评分报告。", "Score narratives used by launched memes across chains."],
-    ["/analyze-meme", "fa-solid fa-magnifying-glass-chart", "分析 Meme", "Analyze Meme", "根据合约地址识别庄家集群并生成分析报告。", "Find operator clusters from a contract address and produce a report."],
-    ["/recent-summary", "fa-solid fa-clock-rotate-left", "近期总结", "Recent Summary", "总结近期发射、盈利、Dev 钱包与钱包组使用情况。", "Summarize launches, profit, dev wallets, and wallet-group activity."],
+    ["/narrative-trends", "fa-solid fa-arrow-trend-up", "叙事趋势", "Narrative Trends", "查看正在加速的互联网叙事和证据来源。", "Review accelerating internet narratives and public evidence."],
+    ["/analyze-meme", "fa-solid fa-magnifying-glass-chart", "分析叙事", "Analyze Narrative", "输入链接或合约，提取故事、来源、风险和重复度。", "Submit a link or contract to extract story, sources, risks, and crowding."],
+    ["/launch", "fa-solid fa-file-signature", "生成预案", "Create Plan", "把选中的叙事转成可审阅的 Launch-ready Plan。", "Turn a selected narrative into a reviewable launch-ready plan."],
+    ["/dev-market", "fa-solid fa-chart-line", "市场环境", "Market Context", "查看链上活跃度和同类 Meme 的历史样本。", "Review chain activity and historical comparable meme samples."],
+    ["/recent-summary", "fa-solid fa-clock-rotate-left", "研究总结", "Research Summary", "总结近期查看、保存和待复核的叙事。", "Summarize recently viewed, saved, and pending narrative reviews."],
   ].map(([command, icon, zh, en, descriptionZh, descriptionEn]) => `
     <button type="button" data-command="${command}" title="${t(descriptionZh, descriptionEn)}" aria-label="${t(`${zh}：${descriptionZh}`, `${en}: ${descriptionEn}`)}"><i class="${icon}" aria-hidden="true"></i><span>${t(zh, en)}</span></button>
   `).join("");
@@ -600,6 +603,24 @@ async function fileToBase64(file) {
   return btoa(binary);
 }
 
+async function uploadPumpMetadataFromBrowser(values, file) {
+  const formData = new FormData();
+  formData.append("file", file, file.name || "cooking.png");
+  formData.append("name", values.tokenName.trim());
+  formData.append("symbol", values.tokenSymbol.trim());
+  formData.append("description", `${values.tokenName.trim()} (${values.tokenSymbol.trim()})`);
+  formData.append("twitter", values.xUrl.trim());
+  formData.append("telegram", values.telegramUrl.trim());
+  formData.append("website", values.websiteUrl.trim());
+  formData.append("showName", "true");
+  const response = await fetch("https://pump.fun/api/ipfs", { method: "POST", body: formData });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body?.error || body?.message || `Pump metadata upload returned HTTP ${response.status}`);
+  const metadataUri = body?.metadataUri || body?.metadata_uri;
+  if (!metadataUri) throw new Error("Pump metadata upload did not return metadataUri");
+  return metadataUri;
+}
+
 async function submitInternalLaunch(form) {
   if (!form.reportValidity()) return;
   const values = Object.fromEntries(new FormData(form).entries());
@@ -613,7 +634,7 @@ async function submitInternalLaunch(form) {
   if (!state.launchMedia.file) return showToast(t("请上传 Cooking 图片。", "Upload a Cooking image."));
   const platform = state.selectedPlatform === "four" ? "fourmeme" : "pump";
   try {
-    const prepared = await apiRequest("/api/v1/launch/executions/prepare", { method: "POST", body: JSON.stringify({
+    const launchPayload = {
       platform,
       cookingWalletGroupId: cookingGroup.groupId,
       boundBuy: boundBuyEnabled ? {
@@ -625,7 +646,16 @@ async function submitInternalLaunch(form) {
       name: values.tokenName.trim(), symbol: values.tokenSymbol.trim(), description: `${values.tokenName.trim()} (${values.tokenSymbol.trim()})`,
       imageBase64: await fileToBase64(state.launchMedia.file), imageName: state.launchMedia.file.name, imageType: state.launchMedia.file.type,
       twitter: values.xUrl.trim(), telegram: values.telegramUrl.trim(), website: values.websiteUrl.trim(), developerBuyAmount: values.cookingBuyAmount || "0",
-    }) });
+    };
+    let prepared;
+    try {
+      prepared = await apiRequest("/api/v1/launch/executions/prepare", { method: "POST", body: JSON.stringify(launchPayload) });
+    } catch (prepareError) {
+      if (platform !== "pump" || prepareError.code !== "PUMP_METADATA_UPLOAD_FAILED") throw prepareError;
+      const metadataUri = await uploadPumpMetadataFromBrowser(values, state.launchMedia.file);
+      const { imageBase64, imageName, imageType, ...metadataPayload } = launchPayload;
+      prepared = await apiRequest("/api/v1/launch/executions/prepare", { method: "POST", body: JSON.stringify({ ...metadataPayload, metadataUri }) });
+    }
     const unit = state.selectedPlatform === "pump" ? "SOL" : "BNB";
     const boundBuyTotal = boundBuyEnabled ? (randomBoundBuy ? Number(values.boundBuyTotalAmount).toFixed(6) : (Number(values.boundBuyAmountPerWallet) * buyingGroup.walletCount).toFixed(6)) : "0";
     const allocationPreview = prepared.summary?.preparedBoundBuys || [];
@@ -636,7 +666,17 @@ async function submitInternalLaunch(form) {
     ));
     if (!approved) return;
     const result = await apiRequest(`/api/v1/launch/executions/${prepared.executionId}/confirm`, { method: "POST", body: JSON.stringify({ confirmationToken: prepared.confirmationToken }) });
-    sessionStorage.setItem("narraops-last-launch-tx", result.transactionHash);
+    const launchResult = {
+      ...result,
+      platform,
+      platformName: state.selectedPlatform === "four" ? "Four.Meme" : "Pump.fun",
+      tokenAddress: result.tokenAddress || result.mintAddress,
+    };
+    state.launchResult = launchResult;
+    sessionStorage.setItem("narraops-last-launch-result", JSON.stringify(launchResult));
+    if (result.transactionHash) sessionStorage.setItem("narraops-last-launch-tx", result.transactionHash);
+    renderLaunch();
+    return;
     showToast(t(`发射交易已提交：${result.transactionHash.slice(0, 12)}…`, `Launch submitted: ${result.transactionHash.slice(0, 12)}…`));
   } catch (error) {
     showToast(error.message || t("发射失败。", "Launch failed."));
@@ -684,6 +724,47 @@ async function connectRobinhoodWallet() {
     state.launchWallet.connecting = false;
     renderLaunch();
   }
+}
+
+function renderLaunchResultCard() {
+  const result = state.launchResult;
+  if (!result) return "";
+  const tokenAddress = result.tokenAddress || result.mintAddress || "";
+  const transactionHash = result.transactionHash || result.txHash || "";
+  const boundBuys = Array.isArray(result.boundBuys) ? result.boundBuys : [];
+  const platformName = result.platformName || result.platform || "Launch";
+  const status = result.status || "submitted";
+  return `
+    <section class="launch-result-panel">
+      <div class="launch-result-header">
+        <div>
+          <span class="section-kicker">LAUNCH RESULT</span>
+          <h3>${t("发射结果", "Launch result")}</h3>
+        </div>
+        <span class="simulation-pill">${escapeHtml(status)}</span>
+      </div>
+      <div class="launch-result-grid">
+        <div>
+          <small>${t("平台", "Platform")}</small>
+          <strong>${escapeHtml(platformName)}</strong>
+        </div>
+        <div>
+          <small>${t("Meme 合约 / Mint 地址", "Meme contract / mint address")}</small>
+          <code>${escapeHtml(tokenAddress || "-")}</code>
+          ${tokenAddress ? `<button class="compact-button" type="button" data-copy-address="${escapeHtml(tokenAddress)}"><i class="fa-regular fa-copy"></i>${t("复制", "Copy")}</button>` : ""}
+        </div>
+        <div>
+          <small>${t("发射交易", "Launch transaction")}</small>
+          <code>${escapeHtml(transactionHash || "-")}</code>
+          ${transactionHash ? `<button class="compact-button" type="button" data-copy-address="${escapeHtml(transactionHash)}"><i class="fa-regular fa-copy"></i>${t("复制", "Copy")}</button>` : ""}
+        </div>
+        <div>
+          <small>${t("T1-T5 买入", "T1-T5 buys")}</small>
+          <strong>${boundBuys.length ? `${boundBuys.filter((buy) => buy.status !== "failed").length}/${boundBuys.length}` : t("未启用", "Disabled")}</strong>
+        </div>
+      </div>
+    </section>
+  `;
 }
 
 function renderLaunch() {
@@ -807,7 +888,7 @@ function renderLaunch() {
         <label class="launch-field">
           <span>${t("Cooking 钱包买入金额", "Cooking wallet buy amount")}</span>
           <div class="launch-amount-input">
-            <input class="field-input" name="cookingBuyAmount" type="number" min="0" step="0.0001" placeholder="0.00" />
+            <input class="field-input" name="cookingBuyAmount" type="number" min="0" step="any" placeholder="0.00" />
             <span>${selected.unit}</span>
           </div>
         </label>
@@ -831,7 +912,7 @@ function renderLaunch() {
         <label class="launch-field" id="equalBoundBuyAmountField">
           <span>${t("每钱包买入金额", "Buy amount per wallet")}</span>
           <div class="launch-amount-input">
-            <input class="field-input" name="boundBuyAmountPerWallet" type="number" min="0.000000001" step="0.0001" placeholder="0.00" />
+            <input class="field-input" name="boundBuyAmountPerWallet" type="number" min="0.000000001" step="any" placeholder="0.00" />
             <span>${selected.unit}</span>
           </div>
           <small>${t("所选钱包组内每个钱包使用相同金额。总预算将在确认页计算。", "Every selected wallet uses this amount. The total budget is calculated in the confirmation preview.")}</small>
@@ -839,7 +920,7 @@ function renderLaunch() {
         <label class="launch-field" id="randomBoundBuyTotalField" hidden>
           <span>${t("钱包组买入总额", "Wallet-group total buy amount")}</span>
           <div class="launch-amount-input">
-            <input class="field-input" name="boundBuyTotalAmount" type="number" min="0.000000001" step="0.0001" placeholder="0.00" />
+            <input class="field-input" name="boundBuyTotalAmount" type="number" min="0.000000001" step="any" placeholder="0.00" />
             <span>${selected.unit}</span>
           </div>
           <small>${t("该总额会随机拆分到组内全部钱包，逐钱包金额之和严格等于输入总额。", "This total is randomly split across every wallet; per-wallet amounts add up exactly to the entered total.")}</small>
@@ -862,16 +943,7 @@ function renderLaunch() {
     )}
     <section class="launch-grid">${platformCards}</section>
     ${launchForm}
-  `;
-}
-
-function renderInvite() {
-  viewRoot.innerHTML = `
-    ${pageHeading("Invite", t("邀请协作者加入你的叙事工作区", "Invite collaborators to your narrative workspace"), t("当前为本地演示状态，不会创建真实账户或奖励。", "This is a local demo and does not create real accounts or rewards."), `<span class="simulation-pill"><i class="fa-solid fa-flask" aria-hidden="true"></i>Demo</span>`)}
-    <div class="invite-grid">
-      <section class="invite-panel"><h3>${t("邀请链接", "Invite link")}</h3><p>${t("分享演示工作区入口。", "Share the demo workspace entry.")}</p><div class="invite-code"><code>narraops.local/invite/NARRA-DEMO</code><button class="compact-button" type="button" data-action="copy-invite"><i class="fa-regular fa-copy" aria-hidden="true"></i></button></div></section>
-      <section class="invite-panel"><h3>${t("协作概览", "Collaboration overview")}</h3><div class="settings-list"><div class="invite-stat"><span>${t("已邀请", "Invited")}</span><strong>0</strong></div><div class="invite-stat"><span>${t("已加入", "Joined")}</span><strong>0</strong></div><div class="invite-stat"><span>${t("待审核草案", "Drafts awaiting review")}</span><strong>0</strong></div></div></section>
-    </div>
+    ${renderLaunchResultCard()}
   `;
 }
 
@@ -883,7 +955,7 @@ function renderLegacySettings() {
   viewRoot.innerHTML = `
     ${pageHeading("Settings", t("配置来源、界面与安全边界", "Configure sources, interface, and safety boundaries"), t("所有设置仅保存在当前浏览器。", "All settings are stored only in this browser."), `<span class="simulation-pill"><i class="fa-solid fa-lock" aria-hidden="true"></i>${t("真实执行关闭", "Live execution off")}</span>`)}
     <div class="settings-grid">
-      <section class="settings-panel"><h3>${t("监控来源", "Monitoring sources")}</h3><p>${t("选择 Pulse 与 Agent 可使用的模拟来源。", "Choose simulated sources available to Pulse and Agent.")}</p><div class="settings-list">${settingsToggle("x", "X", t("推文与账号传播轨迹", "Posts and account propagation"))}${settingsToggle("tiktok", "TikTok", t("短视频趋势与模板扩散", "Short-video trends and template spread"))}${settingsToggle("instagram", "Instagram", t("视觉母题与创作者网络", "Visual motifs and creator networks"))}${settingsToggle("telegram", "Telegram", t("公开社区讨论", "Public community discussions"))}</div></section>
+      <section class="settings-panel"><h3>${t("监控来源", "Monitoring sources")}</h3><p>${t("选择 Pulse 与 Agent 可使用的数据来源。", "Choose data sources available to Pulse and Agent.")}</p><div class="settings-list">${settingsToggle("x", "X", t("推文与账号传播轨迹", "Posts and account propagation"))}${settingsToggle("tiktok", "TikTok", t("短视频趋势与模板扩散", "Short-video trends and template spread"))}${settingsToggle("instagram", "Instagram", t("视觉母题与创作者网络", "Visual motifs and creator networks"))}${settingsToggle("telegram", "Telegram", t("公开社区讨论", "Public community discussions"))}</div></section>
       <section class="settings-panel"><h3>${t("界面与安全", "Interface and safety")}</h3><p>${t("管理本地体验，不会改变执行权限。", "Manage local experience without changing execution permissions.")}</p><div class="settings-list">${settingsToggle("notifications", t("通知", "Notifications"), t("显示叙事信号提醒", "Show narrative signal alerts"))}<div class="settings-row"><div><strong>${t("语言", "Language")}</strong><span>${state.language === "zh" ? "简体中文" : "English"}</span></div><button class="compact-button" type="button" data-action="language">${state.language === "zh" ? "EN" : "中文"}</button></div><div class="settings-row"><div><strong>${t("主题", "Theme")}</strong><span>${state.theme === "soft" ? t("柔和黑", "Soft dark") : t("深黑", "Deep dark")}</span></div><button class="compact-button" type="button" data-action="theme"><i class="fa-regular ${state.theme === "soft" ? "fa-sun" : "fa-moon"}" aria-hidden="true"></i></button></div><div class="settings-row"><div><strong>${t("链上执行", "On-chain execution")}</strong><span>${t("未接入签名与广播服务", "Signing and broadcast services are not connected")}</span></div><span class="state-pill">Disabled</span></div></div></section>
     </div>
   `;
@@ -904,7 +976,13 @@ function shortAddress(value) {
 async function apiRequest(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body?.error?.message || body?.message || `HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(body?.error?.message || body?.message || `HTTP ${response.status}`);
+    error.code = body?.error?.code;
+    error.details = body?.error?.details;
+    error.status = response.status;
+    throw error;
+  }
   return body;
 }
 
@@ -974,8 +1052,6 @@ function transferEndpointValue(value, direction = "destination") {
   return { type: "login_wallet", ...(address ? { address } : {}) };
 }
 
-}
-
 function nativeBalances(value = {}) {
   const rows = Object.entries(value).filter(([, amount]) => Number(amount) !== 0);
   return rows.length ? rows.map(([asset, amount]) => `${Number(amount).toLocaleString(undefined, { maximumFractionDigits: 9 })} ${asset}`).join(" · ") : "0 SOL · 0 BNB";
@@ -1022,7 +1098,7 @@ function renderAssetsLegacy() {
     ? `<section class="asset-overview-panel"><div class="asset-section-heading"><div><span>${t("个人资产", "Personal assets")}</span><h2>${t("登录钱包", "Login wallet")}</h2></div><span class="state-pill">${t("链上实时", "Live on-chain")}</span></div><div class="login-wallet-list">${loginWalletRows || `<div class="empty-state">${t("未发现登录钱包", "No login wallet found")}</div>`}</div></section>`
     : `<section class="asset-overview-panel"><div class="asset-section-heading"><div><span>${t("个人资产", "Personal assets")}</span><h2>${t("连接钱包", "Connected wallet")}</h2></div><button class="compact-button" type="button" data-action="login-web3">${t("连接", "Connect")}</button></div><div class="empty-state">${t("连接后显示钱包地址及真实 SOL / BNB 余额。", "Connect to display your wallet address and live SOL / BNB balance.")}</div></section>`;
   viewRoot.innerHTML = `
-    ${pageHeading("Assets", t("个人资产与钱包组", "Personal assets and wallet groups"), liveWallets ? t("真实多链钱包已在本地加密仓中创建。", "Real multi-chain wallets are stored in the encrypted vault.") : t("统一查看账户表现、钱包组资产与模拟钱包。", "Review account performance, wallet-group assets, and simulated wallets."), `<span class="simulation-pill"><i class="fa-solid fa-shield-halved"></i>${liveWallets ? t("真实钱包 · 加密保存", "Real wallets · Encrypted") : t("模拟资产 · 真实执行关闭", "Mock assets · Live execution off")}</span><button class="secondary-button" type="button" data-action="refresh-assets"><i class="fa-solid fa-arrows-rotate"></i>${t("刷新", "Refresh")}</button>`)}
+    ${pageHeading("Assets", t("个人资产与钱包组", "Personal assets and wallet groups"), liveWallets ? t("真实多链钱包已在本地加密仓中创建。", "Real multi-chain wallets are stored in the encrypted vault.") : t("统一查看账户表现、钱包组资产与执行准备。", "Review account performance, wallet-group assets, and execution preparation."), `<span class="simulation-pill"><i class="fa-solid fa-shield-halved"></i>${liveWallets ? t("真实钱包 · 加密保存", "Real wallets · Encrypted") : t("执行准备 · 真实执行关闭", "Execution prep · Live execution off")}</span><button class="secondary-button" type="button" data-action="refresh-assets"><i class="fa-solid fa-arrows-rotate"></i>${t("刷新", "Refresh")}</button>`)}
     ${status}
     ${loginWalletCard}
     <section class="asset-overview-panel account-wallet-card"><div class="account-wallet-tabs"><strong>${t("钱包", "Wallets")} (${totalWallets})</strong><div class="period-switcher">${periods}</div></div><div class="account-balance"><span>${t("链上总余额", "Total on-chain balances")}</span><strong>${portfolio ? escapeHtml(nativeBalances(portfolio.balances)) : "—"}</strong></div><div class="account-profit-grid"><span><small>${t("数据来源", "Data source")}</small><strong>${portfolio?.dataStatus === "live_native_balances" ? t("链上 RPC 实时读取", "Live chain RPC") : "—"}</strong></span><span><small>${t("成交额", "Turnover")}</small><strong>—</strong></span><span><small>${t("已实现盈亏", "Realized P&L")}</small><strong>—</strong></span><span><small>${t("未实现盈亏", "Unrealized P&L")}</small><strong>—</strong></span></div><div class="account-wallet-actions"><button type="button" data-action="deposit-disabled"><i class="fa-solid fa-arrow-down"></i><span>${t("充值", "Deposit")}</span></button><button type="button" data-action="withdraw-disabled"><i class="fa-solid fa-arrow-up"></i><span>${t("提取", "Withdraw")}</span></button><button type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i><span>${t("转账", "Transfer")}</span></button></div></section>
@@ -1107,13 +1183,92 @@ async function submitLoginWalletDistribution(preview) {
     const latest = await apiRequest("/api/v1/chains/solana/latest-blockhash");
     transaction.recentBlockhash = latest.blockhash;
     transaction.feePayer = new window.solanaWeb3.PublicKey(source);
-    return provider.signAndSendTransaction(transaction);
+    if (typeof provider.signTransaction === "function") {
+      const signed = await provider.signTransaction(transaction);
+      return await apiRequest("/api/v1/chains/solana/send-transaction", { method: "POST", body: JSON.stringify({ signedTransactionBase64: bytesToBase64(signed.serialize()) }) });
+    }
+    const result = await provider.signAndSendTransaction(transaction);
+    return { signature: result?.signature || result, txHash: result?.signature || result, status: "submitted", confirmed: false };
   }
   if (preview.allocations.length !== 1) throw new Error(t("BSC 登录钱包批量分发需要批量合约，当前只能向一个地址发送", "BSC login-wallet distribution requires the batch contract; only one destination is currently supported"));
   const allocation = preview.allocations[0];
   const provider = await activeEvmProvider(allocation.from);
   if (!provider) throw new Error(t("请切换到当前 BSC 登录钱包", "Switch to the connected BSC wallet"));
   return provider.request({ method: "eth_sendTransaction", params: [{ from: allocation.from, to: allocation.to, value: `0x${BigInt(allocation.atomic).toString(16)}` }] });
+}
+
+function transferErrorMessage(error) {
+  if (!error) return "";
+  if (error.details?.signature) return `${error.message} · ${shortAddress(error.details.signature)}`;
+  return error.message || String(error);
+}
+
+function transferResultMessage(result) {
+  const transactions = Array.isArray(result?.transactions) ? result.transactions : [];
+  const failed = transactions.filter((item) => item.status === "failed");
+  const succeeded = transactions.filter((item) => item.status !== "failed");
+  if (failed.length > 0) {
+    const first = failed[0]?.error?.message || failed[0]?.error?.code || result?.error?.message || t("部分转账失败", "Some transfers failed");
+    return {
+      tone: succeeded.length > 0 ? "warn" : "error",
+      text: succeeded.length > 0
+        ? `${t("部分完成", "Partially completed")}：${succeeded.length}/${transactions.length} · ${first}`
+        : `${t("转账失败", "Transfer failed")}：${first}`,
+    };
+  }
+  const txHashes = [...new Set(transactions.map((item) => item.txHash).filter(Boolean))];
+  return {
+    tone: "success",
+    text: `${t("转账已广播", "Transfer broadcasted")}：${transactions.length || 1} ${t("笔", "transfers")}${txHashes[0] ? ` · ${shortAddress(txHashes[0])}` : ""}`,
+  };
+}
+
+function setCompactTransferStatus(message, tone = "info") {
+  const container = modalBody.querySelector(".compact-transfer-preview");
+  if (!container) return;
+  let status = container.querySelector(".compact-transfer-status");
+  if (!status) {
+    status = document.createElement("div");
+    status.className = "compact-transfer-status";
+    container.appendChild(status);
+  }
+  status.dataset.tone = tone;
+  status.textContent = message;
+}
+
+async function executeTransferPreview(preview) {
+  if (!preview || state.assets.transferBusy) return;
+  state.assets.transferBusy = true;
+  state.assets.transferError = null;
+  const button = modalBody.querySelector('[data-action="confirm-transfer-plan"]');
+  if (button) {
+    button.disabled = true;
+    button.textContent = t("正在签名并广播…", "Signing and broadcasting…");
+  }
+  setCompactTransferStatus(t("正在提交链上交易，请等待返回结果。", "Submitting on-chain transaction. Waiting for result."), "info");
+  try {
+    const result = preview.clientSigned
+      ? await submitLoginWalletDistribution(preview)
+      : await apiRequest("/api/v1/transfers", {
+          method: "POST",
+          headers: { "Idempotency-Key": preview.idempotencyKey },
+          body: JSON.stringify({ previewToken: preview.previewToken, confirmationToken: preview.confirmationToken, idempotencyKey: preview.idempotencyKey }),
+        });
+    state.assets.transferResult = result;
+    const message = transferResultMessage(result);
+    setCompactTransferStatus(message.text, message.tone);
+    await loadAssets({ keepGroup: true });
+  } catch (error) {
+    state.assets.transferError = error;
+    setCompactTransferStatus(transferErrorMessage(error), "error");
+    console.error("asset transfer failed", error);
+  } finally {
+    state.assets.transferBusy = false;
+    if (button) {
+      button.disabled = false;
+      button.textContent = t("确认签名并广播", "Confirm, sign and broadcast");
+    }
+  }
 }
 
 function accountWallet(chain = state.assets.accountAssetChain) {
@@ -1155,6 +1310,12 @@ function decimalToAtomic(value, decimals) {
   const [whole, fraction = ""] = normalized.split(".");
   if (fraction.length > decimals) throw new Error(t("数量精度过高", "Amount has too many decimal places"));
   return BigInt(whole) * 10n ** BigInt(decimals) + BigInt((fraction + "0".repeat(decimals)).slice(0, decimals));
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }
 
 async function activeEvmProvider(address) {
@@ -1228,8 +1389,6 @@ function renderCurrentView() {
   updateNavigation();
   applyStaticTranslations();
   if (state.view === "go") renderGo();
-  else if (state.view === "launch") renderLaunch();
-  else if (state.view === "invite") renderInvite();
   else if (state.view === "assets") renderAssets();
   else renderPulse();
 }
@@ -1402,7 +1561,7 @@ function walletProvider(walletId) {
 }
 
 function openOnboarding() {
-  openModal({ kicker: "NarraOps", title: t("欢迎来到 Agentic Meme Launch OS", "Welcome to the Agentic Meme Launch OS"), content: `<p class="onboarding-lead">${t("从叙事发现到链上发射、钱包组运营，NarraOps 把完整工作流放在一个控制台中。", "From narrative discovery to on-chain launch and wallet operations, NarraOps keeps the workflow in one console.")}</p><div class="onboarding-grid"><article><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Go</strong><span>${t("让 Agent 搜索叙事、生成素材并组织任务。", "Discover narratives, generate assets, and orchestrate work.")}</span></article><article><i class="fa-solid fa-rocket"></i><strong>Launch</strong><span>${t("连接 Cooking 钱包并在支持的平台真实发射。", "Launch on supported platforms with a Cooking wallet.")}</span></article><article><i class="fa-solid fa-wave-square"></i><strong>Pulse</strong><span>${t("追踪信号、链上状态和执行进度。", "Track signals, on-chain state, and execution progress.")}</span></article><article><i class="fa-solid fa-wallet"></i><strong>Assets</strong><span>${t("查看登录钱包、创建钱包组并管理真实资产。", "View login wallets, create groups, and manage live assets.")}</span></article></div><button class="primary-button onboarding-start" type="button" data-modal-action="complete-onboarding">${t("我知道了，开始使用", "Got it, start using NarraOps")}</button>` });
+  openModal({ kicker: "NarraOps", title: t("欢迎来到叙事发现工作台", "Welcome to the narrative discovery workspace"), content: `<p class="onboarding-lead">${t("NarraOps 帮助 Meme Dev 发现、筛选和解释可 Meme 化的互联网叙事，并把高潜力叙事转成可审阅的发射预案。", "NarraOps helps meme devs discover, filter, and explain memeable internet narratives, then turn high-potential narratives into reviewable launch-ready plans.")}</p><div class="onboarding-grid"><article><i class="fa-solid fa-wave-square"></i><strong>Pulse</strong><span>${t("查看叙事机会、公开证据、风险和机会状态。", "Review narrative opportunities, public evidence, risks, and opportunity status.")}</span></article><article><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Go</strong><span>${t("把链接、文本或 Pulse 机会转成固定 Schema 的预案。", "Turn links, text, or Pulse opportunities into fixed-schema plans.")}</span></article><article><i class="fa-solid fa-wallet"></i><strong>Assets</strong><span>${t("管理钱包组、资产视图和执行准备，真实执行默认关闭。", "Manage wallet groups, asset views, and execution preparation with live execution disabled by default.")}</span></article></div><button class="primary-button onboarding-start" type="button" data-modal-action="complete-onboarding">${t("我知道了，开始使用", "Got it, start using NarraOps")}</button>` });
 }
 
 async function linkSolanaIdentity(provider) {
@@ -1594,10 +1753,10 @@ function getAgentResponse(command) {
     return {
       role: "agent",
       timestamp: getMessageTime(),
-      contentZh: "Launch Meme 草案已创建。它将组织目标链、发射平台、Dev 钱包、钱包组、X/网站绑定和钱包组买卖决策。",
-      contentEn: "A Launch Meme draft is ready. It organizes the target chain, launchpad, dev wallet, wallet group, X/website binding, and wallet-group trading decisions.",
-      suggestionZh: "先选择目标链并连接 Dev 钱包，再选择钱包组。",
-      suggestionEn: "Choose the target chain and connect the dev wallet before selecting a wallet group.",
+      contentZh: "发射预案已创建。它会把叙事、名称、Ticker、来源链接、图片、目标链、平台和钱包组整理为可审阅的固定 Schema。",
+      contentEn: "A launch-ready plan is ready. It organizes the narrative, name, ticker, source links, image, target chain, platform, and wallet group into a reviewable fixed schema.",
+      suggestionZh: "先补齐来源链接和图片，再审阅链、平台与钱包组。",
+      suggestionEn: "Complete the source links and image first, then review the chain, platform, and wallet group.",
       card: { type: "launch_draft" },
     };
   }
@@ -1651,7 +1810,6 @@ function switchView(view) {
   window.location.hash = view;
   renderCurrentView();
   if (view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
-  if (view === "launch") loadLaunchGroups();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -1809,16 +1967,9 @@ viewRoot.addEventListener("click", async (event) => {
 
   const action = event.target.closest("[data-action]")?.dataset.action;
   if (action === "scan") {
-    showToast(t("模拟扫描已完成，未调用真实数据源。", "Simulated scan completed without live data sources."));
+    showToast(t("样本已刷新；生产数据源接入后将切换为实时发现。", "Samples refreshed. Live discovery will activate after production sources are connected."));
   } else if (action === "view-all") {
     showToast(t("完整机会库将在数据源接入后开放。", "The full opportunity library opens after source integration."));
-  } else if (action === "copy-invite") {
-    try {
-      await navigator.clipboard.writeText("http://127.0.0.1:5188/app.html#invite");
-      showToast(t("演示邀请链接已复制。", "Demo invite link copied."));
-    } catch {
-      showToast(t("浏览器未授予剪贴板权限。", "Clipboard permission was not granted."));
-    }
   } else if (action === "language") {
     state.language = state.language === "zh" ? "en" : "zh";
     localStorage.setItem("narraops-language", state.language);
@@ -1855,14 +2006,7 @@ viewRoot.addEventListener("click", async (event) => {
   } else if (action === "confirm-transfer-plan") {
     const preview = state.assets.transferPreview;
     if (!preview) return;
-    try {
-      state.assets.transferBusy = true;
-      const result = preview.clientSigned ? await submitLoginWalletDistribution(preview) : await apiRequest("/api/v1/transfers", { method: "POST", headers: { "Idempotency-Key": preview.idempotencyKey }, body: JSON.stringify({ previewToken: preview.previewToken, confirmationToken: preview.confirmationToken, idempotencyKey: preview.idempotencyKey }) });
-      state.assets.transferResult = result;
-      showToast(preview.clientSigned ? t("交易已提交到 Solana", "Transaction submitted to Solana") : result.status === "confirmed" ? t("链上交易已确认", "On-chain transfer confirmed") : `${t("交易状态", "Transfer status")}: ${result.status}`);
-      await loadAssets();
-    } catch (error) { showToast(error.message); }
-    finally { state.assets.transferBusy = false; renderAssets(); }
+    await executeTransferPreview(preview);
   }
 });
 
@@ -1912,6 +2056,7 @@ modal.addEventListener("submit", async (event) => {
         ? await previewLoginWalletDistribution(idempotencyKey)
         : await apiRequest("/api/v1/transfers/preview", { method: "POST", body: JSON.stringify({ chain: state.assets.transferChain, source: transferEndpointValue(state.assets.transferSource, "source"), destination: transferEndpointValue(state.assets.transferDestination), ...amountInput, distribution: state.assets.transferDistribution, idempotencyKey }) });
       state.assets.transferPreview = { ...preview, idempotencyKey };
+      state.assets.transferError = null;
       modalBody.querySelector(".compact-transfer-preview")?.remove();
       const rows = (preview.allocations || []).slice(0, 8).map((item, index) => `<div class="compact-preview-row"><span>${index + 1}</span><code>${escapeHtml(shortAddress(item.from || item.sourceWalletId || t("登录钱包", "Login wallet")))}</code><i class="fa-solid fa-arrow-right"></i><code>${escapeHtml(shortAddress(item.to || item.destinationWalletId || t("登录钱包", "Login wallet")))}</code><strong>${escapeHtml(item.amount)} ${escapeHtml(preview.currency)}</strong></div>`).join("");
       modalBody.insertAdjacentHTML("beforeend", `<div class="compact-transfer-preview"><div><strong>${t("转账总额", "Total transfer")}: ${escapeHtml(preview.estimatedAmount)} ${escapeHtml(preview.currency)}</strong><span>${preview.pairCount} ${t("笔", "transfers")} · ${(preview.unmatchedSourceWalletIds?.length || 0) + (preview.unmatchedDestinationWalletIds?.length || 0)} ${t("个未匹配", "unmatched")}</span></div>${rows ? `<div class="compact-preview-list">${rows}</div>` : ""}<button class="primary-button" type="button" data-action="confirm-transfer-plan">${t("确认签名并广播", "Confirm, sign and broadcast")}</button></div>`);
@@ -2110,12 +2255,9 @@ modal.addEventListener("click", async (event) => {
   if (event.target.closest('[data-action="confirm-transfer-plan"]')) {
     const preview = state.assets.transferPreview;
     if (!preview) return;
-    try {
-      const result = preview.clientSigned ? await submitLoginWalletDistribution(preview) : await apiRequest("/api/v1/transfers", { method: "POST", headers: { "Idempotency-Key": preview.idempotencyKey }, body: JSON.stringify({ previewToken: preview.previewToken, confirmationToken: preview.confirmationToken, idempotencyKey: preview.idempotencyKey }) });
-      closeModal();
-      showToast(preview.clientSigned ? t("交易已提交到钱包", "Transaction submitted by the wallet") : result.status === "confirmed" ? t("链上交易已确认", "On-chain transfer confirmed") : `${t("交易状态", "Transfer status")}: ${result.status}`);
-      await loadAssets();
-    } catch (error) { showToast(error.message); }
+    event.preventDefault();
+    event.stopPropagation();
+    await executeTransferPreview(preview);
     return;
   }
   const web3Chain = event.target.closest("[data-web3-login]")?.dataset.web3Login;

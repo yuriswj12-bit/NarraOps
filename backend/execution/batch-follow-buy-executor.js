@@ -60,7 +60,14 @@ export class BatchFollowBuyExecutor {
           results.push({ walletId: wallet.walletId, status: "submitted", transactionHash, amountAtomic: amounts[index].toString() });
         }
       } catch (error) {
-        results.push({ walletId: wallet.walletId, status: "failed", errorCode: error.code || "FOLLOW_BUY_FAILED", amountAtomic: amounts[index].toString() });
+        results.push({
+          walletId: wallet.walletId,
+          status: "failed",
+          errorCode: error.code || "FOLLOW_BUY_FAILED",
+          error: error.message,
+          details: error.details,
+          amountAtomic: amounts[index].toString(),
+        });
       } finally { privateKey.fill(0); }
     }
     return results;

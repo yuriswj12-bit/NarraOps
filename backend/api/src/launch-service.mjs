@@ -8,11 +8,13 @@ function decodeImage(value) {
 }
 
 export class LaunchPlanningService {
-  constructor({ solanaRpcUrl, bscRpcUrl, pumpMetadataUploadUrl, fetchImpl = fetch } = {}) {
+  constructor({ solanaRpcUrl, bscRpcUrl, pumpMetadataUploadUrl, pinataJwt, pinataGatewayUrl, fetchImpl = fetch } = {}) {
     this.pump = new PumpLaunchAdapter({
       connection: new Connection(solanaRpcUrl, "confirmed"),
       fetchImpl,
       metadataUploadUrl: pumpMetadataUploadUrl,
+      pinataJwt,
+      pinataGatewayUrl,
     });
     this.fourmeme = new FourMemeLaunchAdapter({
       fetchImpl,
@@ -25,14 +27,15 @@ export class LaunchPlanningService {
   }
 
   async plan(input) {
-    const image = decodeImage(input.imageBase64);
+    const image = input.imageBase64 ? decodeImage(input.imageBase64) : null;
     if (input.platform === "pump") {
       return this.pump.buildLaunch({
         userAddress: input.walletAddress,
         name: input.name,
         symbol: input.symbol,
         developerBuyLamports: parseUnits(input.developerBuyAmount, 9).toString(),
-        metadata: {
+        metadataUri: input.metadataUri,
+        metadata: image ? {
           image,
           imageName: input.imageName,
           imageType: input.imageType,
@@ -40,9 +43,10 @@ export class LaunchPlanningService {
           twitter: input.twitter,
           telegram: input.telegram,
           website: input.website,
-        },
+        } : undefined,
       });
     }
+    if (!image) throw new Error("Four.Meme launch requires imageBase64");
     return this.fourmeme.buildLaunch({
       address: input.walletAddress,
       loginSignature: input.loginSignature,

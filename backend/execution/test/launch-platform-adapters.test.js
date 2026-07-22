@@ -22,16 +22,25 @@ test("Pump adapter builds a mint-partially-signed transaction for the browser wa
 
 test("Pump adapter uploads image metadata before building the launch", async () => {
   const user = Keypair.generate();
-  let uploadBody;
+  const uploads = [];
   const adapter = new PumpLaunchAdapter({
     connection: { getLatestBlockhash: async () => ({ blockhash: Keypair.generate().publicKey.toBase58(), lastValidBlockHeight: 101 }) },
     offlineSdk: { createV2Instruction: async ({ mint }) => new TransactionInstruction({ programId: Keypair.generate().publicKey, keys: [{ pubkey: user.publicKey, isSigner: true, isWritable: true }, { pubkey: mint, isSigner: true, isWritable: true }], data: Buffer.alloc(0) }) },
-    fetchImpl: async (_url, options) => { uploadBody = options.body; return { ok: true, json: async () => ({ metadataUri: "ipfs://narra" }) }; },
+    pinataJwt: "test.jwt",
+    pinataGatewayUrl: "https://ipfs.test/ipfs",
+    fetchImpl: async (url, options) => {
+      uploads.push({ url, options });
+      return { ok: true, json: async () => ({ IpfsHash: uploads.length === 1 ? "image-hash" : "metadata-hash" }) };
+    },
   });
   const result = await adapter.buildLaunch({ userAddress: user.publicKey.toBase58(), name: "Narra", symbol: "NARRA", metadata: { image: Buffer.from("png"), description: "Agent meme" } });
-  assert.equal(uploadBody.get("name"), "Narra");
-  assert.equal(uploadBody.get("symbol"), "NARRA");
-  assert.equal(result.metadataUri, "ipfs://narra");
+  assert.equal(uploads[0].url, "https://api.pinata.cloud/pinning/pinFileToIPFS");
+  assert.equal(uploads[1].url, "https://api.pinata.cloud/pinning/pinJSONToIPFS");
+  const metadataPayload = JSON.parse(uploads[1].options.body);
+  assert.equal(metadataPayload.pinataContent.name, "Narra");
+  assert.equal(metadataPayload.pinataContent.symbol, "NARRA");
+  assert.equal(metadataPayload.pinataContent.image, "https://ipfs.test/ipfs/image-hash");
+  assert.equal(result.metadataUri, "https://ipfs.test/ipfs/metadata-hash");
 });
 
 test("Four.Meme adapter uses wallet login and builds TokenManager2 createToken calldata", async () => {

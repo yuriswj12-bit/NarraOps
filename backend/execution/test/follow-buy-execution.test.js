@@ -35,3 +35,27 @@ test("fixed-total random allocation is deterministic and preserves the exact tot
   assert.ok(new Set(first.map(String)).size > 10);
   assert.ok(first.every((amount) => amount > 0n));
 });
+
+test("failed bound buys preserve the concrete adapter error", async () => {
+  const password = "test-password-at-least-16-characters";
+  const wallet = Wallet.createRandom();
+  const entries = [{ walletId: "w0", walletReferenceId: "w0:evm", publicAddress: wallet.address, envelope: sealWalletSecret({ walletReferenceId: "w0:evm", publicAddress: wallet.address, privateKey: wallet.privateKey, password }) }];
+  const executor = new BatchFollowBuyExecutor({
+    walletRepository: { getEncryptedWallet: async () => entries[0].envelope },
+    fourMemePlanner: { buildBuy: async ({ userAddress, fundsWei }) => ({ from: userAddress, chainId: 56, to: "0x3333333333333333333333333333333333333333", value: fundsWei, data: "0x" }) },
+    evmAdapter: {
+      signTransaction: async () => "signed",
+      broadcastTransaction: async () => {
+        const error = new Error("insufficient funds for gas");
+        error.code = "EVM_INSUFFICIENT_FUNDS";
+        error.details = { balance: "0" };
+        throw error;
+      },
+    },
+  });
+  const [result] = await executor.execute({ platform: "fourmeme", tokenAddress: "0x2222222222222222222222222222222222222222", wallets: entries, allocation: { mode: "PER_WALLET_EQUAL", amountPerWalletAtomic: "50" }, password });
+  assert.equal(result.status, "failed");
+  assert.equal(result.errorCode, "EVM_INSUFFICIENT_FUNDS");
+  assert.equal(result.error, "insufficient funds for gas");
+  assert.deepEqual(result.details, { balance: "0" });
+});

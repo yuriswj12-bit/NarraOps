@@ -1,3 +1,4 @@
+import bs58 from "bs58";
 import { openWalletSecret } from "./encrypted-wallet-vault.js";
 import { ExecutionError } from "./errors.js";
 
@@ -19,9 +20,11 @@ export class WalletExportService {
         try {
           const chain = kind === "solana" ? "Solana" : "EVM";
           const address = kind === "solana" ? wallet.addresses.solana : wallet.addresses.bsc;
-          const privateKey = kind === "solana" ? `[${[...Buffer.from(secret.toString("utf8"), "base64")].join(",")}]` : secret.toString("utf8");
-          rows.push(`${chain} 地址: ${address}`, `${chain} 私钥: "${privateKey}"`);
-        } finally { secret.fill(0); }
+          const privateKey = kind === "solana" ? bs58.encode(Buffer.from(secret.toString("utf8"), "base64")) : secret.toString("utf8");
+          rows.push(`${chain} 地址: ${address}`, `${chain} 私钥: ${privateKey}`);
+        } finally {
+          secret.fill(0);
+        }
       }
       blocks.push(rows.join("\n"));
     }

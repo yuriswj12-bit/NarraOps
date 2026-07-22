@@ -346,6 +346,12 @@ components:
         application/json:
           schema: { $ref: './schemas/error.schema.json' }
   schemas:
+    NarrativeEvidence:
+      $ref: './schemas/narrative-evidence.schema.json'
+    PulseOpportunityCard:
+      $ref: './schemas/pulse-opportunity-card.schema.json'
+    GoLaunchReadyPlan:
+      $ref: './schemas/go-launch-ready-plan.schema.json'
     LaunchBoundBuy:
       type: object
       additionalProperties: false

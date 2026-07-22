@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { WalletExportService } from "../wallet-export-service.js";
 import { WalletProvisioningService } from "../wallet-provisioning-service.js";
 
-test("exports an in-memory text artifact with matching addresses and private keys", async () => {
+test("exports an in-memory text artifact with matching addresses and base58 Solana private keys", async () => {
   const password = "test-password-at-least-16-characters";
   const envelopes = new Map();
   const repository = {
@@ -17,6 +17,7 @@ test("exports an in-memory text artifact with matching addresses and private key
   );
   assert.match(result.fileName, /^Test group-solana-/);
   assert.match(result.content, new RegExp(wallet.addresses.solana));
-  assert.match(result.content, /Solana 私钥: "\[\d+(?:,\d+){63}\]"/);
+  assert.match(result.content, /Solana 私钥: [1-9A-HJ-NP-Za-km-z]{80,100}/);
+  assert.doesNotMatch(result.content, /\[\d+(?:,\d+){63}\]/);
   assert.equal(result.walletCount, 1);
 });

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createApplication } from "../src/app.mjs";
 import { createLogger } from "../src/security.mjs";
+import { LaunchExecutionCoordinator } from "../src/launch-execution-coordinator.mjs";
 
 const config = { bodyLimitBytes: 9_000_000, taskStepDelayMs: 0, sseHeartbeatMs: 1_000 };
 
@@ -48,6 +49,106 @@ test("launch-bound buys accept a fixed-total random allocation", async (t) => {
   const response = await post(baseUrl, "/api/v1/launch/executions/prepare", { platform: "pump", cookingWalletGroupId: "cook-group", boundBuy: { enabled: true, walletGroupId: "buy-group", allocation: { mode: "TOTAL_RANDOM", totalAmount: "10" } }, name: "Narra", symbol: "NARRA", imageBase64: Buffer.from("image").toString("base64"), developerBuyAmount: "0.1" });
   assert.equal(response.status, 201);
   assert.equal(received.boundBuy.allocation.totalAmount, "10");
+});
+
+test("confirmed Pump launch still returns mint and tx when bound buys fail", async () => {
+  const records = new Map();
+  const repository = {
+    create(execution) { records.set(execution.executionId, structuredClone(execution)); return structuredClone(execution); },
+    get(id) { return records.has(id) ? structuredClone(records.get(id)) : null; },
+    update(id, patch) {
+      const current = records.get(id);
+      Object.assign(current, structuredClone(patch));
+      records.set(id, current);
+      return structuredClone(current);
+    },
+  };
+  const walletGroupRepository = {
+    getSigningWallet() { return { publicAddress: "Cook111111111111111111111111111111111111111", walletReferenceId: "cook:solana" }; },
+    getExecutionWallets() {
+      return [
+        { walletId: "w1", publicAddress: "Buy1111111111111111111111111111111111111111", walletReferenceId: "w1:solana" },
+        { walletId: "w2", publicAddress: "Buy2222222222222222222222222222222222222222", walletReferenceId: "w2:solana" },
+      ];
+    },
+  };
+  const coordinator = new LaunchExecutionCoordinator({
+    launchService: { pump: {}, plan: async () => ({ mintAddress: "Mint111111111111111111111111111111111111111", transactionBase64: "tx" }) },
+    signingService: { signAndBroadcast: async () => ({ transactionHash: "launchTx", mintAddress: "Mint111111111111111111111111111111111111111" }) },
+    walletGroupRepository,
+    vaultPassword: "test-password",
+    confirmationProvider: { wait: async () => ({ tokenAddress: "Mint111111111111111111111111111111111111111", blockNumber: 100 }) },
+    followBuyExecutor: {
+      prepareAllocation: ({ wallets }) => wallets.map((wallet) => ({ walletId: wallet.walletId, amountAtomic: "1000000" })),
+      execute: async () => { throw new Error("follow buy failed"); },
+    },
+    repository,
+    now: () => 1_000,
+  });
+  const prepared = await coordinator.prepare({
+    platform: "pump",
+    cookingWalletGroupId: "cook",
+    boundBuy: { enabled: true, walletGroupId: "buy", allocation: { mode: "PER_WALLET_EQUAL", amountPerWallet: "0.001" }, slippageBps: 500 },
+    name: "Narra",
+    symbol: "NARRA",
+    developerBuyAmount: "0.001",
+  });
+  const confirmed = await coordinator.confirm({ executionId: prepared.executionId, confirmationToken: prepared.confirmationToken });
+  assert.equal(confirmed.transactionHash, "launchTx");
+  assert.equal(confirmed.tokenAddress, "Mint111111111111111111111111111111111111111");
+  assert.equal(confirmed.status, "bound_buys_failed");
+  assert.equal(confirmed.boundBuys.length, 2);
+});
+
+test("Pump launch-bound buys are blocked before launch when selected wallets lack SOL", async () => {
+  const records = new Map();
+  const repository = {
+    create(execution) { records.set(execution.executionId, structuredClone(execution)); return structuredClone(execution); },
+    get(id) { return records.has(id) ? structuredClone(records.get(id)) : null; },
+    update(id, patch) {
+      const current = records.get(id);
+      Object.assign(current, structuredClone(patch));
+      records.set(id, current);
+      return structuredClone(current);
+    },
+  };
+  const cookingAddress = "DkmH6KpuEhExZEwpbgNy8t4KY47TqDziXh1geZERTAYo";
+  const buyAddress = "DmGzGQsLvTdg2oq9afStbaHNSoN5GFodvg9L2zo4Qmmj";
+  const coordinator = new LaunchExecutionCoordinator({
+    launchService: {
+      pump: {
+        connection: {
+          getBalance: async (address) => String(address) === cookingAddress ? 1_000_000_000 : 18_000_000,
+        },
+      },
+      plan: async () => {
+        throw new Error("plan should not run when bound-buy funds are insufficient");
+      },
+    },
+    signingService: {},
+    walletGroupRepository: {
+      getSigningWallet() { return { publicAddress: cookingAddress, walletReferenceId: "cook:solana" }; },
+      getExecutionWallets() { return [{ walletId: "w1", publicAddress: buyAddress, walletReferenceId: "w1:solana" }]; },
+    },
+    vaultPassword: "test-password",
+    confirmationProvider: {},
+    followBuyExecutor: {
+      prepareAllocation: () => [{ walletId: "w1", amountAtomic: "30000000" }],
+    },
+    repository,
+    now: () => 1_000,
+  });
+  await assert.rejects(
+    () => coordinator.prepare({
+      platform: "pump",
+      cookingWalletGroupId: "cook",
+      boundBuy: { enabled: true, walletGroupId: "buy", allocation: { mode: "PER_WALLET_EQUAL", amountPerWallet: "0.03" }, slippageBps: 500 },
+      name: "Narra",
+      symbol: "NARRA",
+      developerBuyAmount: "0.001",
+    }),
+    { code: "BOUND_BUY_WALLET_INSUFFICIENT_SOL" },
+  );
 });
 
 test("launch plan returns an unsigned client-confirmation payload", async (t) => {

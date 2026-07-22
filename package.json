@@ -2,9 +2,12 @@
   "name": "narraops-product",
   "version": "0.1.0",
   "private": true,
-  "description": "NarraOps local MVP prototype",
+  "description": "NarraOps AI-native narrative discovery workspace",
   "scripts": {
-    "start": "node server.js",
+    "start": "powershell -ExecutionPolicy Bypass -File scripts/start-narraops.ps1",
+    "start:frontend": "node server.js",
+    "start:api": "powershell -ExecutionPolicy Bypass -Command \"Set-Location backend/api; node --env-file-if-exists=../../.env src/server.mjs\"",
+    "typecheck": "tsc -p shared/tsconfig.json",
     "check": "node --check app.js && node --check server.js && node --check backend/execution/service.js",
     "test:execution": "node --test backend/execution/test/*.test.js"
   },
@@ -19,5 +22,8 @@
   },
   "overrides": {
     "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   }
 }

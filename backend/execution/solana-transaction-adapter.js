@@ -23,6 +23,19 @@ export class SolanaTransactionAdapter {
 
   async broadcastTransaction({ signedTransactionBase64 }) {
     if (!this.executionEnabled) throw new ExecutionError("REAL_EXECUTION_DISABLED", "Real Solana broadcasting is disabled");
-    return this.connection.sendRawTransaction(Buffer.from(signedTransactionBase64, "base64"), { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 });
+    try {
+      return await this.connection.sendRawTransaction(Buffer.from(signedTransactionBase64, "base64"), { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 });
+    } catch (error) {
+      const message = String(error?.message || error);
+      const details = { cause: message };
+      if (message.includes("custom program error: 0x1") || /insufficient|funds|lamports/i.test(message)) {
+        throw new ExecutionError(
+          "SOLANA_INSUFFICIENT_FUNDS",
+          "Cooking 钱包 SOL 不足：请降低 Cooking 钱包买入金额，或给 Cooking 钱包充值更多 SOL 后再发射。",
+          details,
+        );
+      }
+      throw new ExecutionError("SOLANA_BROADCAST_FAILED", `Solana 广播失败：${message}`, details);
+    }
   }
 }

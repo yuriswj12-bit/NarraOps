@@ -121,8 +121,10 @@ export function validateLaunchTransactionPlan(body) {
   base(body);
   const platform = string(body.platform, "platform", { required: true, max: 20 });
   if (!LAUNCH_PLATFORMS.has(platform)) throw new ApiError(400, "VALIDATION_ERROR", "platform must be pump or fourmeme");
-  const imageBase64 = string(body.imageBase64, "imageBase64", { required: true, max: 8_000_000 });
-  if (!BASE64_IMAGE_PATTERN.test(imageBase64)) throw new ApiError(400, "VALIDATION_ERROR", "imageBase64 must contain a base64-encoded image");
+  const imageBase64 = string(body.imageBase64, "imageBase64", { max: 8_000_000 });
+  const metadataUri = string(body.metadataUri, "metadataUri", { max: 2_000 });
+  if (!imageBase64 && !metadataUri) throw new ApiError(400, "VALIDATION_ERROR", "imageBase64 or metadataUri is required");
+  if (imageBase64 && !BASE64_IMAGE_PATTERN.test(imageBase64)) throw new ApiError(400, "VALIDATION_ERROR", "imageBase64 must contain a base64-encoded image");
   const developerBuyAmount = string(body.developerBuyAmount ?? "0", "developerBuyAmount", { required: true, max: 40 });
   if (!MONEY_PATTERN.test(developerBuyAmount)) throw new ApiError(400, "VALIDATION_ERROR", "developerBuyAmount must be a non-negative decimal string");
   const result = {
@@ -132,6 +134,7 @@ export function validateLaunchTransactionPlan(body) {
     symbol: string(body.symbol, "symbol", { required: true, max: 10 }),
     description: string(body.description, "description", { max: 1_000 }) || "",
     imageBase64,
+    metadataUri,
     imageName: string(body.imageName, "imageName", { max: 120 }) || "cooking.png",
     imageType: string(body.imageType, "imageType", { max: 80 }) || "image/png",
     twitter: string(body.twitter, "twitter", { max: 500 }) || "",

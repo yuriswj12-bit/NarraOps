@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/go-launch-ready-plan.schema.json",
+  "title": "Go Launch-ready Plan",
+  "type": "object",
+  "required": ["planId", "status", "tokenName", "ticker", "sourceLinks", "chain", "platform", "executionMode", "createdAt", "updatedAt"],
+  "properties": {
+    "planId": { "type": "string", "format": "uuid" },
+    "opportunityId": { "type": ["string", "null"], "maxLength": 128 },
+    "status": { "enum": ["draft", "ready_for_review", "approved", "simulation_complete", "execution_disabled"] },
+    "tokenName": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "ticker": { "type": "string", "pattern": "^[A-Z0-9]{1,12}$" },
+    "sourceLinks": {
+      "type": "object",
+      "required": ["primary"],
+      "properties": {
+        "primary": { "type": "string", "format": "uri", "maxLength": 2048 },
+        "secondary": { "type": ["string", "null"], "format": "uri", "maxLength": 2048 }
+      },
+      "additionalProperties": false
+    },
+    "imageUrl": { "type": ["string", "null"], "format": "uri", "maxLength": 2048 },
+    "chain": { "enum": ["solana", "bsc", "robinhood"] },
+    "platform": { "enum": ["pump_fun", "four_meme", "pons"] },
+    "walletGroupId": { "type": ["string", "null"], "maxLength": 128 },
+    "riskWarnings": { "type": "array", "items": { "type": "string", "maxLength": 512 }, "uniqueItems": true },
+    "executionMode": { "enum": ["review_only", "simulation", "disabled"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}
+
