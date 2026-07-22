@@ -7,10 +7,12 @@
     "build:frontend": "esbuild frontend/src/app.ts --bundle --format=iife --platform=browser --target=es2022 --outfile=app.js",
     "start": "npm run build:frontend && powershell -ExecutionPolicy Bypass -File scripts/start-narraops.ps1",
     "start:frontend": "npm run build:frontend && node server.js",
-    "start:api": "powershell -ExecutionPolicy Bypass -Command \"Set-Location backend/api; node --env-file-if-exists=../../.env src/server.mjs\"",
-    "typecheck": "tsc -p shared/tsconfig.json && tsc -p frontend/tsconfig.json",
-    "check": "npm run build:frontend && node --check app.js && node --check server.js && node --check backend/execution/service.js",
-    "test:execution": "node --test backend/execution/test/*.test.js"
+    "start:api": "npm --prefix backend/api start",
+    "build:api": "esbuild backend/api/src/server.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist/backend-api/server.mjs",
+    "typecheck": "tsc -p shared/tsconfig.json && tsc -p frontend/tsconfig.json && tsc -p backend/api/tsconfig.json",
+    "check": "npm run build:frontend && npm run build:api && node --check app.js && node --check server.js",
+    "test:api": "npm --prefix backend/api test",
+    "test:execution": "node --import tsx --test backend/execution/test/*.test.ts"
   },
   "dependencies": {
     "@four-meme/four-meme-ai": "^1.0.8",
@@ -26,6 +28,7 @@
   },
   "devDependencies": {
     "esbuild": "^0.25.12",
+    "tsx": "^4.23.1",
     "typescript": "^5.9.3"
   }
 }

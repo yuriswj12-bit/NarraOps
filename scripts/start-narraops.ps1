@@ -23,7 +23,7 @@ function Test-ApiReady {
 if (!(Test-ApiReady)) {
   Write-Host "Starting NarraOps API on 127.0.0.1:5190..."
   Start-Process -FilePath "node" `
-    -ArgumentList @("--env-file-if-exists=../../.env", "src/server.mjs") `
+    -ArgumentList @("--import", "tsx", "--env-file-if-exists=../../.env", "src/server.ts") `
     -WorkingDirectory $apiDir `
     -RedirectStandardOutput $apiOut `
     -RedirectStandardError $apiErr

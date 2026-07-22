@@ -19,9 +19,9 @@ NarraOps should not evolve as a simple JavaScript-only codebase. The product spa
 
 ## Current Product Rule
 
-Do not rewrite the whole product just to change languages.
+TypeScript is the default product-engineering language. Python remains the dedicated Pulse data-intelligence language, and SQL remains the durable-state language. JavaScript is limited to generated browser output and the small local static-file server.
 
-Keep existing JavaScript/MJS code running while behavior is still moving. New core modules should be designed so they can migrate toward TypeScript without changing product contracts.
+Language migration must preserve product contracts, safety switches, and tests. Changing an extension without a build, type-check, and regression path does not count as industrialization.
 
 ## Migration status
 
@@ -29,7 +29,10 @@ Keep existing JavaScript/MJS code running while behavior is still moving. New co
 - Root `app.js` is generated output and is no longer committed as source.
 - `frontend/src/lib/api-client.ts` owns the typed relative `/api/v1` request boundary.
 - The legacy UI monolith is temporarily marked `@ts-nocheck`; new extracted modules must compile under strict TypeScript.
-- The next migration target is Backend API, Agent, Auth, and Repository code. Execution adapters move only after those boundaries are typed and stable.
+- Backend API, Agent, Auth, Repository, integration, execution-adapter, and backend test sources now use TypeScript.
+- API and execution migrations retain temporary `@ts-nocheck` markers where the former JavaScript implementation still needs explicit domain types. These markers are migration debt, not the final type-safety target.
+- Production API deployment runs an esbuild-generated Node.js bundle; production does not execute TypeScript source directly.
+- Current regression gates cover 48 API tests and 43 execution tests, in addition to frontend/API builds and TypeScript checks.
 
 ## TypeScript First Areas
 
@@ -90,12 +93,12 @@ Avoid these failures:
 - Agent cards invent new fields not represented in schema;
 - launch status values drift between API, UI, and execution code.
 
-## Migration Path
+## Remaining Migration Path
 
-1. Keep the current JS/MJS product code stable.
-2. Add or update JSON Schema for Pulse and Go card contracts.
-3. Add TypeScript for new core API/UI boundaries.
+1. Extract typed UI state and SSE modules from the transitional frontend monolith.
+2. Replace `@ts-nocheck` in API request parsing, auth, repositories, and Agent contracts with explicit types.
+3. Replace `@ts-nocheck` in execution adapters and state machines only alongside focused safety tests.
 4. Keep Python workers independent and schema-validated.
-5. Move high-risk JS modules to TypeScript only after the contract is stable.
+5. Enforce build, type-check, API tests, execution tests, and schema validation in CI.
 
-One-shot migration is not the industrialization path.
+The source-language conversion is complete for the core product path. The remaining work is increasing strict type coverage without destabilizing the public-beta deployment.
