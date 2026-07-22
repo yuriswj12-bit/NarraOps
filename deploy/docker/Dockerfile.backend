@@ -1,0 +1,26 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY backend ./backend
+COPY shared ./shared
+COPY tsconfig.base.json ./
+RUN npm run build:api
+
+FROM node:20-alpine
+
+ENV NODE_ENV=production
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY --from=builder /app/dist/backend-api/server.mjs ./dist/backend-api/server.mjs
+
+USER node
+EXPOSE 5190
+
+CMD ["node", "dist/backend-api/server.mjs"]

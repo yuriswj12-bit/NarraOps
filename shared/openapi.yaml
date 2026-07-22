@@ -346,6 +346,12 @@ components:
         application/json:
           schema: { $ref: './schemas/error.schema.json' }
   schemas:
+    NarrativeEvidence:
+      $ref: './schemas/narrative-evidence.schema.json'
+    PulseOpportunityCard:
+      $ref: './schemas/pulse-opportunity-card.schema.json'
+    GoLaunchReadyPlan:
+      $ref: './schemas/go-launch-ready-plan.schema.json'
     LaunchBoundBuy:
       type: object
       additionalProperties: false
@@ -353,20 +359,21 @@ components:
       properties:
         enabled: { type: boolean }
         walletGroupId: { type: string, minLength: 1, maxLength: 64 }
-        timing:
+        window:
           type: object
           additionalProperties: false
-          required: [mode, blockOffset]
+          required: [earliestBlockOffset, latestBlockOffset]
           properties:
-            mode: { type: string, enum: [T0_BUNDLE, BLOCK_OFFSET] }
-            blockOffset: { type: integer, minimum: 0, maximum: 5 }
+            earliestBlockOffset: { type: integer, const: 1 }
+            latestBlockOffset: { type: integer, const: 5 }
         allocation:
           type: object
           additionalProperties: false
           required: [mode]
           properties:
-            mode: { type: string, enum: [PER_WALLET_EQUAL, PER_WALLET_CUSTOM] }
+            mode: { type: string, enum: [PER_WALLET_EQUAL, PER_WALLET_CUSTOM, TOTAL_RANDOM] }
             amountPerWallet: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
+            totalAmount: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
             customAmounts:
               type: array
               items:
@@ -377,7 +384,6 @@ components:
                   walletId: { type: string, minLength: 1, maxLength: 128 }
                   amount: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
         slippageBps: { type: integer, minimum: 1, maximum: 5000, default: 500 }
-        deadlineBlocks: { type: integer, minimum: 1, maximum: 20, default: 5 }
     ExecutionRequest:
       type: object
       additionalProperties: false

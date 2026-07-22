@@ -6,16 +6,52 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
   backend:
-    image: narraops/backend:PLACEHOLDER
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.backend
     expose:
       - "5190"
     env_file:
       - ../../.env
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 5190
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
+      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      REAL_EXECUTION_ENABLED: "false"
+      WALLET_STORE_PATH: /app/data/wallet-vault.json
+      WALLET_GROUP_STORE_PATH: /app/data/wallet-groups.json
+      LAUNCH_EXECUTION_STORE_PATH: /app/data/launch-executions.json
+      AUTH_STORE_PATH: /app/data/web3-auth.json
+    restart: unless-stopped
     read_only: true
     security_opt:
       - no-new-privileges:true
     tmpfs:
       - /tmp
+    volumes:
+      - narraops-data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5190/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  narraops-data:
 

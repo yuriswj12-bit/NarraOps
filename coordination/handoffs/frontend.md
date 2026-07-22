@@ -1,5 +1,7 @@
 # Frontend handoff
 
+> Current rule (2026-07-22): the first-level product surfaces are Go, Pulse, and Assets. The Launch and Invite sections below are historical implementation records, not current navigation requirements.
+
 ## 2026-07-11 product workspace redesign
 
 - Implementation commit: `94bc53b` (`feat: redesign NarraOps product workspace`).

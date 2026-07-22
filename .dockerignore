@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+!.env.example
+.venv
+node_modules
+/app.js
+data/*.json
+data/*.jsonl
+data/pump-upload-test.png
+research
+recovery
+npm-debug.log*

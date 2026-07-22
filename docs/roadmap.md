@@ -41,7 +41,8 @@ Goal: reflect the product pivot in the UI without deleting backend capability.
 Tasks:
 
 - Remove Launch from primary navigation.
-- Keep Go, Pulse, Assets, Invite.
+- Keep Go, Pulse, and Assets as the only first-level product surfaces.
+- Keep Invite code internal and defer growth/referral work.
 - Preserve any Launch-related route or component only when needed for internal workflow compatibility.
 - Add clear Go entry points for launch-ready plan creation.
 

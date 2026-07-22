@@ -67,3 +67,49 @@
 - No live execution is pending.
 - No remote push was performed.
 - Daily report: `coordination/DAILY_REPORT_2026-07-16_CN.md`.
+
+## 2026-07-17 launch-bound-buy integration
+
+- Replaced the provisional Launch follow-buy contract with `boundBuy`.
+- Launch supports disabled mode or T1-T5 block-offset execution; T0 is rejected with `T0_BUNDLE_UNAVAILABLE` until a reviewed bundle relay is configured.
+- Launch allocation is now per-wallet equal or per-wallet custom. Random and ladder allocation were removed from the Launch execution path.
+- The coordinator records the confirmed launch block, waits for the selected target block, applies a deadline window, and stores per-wallet bound-buy results.
+- Safe retry operates only on failed bound-buy wallet entries.
+- Launch UI now labels the feature 发射绑定买入, selects T1-T5, accepts a per-wallet amount, and previews the wallet-group total budget.
+- Shared contract commit: `70ac3a7`.
+- Execution integration commit: `fe6c3ce` (source role commit `7c26871`).
+- Backend integration commit: `7152223` (source role commit `9893bb0`).
+- Frontend integration commit: `0c2b44b` (source role commit `873e1ee`).
+- Verification: frontend/root syntax check passed; backend 40/40; execution 37/37.
+- Real execution remains disabled. No transaction or fund movement occurred.
+- Remaining blocker: true T0 requires platform-specific deterministic addressing, pre-signing, and a reviewed Solana/BSC bundle relay implementation.
+
+### T1-T5 semantics correction
+
+- T0 is the launch block and includes the Cooking/dev buy; wallet-group buying is the subsequent T1-T5 window.
+- Removed the misleading frontend selector for an exact T1, T2, T3, T4, or T5 block.
+- The UI now labels the selector `T1-T5 买入钱包组` and explains that actual inclusion depends on chain conditions.
+- Backend execution enters at the earliest observed block from N+1 and expires unsubmitted work after N+5; it records the actual offset for audit.
+- Verification after correction: backend 40/40, execution 37/37, frontend syntax check passed.
+
+### Equal and random T1-T5 allocation
+
+- Launch now offers `PER_WALLET_EQUAL` and `TOTAL_RANDOM` allocation modes.
+- Equal mode accepts one amount per wallet and derives the total budget.
+- Random mode accepts one fixed wallet-group total and deterministically splits it into positive, unequal atomic amounts whose sum exactly matches the requested total.
+- The execution ID seeds the allocation; the prepared per-wallet amounts are persisted and returned before confirmation.
+- Confirmation and failed-wallet retry reuse the frozen allocation and never randomize a second time.
+- ForgeX reference note: ForgeX launch accepts explicit per-wallet sniper amounts (or defaults each to 0.01); its unrelated robot random mode does not preserve a fixed group total, so NarraOps uses its own auditable fixed-total behavior.
+- Verification: backend 40/40, execution 38/38, frontend syntax check passed.
+
+## 2026-07-22 public Beta and language foundation
+
+- Preserved the existing dirty integration worktree; no prior wallet, transfer, execution, product-pivot, or research changes were discarded.
+- Added buildable frontend/backend Docker definitions, container health checks, persistent data volume wiring, an ingress health endpoint, and public-Beta deployment/rollback guidance.
+- Deployment configuration forces `REAL_EXECUTION_ENABLED=false` for the public Beta.
+- Added the first cross-language contracts for narrative evidence, Pulse opportunity cards, and Go launch-ready plans.
+- Added strict shared TypeScript types plus a minimal `tsconfig` and `npm run typecheck`; existing JS/MJS behavior remains unchanged.
+- Added `coordination/PUBLIC_BETA_CHECKLIST.md` for product, safety, operations, and Build in Public acceptance.
+- Verification: root syntax check passed; shared TypeScript check passed; backend API 48/48; execution 43/43; JSON schemas parse successfully.
+- Docker runtime verification is still pending because Docker is not installed in the current Windows environment.
+- External deployment remains pending a selected host, public domain/origin, TLS, secret configuration, monitoring destination, and rollback target.

@@ -1,6 +1,10 @@
 node_modules/
+.venv/
+.agents/
+skills-lock.json
 dist/
 build/
+/app.js
 qa/
 design-qa.md
 
@@ -8,8 +12,21 @@ design-qa.md
 .env.*
 !.env.example
 
-data/workspace.json
+data/*.json
 data/*.local.json
+data/*.png
+backend/api/data/*.json
+
+# Reproducible research output. Keep collection scripts, specs, templates, and
+# reviewed reports in Git; regenerate raw provider responses and K-line caches.
+research/pulse-historical/raw/
+research/pulse-historical/kline/
+research/pulse-historical/annotations/hermes-*.jsonl
+research/pulse-historical/annotations/human-and-pending.json
+research/pulse-historical/annotations/x-evidence-*.json
+research/pulse-historical/narraops-*-narrative-input.csv
+research/pulse-historical/sample-index.csv
+research/pulse-historical/validated-peaks*.csv
 
 *.log
 npm-debug.log*
