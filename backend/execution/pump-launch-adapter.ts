@@ -1,8 +1,11 @@
 // @ts-nocheck
 import BN from "bn.js";
 import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import { OnlinePumpSdk, PUMP_SDK, getBuyTokenAmountFromSolAmount, newBondingCurve } from "@pump-fun/pump-sdk";
+import * as pumpSdkModule from "@pump-fun/pump-sdk";
 import { ExecutionError } from "./errors.ts";
+
+const pumpSdk = pumpSdkModule.default ?? pumpSdkModule;
+const { OnlinePumpSdk, PUMP_SDK, getBuyTokenAmountFromSolAmount, newBondingCurve } = pumpSdk;
 
 const WRAPPED_SOL = new PublicKey("So11111111111111111111111111111111111111112");
 const DEFAULT_METADATA_UPLOAD_URL = "https://pump.fun/api/ipfs";

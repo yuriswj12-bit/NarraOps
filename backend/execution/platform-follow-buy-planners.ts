@@ -2,8 +2,11 @@
 import BN from "bn.js";
 import { Interface, getAddress } from "ethers";
 import { PublicKey, Transaction } from "@solana/web3.js";
-import { getBuyTokenAmountFromSolAmount } from "@pump-fun/pump-sdk";
+import * as pumpSdkModule from "@pump-fun/pump-sdk";
 import { ExecutionError } from "./errors.ts";
+
+const pumpSdk = pumpSdkModule.default ?? pumpSdkModule;
+const { getBuyTokenAmountFromSolAmount } = pumpSdk;
 
 const WRAPPED_SOL = new PublicKey("So11111111111111111111111111111111111111112");
 export const FOURMEME_HELPER3 = "0xF251F83e40a78868FcfA3FA4599Dad6494E46034";
