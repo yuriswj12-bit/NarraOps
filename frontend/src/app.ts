@@ -2,6 +2,8 @@
 // Transitional TypeScript entrypoint. New modules must remain strict; this
 // monolith is migrated incrementally while behavior is covered by regression tests.
 import { apiRequest } from "./lib/api-client";
+import { getSupabasePublicConfig } from "./lib/public-env";
+import { getSupabaseClient } from "./lib/supabase-client";
 
 const viewRoot = document.querySelector("#viewRoot");
 const toast = document.querySelector("#toast");
@@ -16,6 +18,24 @@ const languageButton = document.querySelector("#languageButton");
 const languageMenu = document.querySelector("#languageMenu");
 const themeButton = document.querySelector("#themeButton");
 const accountAssetsButton = document.querySelector("#accountAssetsButton");
+const supabasePublicConfig = getSupabasePublicConfig();
+const supabaseClient = getSupabaseClient();
+
+Object.defineProperty(window, "NarraOpsRuntime", {
+  value: {
+    supabaseConfigured: supabasePublicConfig.configured,
+    supabaseUrl: supabasePublicConfig.url || null,
+  },
+  configurable: false,
+  enumerable: false,
+  writable: false,
+});
+
+if (supabaseClient) {
+  console.info("[NarraOps] Supabase public client configured.");
+} else {
+  console.info("[NarraOps] Supabase public client is not configured; static beta remains in frontend-only mode.");
+}
 
 const allowedViews = new Set(["pulse", "go", "assets"]);
 const storedLanguage = localStorage.getItem("narraops-language");

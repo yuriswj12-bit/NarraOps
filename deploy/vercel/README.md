@@ -94,9 +94,20 @@ Use the exact values shown by Vercel if they differ from the examples above.
 For static frontend beta, only publishable browser-safe variables may be exposed to Vercel:
 
 ```text
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
+```
+
+The local backend also accepts the non-`NEXT_PUBLIC` aliases:
+
+```text
 SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
 ```
+
+For the Vercel static frontend, set the `NEXT_PUBLIC_*` names in Production,
+Preview, and Development. The build script injects only these browser-safe
+values into `app.js`.
 
 Do not add these to Vercel frontend environment variables:
 
