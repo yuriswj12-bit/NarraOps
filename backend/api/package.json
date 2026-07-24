@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node --import tsx --env-file-if-exists=../../.env src/server.ts",
     "dev": "node --import tsx --env-file-if-exists=../../.env --watch src/server.ts",
-    "check": "tsc -p tsconfig.tson",
+    "check": "tsc -p tsconfig.json",
     "test": "node --import tsx --test tests/*.test.ts"
   }
 }
