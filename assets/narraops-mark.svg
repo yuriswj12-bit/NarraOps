@@ -1,0 +1,8 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="NarraOps">
+  <title>NarraOps</title>
+  <!-- Hex frame + geometric N monogram, matched to product mark -->
+  <g fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M64 12 L108 38 L108 90 L64 116 L20 90 L20 38 Z"/>
+    <path d="M42 88 V40 L86 88 V40"/>
+  </g>
+</svg>
