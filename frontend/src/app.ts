@@ -91,6 +91,10 @@ const state = {
     collector: null,
     limitations: [],
   },
+  go: {
+    pendingOpportunityId: null,
+    busy: false,
+  },
   assets: {
     mode: "mock",
     section: "pnl",
@@ -1644,31 +1648,31 @@ function openOpportunity(id) {
 function openPulseOpportunity(id) {
   const item = opportunities.find((opportunity) => opportunity.id === id);
   if (!item) return;
-  const evidence = item.evidence.map((record) => `
+  const evidence = (item.evidence || []).map((record) => `
     <li>
       <a href="${escapeHtml(record.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(record.publisher || record.title || "Source")}</a>
       <small>${escapeHtml(record.title || "")}</small>
     </li>
   `).join("");
-  const missing = item.missingEvidence.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("");
-  const risks = item.riskFlags.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("");
+  const missing = (item.missingEvidence || []).map((entry) => `<li>${escapeHtml(entry)}</li>`).join("");
+  const risks = (item.riskFlags || []).map((entry) => `<li>${escapeHtml(entry)}</li>`).join("");
   openModal({
-    kicker: `${escapeHtml(item.source)} · ${t("证据简报", "Evidence brief")}`,
+    kicker: `${escapeHtml(item.source)} ? ${t("????", "Evidence brief")}`,
     title: state.language === "zh" ? item.titleZh : item.titleEn,
     content: `
       <p>${escapeHtml(state.language === "zh" ? item.bodyZh : item.bodyEn)}</p>
       <div class="modal-metrics">
-        <div class="modal-metric"><span>${t("审核状态", "Review status")}</span><strong>${escapeHtml(item.score)}</strong></div>
-        <div class="modal-metric"><span>${t("公开证据", "Public evidence")}</span><strong>${escapeHtml(item.momentum)}</strong></div>
-        <div class="modal-metric"><span>${t("证据缺口", "Evidence gaps")}</span><strong>${escapeHtml(item.reach)}</strong></div>
+        <div class="modal-metric"><span>${t("????", "Review status")}</span><strong>${escapeHtml(item.score)}</strong></div>
+        <div class="modal-metric"><span>${t("????", "Public evidence")}</span><strong>${escapeHtml(item.momentum)}</strong></div>
+        <div class="modal-metric"><span>${t("????", "Evidence gaps")}</span><strong>${escapeHtml(item.reach)}</strong></div>
       </div>
-      <h3>${t("证据来源", "Evidence sources")}</h3>
-      <ul>${evidence || `<li>${t("暂无公开证据", "No public evidence")}</li>`}</ul>
-      ${risks ? `<h3>${t("风险标记", "Risk flags")}</h3><ul>${risks}</ul>` : ""}
-      ${missing ? `<h3>${t("待补证据", "Missing evidence")}</h3><ul>${missing}</ul>` : ""}
+      <h3>${t("????", "Evidence sources")}</h3>
+      <ul>${evidence || `<li>${t("??????", "No public evidence")}</li>`}</ul>
+      ${risks ? `<h3>${t("????", "Risk flags")}</h3><ul>${risks}</ul>` : ""}
+      ${missing ? `<h3>${t("????", "Missing evidence")}</h3><ul>${missing}</ul>` : ""}
       <div class="modal-actions">
-        <button class="secondary-button" type="button" data-modal-action="close">${t("关闭", "Close")}</button>
-        <button class="primary-button" type="button" data-modal-action="agent"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${t("交给 Go 分析", "Analyze in Go")}</button>
+        <button class="secondary-button" type="button" data-modal-action="close">${t("??", "Close")}</button>
+        <button class="primary-button" type="button" data-modal-action="agent" data-opportunity-id="${escapeHtml(item.id)}"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${t("?? Go ??", "Analyze in Go")}</button>
       </div>
     `,
   });
@@ -1973,9 +1977,69 @@ function getAgentResponse(command) {
   };
 }
 
+function shouldUsePulsePlan(command) {
+  if (state.go.pendingOpportunityId) return true;
+  return /\/(pulse|narrative|launch|plan)\b|execution plan|????|?? go|analyze in go|pulse opportunity|opportunity id/i.test(command);
+}
+
+function replacePendingMessage(pendingId, message) {
+  const pendingIndex = state.conversation.findIndex((item) => item.pendingId === pendingId);
+  if (pendingIndex === -1) {
+    state.conversation.push(message);
+  } else {
+    state.conversation.splice(pendingIndex, 1, message);
+  }
+  renderConversation();
+}
+
+async function submitPulsePlan(command, pendingId) {
+  const opportunityId = state.go.pendingOpportunityId;
+  state.go.busy = true;
+  try {
+    const payload = await apiRequest("/api/v1/go/plan", {
+      method: "POST",
+      body: JSON.stringify({
+        opportunityId,
+        message: command,
+        command: command.startsWith("/") ? command : undefined,
+        context: {
+          language: state.language,
+          currentView: state.view,
+        },
+      }),
+    });
+    const plan = payload.plan || payload.card?.data || {};
+    replacePendingMessage(pendingId, {
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: payload.message?.content || "??? Pulse ??????????????????????",
+      contentEn: payload.message?.content || "Built a review-only execution plan from Pulse evidence. Live execution remains disabled.",
+      suggestionZh: payload.message?.suggestion || "???????????????????",
+      suggestionEn: payload.message?.suggestion || "Review evidence gaps and risks before moving into a launch draft.",
+      card: payload.card || {
+        type: "execution_plan",
+        status: plan.status || "review_only",
+        data: plan,
+      },
+    });
+  } catch (error) {
+    replacePendingMessage(pendingId, {
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: `Go ???????${error instanceof Error ? error.message : String(error)}`,
+      contentEn: `Go plan generation failed: ${error instanceof Error ? error.message : String(error)}`,
+      suggestionZh: "??? /api/v1/go/plan ??????????",
+      suggestionEn: "Confirm /api/v1/go/plan is deployed, then retry.",
+    });
+  } finally {
+    state.go.busy = false;
+    state.go.pendingOpportunityId = null;
+  }
+}
+
 function submitAgentCommand(value) {
   const command = value.trim();
-  if (!command) return;
+  if (!command || state.go.busy) return;
   const pendingId = `pending-${Date.now()}`;
   state.conversation.push({ role: "user", content: command, timestamp: getMessageTime() });
   state.conversation.push({ role: "agent", pending: true, pendingId, timestamp: getMessageTime() });
@@ -1986,10 +2050,13 @@ function submitAgentCommand(value) {
     input.style.height = "";
   }
 
+  if (shouldUsePulsePlan(command)) {
+    void submitPulsePlan(command, pendingId);
+    return;
+  }
+
   window.setTimeout(() => {
-    const pendingIndex = state.conversation.findIndex((message) => message.pendingId === pendingId);
-    if (pendingIndex !== -1) state.conversation.splice(pendingIndex, 1, getAgentResponse(command));
-    renderConversation();
+    replacePendingMessage(pendingId, getAgentResponse(command));
   }, 0);
 }
 
@@ -2471,9 +2538,15 @@ modal.addEventListener("click", async (event) => {
     closeModal();
   }
   if (action === "agent") {
+    const opportunityId = event.target.closest("[data-opportunity-id]")?.dataset.opportunityId || null;
     closeModal();
+    state.go.pendingOpportunityId = opportunityId;
     switchView("go");
     window.setTimeout(() => {
+      if (opportunityId) {
+        submitAgentCommand(`/plan ${opportunityId}`);
+        return;
+      }
       const input = document.querySelector("#agentInput");
       if (input) {
         input.value = "/narrative ";
