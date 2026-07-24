@@ -175,6 +175,15 @@ Remaining integration work:
 - Add the frontend Supabase client, E.164 normalization, deterministic login-alias helper, and phone/password forms in the frontend worktree.
 - Add backend JWT verification and authenticated actor scoping before exposing account or execution routes in production.
 
+## 2026-07-24 Assets ownership boundary
+
+- Assets portfolio and wallet-group routes now require a valid Web3 session whenever authentication is configured.
+- New wallet groups persist the authenticated `userId` as owner metadata.
+- List and detail reads filter by owner; cross-user direct access returns 404.
+- Add-wallet, batch-delete, and export operations verify ownership before mutation.
+- Verification: TypeScript passed; backend API 51/51, including anonymous rejection and two-user isolation.
+- Remaining: apply the same actor scope to transfer previews/submissions and replace file persistence with Supabase repositories before production Assets deployment.
+
 GitHub sync:
 
 - Pulse commit: `398d39c` (`Add Pulse discovery evidence pipeline`).

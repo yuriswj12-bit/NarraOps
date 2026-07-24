@@ -34,22 +34,26 @@ export class InMemoryWalletGroupRepository {
     if (!this.#load() && seed) this.#seed();
   }
 
-  listGroups() {
-    return [...this.#groups.values()].map((group) => this.#publicGroup(group));
+  listGroups(ownerUserId) {
+    return [...this.#groups.values()]
+      .filter((group) => ownerUserId === undefined || group.ownerUserId === ownerUserId)
+      .map((group) => this.#publicGroup(group));
   }
 
-  getGroup(groupId) {
+  getGroup(groupId, ownerUserId) {
     const group = this.#groups.get(groupId);
+    if (group && ownerUserId !== undefined && group.ownerUserId !== ownerUserId) return null;
     return group ? this.#publicGroup(group) : null;
   }
 
-  createGroup({ name, walletCount, purpose = "general", network = "solana" }) {
+  createGroup({ name, walletCount, purpose = "general", network = "solana", ownerUserId = null }) {
     const now = new Date().toISOString();
     const group = {
       groupId: randomUUID(),
       name,
       purpose,
       network,
+      ownerUserId,
       walletIds: [],
       createdAt: now,
       updatedAt: now,

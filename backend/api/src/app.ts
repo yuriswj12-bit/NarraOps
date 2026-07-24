@@ -147,6 +147,17 @@ export function createApplication({ config, logger, repository, conversationRepo
   const launchDrafts = launchDraftRepository || new InMemoryLaunchDraftRepository();
   const walletGroups = walletGroupRepository || new InMemoryWalletGroupRepository({ seed: !walletProvisioningService });
   const transfers = transferRepository || new InMemoryTransferRepository({ walletGroupRepository: walletGroups, assetService });
+  const assetActor = (req) => {
+    if (!authService) return null;
+    const session = authService.authenticate(req.headers.cookie);
+    if (!session) throw new ApiError(401, "AUTHENTICATION_REQUIRED", "Sign in with a Web3 wallet to access Assets");
+    return session.user.userId;
+  };
+  const ownedGroup = (groupId, ownerUserId) => {
+    const group = walletGroups.getGroup(groupId, ownerUserId ?? undefined);
+    if (!group) throw new ApiError(404, "WALLET_GROUP_NOT_FOUND", "Wallet group was not found");
+    return group;
+  };
   const walletsWithBalances = async (groupId) => {
     const wallets = walletGroups.listWallets(groupId);
     if (!assetService) return wallets;
@@ -171,8 +182,8 @@ export function createApplication({ config, logger, repository, conversationRepo
     }
     return { ...group, balances: formatted, balanceStatus: assetService ? "live" : "unavailable" };
   };
-  const livePortfolio = async (period) => {
-    const groups = await Promise.all(walletGroups.listGroups().map(groupWithBalances));
+  const livePortfolio = async (period, ownerUserId) => {
+    const groups = await Promise.all(walletGroups.listGroups(ownerUserId ?? undefined).map(groupWithBalances));
     const totals = {};
     for (const group of groups) for (const [asset, amount] of Object.entries(group.balances || {})) {
       totals[asset] = addDecimalStrings(totals[asset] || "0", amount);
@@ -246,20 +257,22 @@ export function createApplication({ config, logger, repository, conversationRepo
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/account/portfolio") {
+        const ownerUserId = assetActor(req);
         const period = validatePortfolioPeriod(url.searchParams.get("period"));
-        sendJson(res, 200, assetService ? await livePortfolio(period) : mockAccountPortfolio(period), requestId);
+        sendJson(res, 200, assetService ? await livePortfolio(period, ownerUserId) : mockAccountPortfolio(period), requestId);
         return;
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/wallet-groups") {
-        sendJson(res, 200, { mode: walletGroups.mode(), balanceMode: assetService ? "live" : "unavailable", groups: await Promise.all(walletGroups.listGroups().map(groupWithBalances)) }, requestId);
+        const ownerUserId = assetActor(req);
+        sendJson(res, 200, { mode: walletGroups.mode(), balanceMode: assetService ? "live" : "unavailable", groups: await Promise.all(walletGroups.listGroups(ownerUserId ?? undefined).map(groupWithBalances)) }, requestId);
         return;
       }
 
       const groupWalletsMatch = req.method === "GET" && url.pathname.match(/^\/api\/v1\/wallet-groups\/([0-9a-f-]{36})\/wallets$/i);
       if (groupWalletsMatch) {
-        const group = walletGroups.getGroup(groupWalletsMatch[1]);
-        if (!group) throw new ApiError(404, "WALLET_GROUP_NOT_FOUND", "Wallet group was not found");
+        const ownerUserId = assetActor(req);
+        const group = ownedGroup(groupWalletsMatch[1], ownerUserId);
         sendJson(res, 200, { mode: walletGroups.mode(), balanceMode: assetService ? "live" : "unavailable", group: await groupWithBalances(group), wallets: await walletsWithBalances(group.groupId) }, requestId);
         return;
       }
@@ -456,8 +469,9 @@ export function createApplication({ config, logger, repository, conversationRepo
         }
 
         if (url.pathname === "/api/v1/wallet-groups") {
+          const ownerUserId = assetActor(req);
           const input = validateWalletGroupCreate(body);
-          const group = walletGroups.createGroup(input);
+          const group = walletGroups.createGroup({ ...input, ownerUserId });
           if (walletProvisioningService) {
             for (const wallet of walletGroups.listWallets(group.groupId)) {
               walletGroups.activateWallet(wallet.walletId, await walletProvisioningService.provision({ walletId: wallet.walletId, network: group.network }));
@@ -503,6 +517,8 @@ export function createApplication({ config, logger, repository, conversationRepo
 
         const addWalletsMatch = url.pathname.match(/^\/api\/v1\/wallet-groups\/([0-9a-f-]{36})\/wallets$/i);
         if (addWalletsMatch) {
+          const ownerUserId = assetActor(req);
+          ownedGroup(addWalletsMatch[1], ownerUserId);
           const input = validateWalletAdd(body);
           const created = walletGroups.addWallets(addWalletsMatch[1], input.count);
           if (walletProvisioningService) {
@@ -519,6 +535,8 @@ export function createApplication({ config, logger, repository, conversationRepo
 
         const batchDeleteMatch = url.pathname.match(/^\/api\/v1\/wallet-groups\/([0-9a-f-]{36})\/wallets\/batch-delete$/i);
         if (batchDeleteMatch) {
+          const ownerUserId = assetActor(req);
+          ownedGroup(batchDeleteMatch[1], ownerUserId);
           const input = validateWalletBatchDelete(body);
           const result = input.confirm
             ? walletGroups.confirmBatchDelete(batchDeleteMatch[1], input, requestId)
@@ -529,9 +547,9 @@ export function createApplication({ config, logger, repository, conversationRepo
 
         const exportMatch = url.pathname.match(/^\/api\/v1\/wallet-groups\/([0-9a-f-]{36})\/exports$/i);
         if (exportMatch) {
+          const ownerUserId = assetActor(req);
           const groupId = exportMatch[1];
-          const group = walletGroups.getGroup(groupId);
-          if (!group) throw new ApiError(404, "WALLET_GROUP_NOT_FOUND", "Wallet group was not found");
+          const group = ownedGroup(groupId, ownerUserId);
           if (authService && !authService.authenticate(req.headers.cookie)) throw new ApiError(401, "AUTHENTICATION_REQUIRED", "Sign in before exporting private keys");
           try {
             validateWalletExport(body);
