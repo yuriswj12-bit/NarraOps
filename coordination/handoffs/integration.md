@@ -30,6 +30,17 @@
 - Merge these coordination rules into each active feature branch before the windows resume.
 - Add contract validation tooling when the package strategy is selected.
 
+## 2026-07-24 local/remote reconciliation
+
+- Preserved the former local `main` tip at `backup/main-pre-sync-20260724` (`f5bdad2`).
+- Reconciled the 31 local Web3, Assets, wallet-group, and execution commits with the 25 remote Go/Pulse, TypeScript, Vercel, and Supabase commits.
+- Merge commit: `ad1a3d8`.
+- The TypeScript mainline already contains the migrated Web3 and Assets behavior, so obsolete generated JavaScript and duplicate legacy modules were not restored.
+- Fixed the backend API check script to use `tsconfig.json`.
+- Verification: TypeScript passed; backend API 48/48; execution 43/43; frontend and backend builds passed.
+- No remote push was performed.
+- Remaining product blockers: deploy `/api/v1` online, verify the production Web3 session loop, isolate Assets by authenticated identity, and connect Pulse to live evidence data.
+
 ## 2026-07-16 launch integration handoff
 
 ### Integrated today
