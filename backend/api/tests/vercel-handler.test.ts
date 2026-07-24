@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import handlerModule from "../../../api/v1/[...path].ts";
+import handlerModule, {
+  handleAssetsRoute,
+} from "../../../api/v1/[...path].ts";
 
 const handler =
   typeof handlerModule === "function"
@@ -30,6 +32,40 @@ function responseRecorder() {
   };
 }
 
+function fakeSupabase(tables: Record<string, Array<Record<string, unknown>>>) {
+  return {
+    from(table: string) {
+      const filters: Array<[string, unknown]> = [];
+      let one = false;
+      const query = {
+        select() {
+          return query;
+        },
+        eq(column: string, value: unknown) {
+          filters.push([column, value]);
+          return query;
+        },
+        order() {
+          return query;
+        },
+        maybeSingle() {
+          one = true;
+          return query;
+        },
+        then(resolve: (result: unknown) => unknown) {
+          const rows = (tables[table] || []).filter((row) =>
+            filters.every(([column, value]) => row[column] === value),
+          );
+          return Promise.resolve(
+            resolve({ data: one ? rows[0] || null : rows, error: null }),
+          );
+        },
+      };
+      return query;
+    },
+  };
+}
+
 test("Vercel health endpoint works without database credentials", async () => {
   const recorder = responseRecorder();
   await handler(
@@ -43,6 +79,99 @@ test("Vercel health endpoint works without database credentials", async () => {
   assert.equal(recorder.result().status, 200);
   assert.equal(recorder.result().body.status, "ok");
   assert.equal(recorder.result().body.execution, "disabled");
+});
+
+test("Vercel Assets lists only wallet groups owned by the Web3 session", async () => {
+  const userA = "11111111-1111-4111-8111-111111111111";
+  const userB = "22222222-2222-4222-8222-222222222222";
+  const groupA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const groupB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const supabase = fakeSupabase({
+    asset_wallet_groups: [
+      {
+        group_id: groupA,
+        user_id: userA,
+        name: "User A",
+        purpose: "general",
+        network: "solana",
+        created_at: "2026-07-24T00:00:00.000Z",
+        updated_at: "2026-07-24T00:00:00.000Z",
+      },
+      {
+        group_id: groupB,
+        user_id: userB,
+        name: "User B",
+        purpose: "general",
+        network: "evm",
+        created_at: "2026-07-24T00:00:00.000Z",
+        updated_at: "2026-07-24T00:00:00.000Z",
+      },
+    ],
+    asset_wallets: [
+      { group_id: groupA, user_id: userA },
+      { group_id: groupB, user_id: userB },
+    ],
+  });
+  const recorder = responseRecorder();
+  await handleAssetsRoute({
+    supabase,
+    request: {
+      method: "GET",
+      url: "/api/v1/wallet-groups",
+      headers: {},
+    },
+    response: recorder.response,
+    session: { user: { userId: userA, identities: [] } },
+  });
+  assert.equal(recorder.result().status, 200);
+  assert.deepEqual(
+    recorder.result().body.groups.map(({ groupId }) => groupId),
+    [groupA],
+  );
+  assert.equal(recorder.result().body.groups[0].walletCount, 1);
+});
+
+test("Vercel Assets rejects anonymous and cross-user wallet-group access", async () => {
+  const userA = "11111111-1111-4111-8111-111111111111";
+  const userB = "22222222-2222-4222-8222-222222222222";
+  const groupB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const supabase = fakeSupabase({
+    asset_wallet_groups: [
+      {
+        group_id: groupB,
+        user_id: userB,
+        name: "User B",
+        purpose: "general",
+        network: "evm",
+      },
+    ],
+  });
+  await assert.rejects(
+    handleAssetsRoute({
+      supabase,
+      request: {
+        method: "GET",
+        url: "/api/v1/wallet-groups",
+        headers: {},
+      },
+      response: responseRecorder().response,
+      session: null,
+    }),
+    ({ code }: { code: string }) => code === "AUTHENTICATION_REQUIRED",
+  );
+  await assert.rejects(
+    handleAssetsRoute({
+      supabase,
+      request: {
+        method: "GET",
+        url: `/api/v1/wallet-groups/${groupB}/wallets`,
+        headers: {},
+      },
+      response: responseRecorder().response,
+      session: { user: { userId: userA, identities: [] } },
+    }),
+    ({ code }: { code: string }) => code === "WALLET_GROUP_NOT_FOUND",
+  );
 });
 
 test("Vercel auth endpoints fail closed without server credentials", async () => {

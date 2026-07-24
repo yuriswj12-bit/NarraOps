@@ -184,6 +184,20 @@ Remaining integration work:
 - Verification: TypeScript passed; backend API 51/51, including anonymous rejection and two-user isolation.
 - Remaining: apply the same actor scope to transfer previews/submissions and replace file persistence with Supabase repositories before production Assets deployment.
 
+## 2026-07-24 Supabase Assets Vercel API
+
+- Migration `010_assets_user_persistence.sql` adds user-owned wallet groups, planned public wallet records, and transfer-plan persistence. Wallet-group networks match the product contract: `solana` or `evm`.
+- Vercel now exposes authenticated, Supabase-backed:
+  - `GET/POST /api/v1/wallet-groups`
+  - `GET/POST /api/v1/wallet-groups/{groupId}/wallets`
+  - `GET /api/v1/account/portfolio`
+  - `GET /api/v1/account/login-wallet-assets`
+- Every query derives `user_id` from the signed Web3 session. Anonymous access returns `401`; cross-user group access returns `404`.
+- Creation persists planned wallet placeholders only. No key generation, signer reference, balance fabrication, signing, or broadcasting occurs.
+- Until a signer/provisioning service is reviewed, wallet rows remain `planned`, balances remain explicitly unavailable, and execution remains disabled.
+- Production requires applying migration `010` before the new endpoints become ready. Missing tables return `503 ASSETS_PERSISTENCE_NOT_READY`.
+- Verification: TypeScript, frontend build, Vercel CLI build, and backend API tests pass (53/53), including Vercel user-isolation tests.
+
 GitHub sync:
 
 - Pulse commit: `398d39c` (`Add Pulse discovery evidence pipeline`).

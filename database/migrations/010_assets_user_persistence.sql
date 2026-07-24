@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS public.asset_wallet_groups (
   user_id UUID NOT NULL REFERENCES public.web3_users(user_id) ON DELETE CASCADE,
   name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 80),
   purpose TEXT NOT NULL DEFAULT 'general' CHECK (purpose IN ('general', 'cooking')),
-  network TEXT NOT NULL CHECK (network IN ('solana', 'bsc')),
+  network TEXT NOT NULL CHECK (network IN ('solana', 'evm')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

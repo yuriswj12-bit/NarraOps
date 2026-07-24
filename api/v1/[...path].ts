@@ -173,6 +173,369 @@ async function loadSession(supabase, request) {
   };
 }
 
+function authenticatedUserId(session) {
+  const userId = session?.user?.userId;
+  if (!userId) {
+    throw Object.assign(
+      new Error("Sign in with a Web3 wallet to use Assets"),
+      { status: 401, code: "AUTHENTICATION_REQUIRED" },
+    );
+  }
+  return userId;
+}
+
+function assetsError(error, fallbackMessage) {
+  console.error("supabase_assets_operation_failed", {
+    code: error?.code,
+    message: error?.message,
+  });
+  const persistenceNotReady = ["42P01", "PGRST204", "PGRST205"].includes(
+    error?.code,
+  );
+  throw Object.assign(
+    new Error(
+      persistenceNotReady
+        ? "Assets persistence has not been migrated yet"
+        : fallbackMessage,
+    ),
+    {
+      status: 503,
+      code: persistenceNotReady
+        ? "ASSETS_PERSISTENCE_NOT_READY"
+        : "ASSETS_PERSISTENCE_UNAVAILABLE",
+    },
+  );
+}
+
+async function requireAssetsResult(promise, fallbackMessage) {
+  const { data, error } = await promise;
+  if (error) assetsError(error, fallbackMessage);
+  return data;
+}
+
+function validateGroupInput(body) {
+  const name = String(body?.name || "").trim();
+  const purpose = String(body?.purpose || "general").toLowerCase();
+  const network = String(body?.network || "solana").toLowerCase();
+  const walletCount = Number(body?.walletCount);
+  if (!name || name.length > 80) {
+    throw Object.assign(new Error("name must contain 1 to 80 characters"), {
+      status: 400,
+      code: "VALIDATION_ERROR",
+    });
+  }
+  if (!["general", "cooking"].includes(purpose)) {
+    throw Object.assign(new Error("purpose must be general or cooking"), {
+      status: 400,
+      code: "VALIDATION_ERROR",
+    });
+  }
+  if (!["solana", "evm"].includes(network)) {
+    throw Object.assign(new Error("network must be solana or evm"), {
+      status: 400,
+      code: "VALIDATION_ERROR",
+    });
+  }
+  if (!Number.isSafeInteger(walletCount) || walletCount < 1 || walletCount > 100) {
+    throw Object.assign(new Error("walletCount must be an integer from 1 to 100"), {
+      status: 400,
+      code: "VALIDATION_ERROR",
+    });
+  }
+  if (purpose === "cooking" && walletCount !== 1) {
+    throw Object.assign(
+      new Error("A cooking wallet group must contain exactly one wallet"),
+      { status: 400, code: "COOKING_WALLET_COUNT_INVALID" },
+    );
+  }
+  return { name, purpose, network, walletCount };
+}
+
+function validateWalletCount(body) {
+  const count = Number(body?.count);
+  if (!Number.isSafeInteger(count) || count < 1 || count > 100) {
+    throw Object.assign(new Error("count must be an integer from 1 to 100"), {
+      status: 400,
+      code: "VALIDATION_ERROR",
+    });
+  }
+  return count;
+}
+
+function publicWallet(wallet, network) {
+  return {
+    walletId: wallet.wallet_id,
+    groupId: wallet.group_id,
+    label: `Wallet ${wallet.wallet_index}`,
+    publicAddress: wallet.public_address,
+    addresses: wallet.public_address
+      ? { [network === "solana" ? "solana" : "bsc"]: wallet.public_address }
+      : {},
+    balances: {},
+    balance: "0.00",
+    balanceAsset: "USD",
+    custodyMode: "unprovisioned",
+    provisioningStatus: wallet.provisioning_status,
+    exportEligible: false,
+    createdAt: wallet.created_at,
+    updatedAt: wallet.updated_at,
+  };
+}
+
+function publicGroup(group, walletCount) {
+  return {
+    groupId: group.group_id,
+    name: group.name,
+    purpose: group.purpose,
+    network: group.network,
+    walletCount,
+    balances: {},
+    totalBalance: "0.00",
+    balanceAsset: "USD",
+    executionMode: "persistence_only",
+    createdAt: group.created_at,
+    updatedAt: group.updated_at,
+  };
+}
+
+async function ownedGroup(supabase, userId, groupId) {
+  const group = await requireAssetsResult(
+    supabase
+      .from("asset_wallet_groups")
+      .select("group_id,user_id,name,purpose,network,created_at,updated_at")
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .maybeSingle(),
+    "Unable to read the wallet group",
+  );
+  if (!group) {
+    throw Object.assign(new Error("Wallet group was not found"), {
+      status: 404,
+      code: "WALLET_GROUP_NOT_FOUND",
+    });
+  }
+  return group;
+}
+
+async function listWalletGroups(supabase, userId) {
+  const [groups, wallets] = await Promise.all([
+    requireAssetsResult(
+      supabase
+        .from("asset_wallet_groups")
+        .select("group_id,user_id,name,purpose,network,created_at,updated_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false }),
+      "Unable to list wallet groups",
+    ),
+    requireAssetsResult(
+      supabase
+        .from("asset_wallets")
+        .select("group_id")
+        .eq("user_id", userId),
+      "Unable to count wallets",
+    ),
+  ]);
+  const counts = new Map();
+  for (const wallet of wallets || []) {
+    counts.set(wallet.group_id, (counts.get(wallet.group_id) || 0) + 1);
+  }
+  return (groups || []).map((group) =>
+    publicGroup(group, counts.get(group.group_id) || 0),
+  );
+}
+
+async function createWalletGroup(supabase, userId, body) {
+  const input = validateGroupInput(body);
+  const group = await requireAssetsResult(
+    supabase
+      .from("asset_wallet_groups")
+      .insert({
+        user_id: userId,
+        name: input.name,
+        purpose: input.purpose,
+        network: input.network,
+      })
+      .select("group_id,user_id,name,purpose,network,created_at,updated_at")
+      .single(),
+    "Unable to create the wallet group",
+  );
+  const walletRows = Array.from({ length: input.walletCount }, (_, index) => ({
+    group_id: group.group_id,
+    user_id: userId,
+    wallet_index: index + 1,
+    provisioning_status: "planned",
+    public_address: null,
+    signer_reference: null,
+  }));
+  const { error } = await supabase.from("asset_wallets").insert(walletRows);
+  if (error) {
+    await supabase
+      .from("asset_wallet_groups")
+      .delete()
+      .eq("group_id", group.group_id)
+      .eq("user_id", userId);
+    assetsError(error, "Unable to create planned wallets");
+  }
+  return publicGroup(group, input.walletCount);
+}
+
+async function listGroupWallets(supabase, userId, groupId) {
+  const group = await ownedGroup(supabase, userId, groupId);
+  const wallets = await requireAssetsResult(
+    supabase
+      .from("asset_wallets")
+      .select(
+        "wallet_id,group_id,user_id,wallet_index,public_address,provisioning_status,created_at,updated_at",
+      )
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .order("wallet_index", { ascending: true }),
+    "Unable to list wallets",
+  );
+  return {
+    mode: "supabase",
+    balanceMode: "unavailable",
+    group: publicGroup(group, wallets.length),
+    wallets: wallets.map((wallet) => publicWallet(wallet, group.network)),
+  };
+}
+
+async function addGroupWallets(supabase, userId, groupId, body) {
+  const count = validateWalletCount(body);
+  const group = await ownedGroup(supabase, userId, groupId);
+  const existing = await requireAssetsResult(
+    supabase
+      .from("asset_wallets")
+      .select("wallet_id,wallet_index")
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .order("wallet_index", { ascending: true }),
+    "Unable to read existing wallets",
+  );
+  if (group.purpose === "cooking") {
+    throw Object.assign(
+      new Error("A cooking wallet group can contain exactly one wallet"),
+      { status: 400, code: "COOKING_WALLET_LIMIT_EXCEEDED" },
+    );
+  }
+  if (existing.length + count > 200) {
+    throw Object.assign(
+      new Error("A wallet group can contain at most 200 wallets"),
+      { status: 400, code: "WALLET_GROUP_LIMIT_EXCEEDED" },
+    );
+  }
+  const start = existing.length
+    ? Math.max(...existing.map(({ wallet_index }) => wallet_index)) + 1
+    : 1;
+  const rows = Array.from({ length: count }, (_, index) => ({
+    group_id: groupId,
+    user_id: userId,
+    wallet_index: start + index,
+    provisioning_status: "planned",
+    public_address: null,
+    signer_reference: null,
+  }));
+  await requireAssetsResult(
+    supabase.from("asset_wallets").insert(rows),
+    "Unable to add planned wallets",
+  );
+  return listGroupWallets(supabase, userId, groupId);
+}
+
+export async function handleAssetsRoute({
+  supabase,
+  request,
+  response,
+  session,
+}) {
+  const path = requestPath(request);
+  const userId = authenticatedUserId(session);
+  if (request.method === "GET" && path === "/api/v1/wallet-groups") {
+    const groups = await listWalletGroups(supabase, userId);
+    sendJson(response, 200, {
+      mode: "supabase",
+      balanceMode: "unavailable",
+      groups,
+    });
+    return true;
+  }
+  if (request.method === "POST" && path === "/api/v1/wallet-groups") {
+    const group = await createWalletGroup(
+      supabase,
+      userId,
+      await readBody(request),
+    );
+    sendJson(response, 201, group);
+    return true;
+  }
+  const groupWalletsMatch = path.match(
+    /^\/api\/v1\/wallet-groups\/([0-9a-f-]{36})\/wallets$/i,
+  );
+  if (groupWalletsMatch && request.method === "GET") {
+    sendJson(
+      response,
+      200,
+      await listGroupWallets(supabase, userId, groupWalletsMatch[1]),
+    );
+    return true;
+  }
+  if (groupWalletsMatch && request.method === "POST") {
+    const result = await addGroupWallets(
+      supabase,
+      userId,
+      groupWalletsMatch[1],
+      await readBody(request),
+    );
+    sendJson(response, 201, result);
+    return true;
+  }
+  if (request.method === "GET" && path === "/api/v1/account/portfolio") {
+    const period = new URL(
+      request.url || "/",
+      "https://narraops.invalid",
+    ).searchParams.get("period") || "7d";
+    if (!["1d", "7d", "30d", "all"].includes(period)) {
+      throw Object.assign(new Error("period must be 1d, 7d, 30d, or all"), {
+        status: 400,
+        code: "INVALID_PORTFOLIO_PERIOD",
+      });
+    }
+    const groups = await listWalletGroups(supabase, userId);
+    sendJson(response, 200, {
+      mode: "supabase",
+      period,
+      currency: "USD",
+      totalBalance: "0.00",
+      turnover: "0.00",
+      realizedPnl: "0.00",
+      unrealizedPnl: "0.00",
+      pnlPercent: "0.00",
+      balances: { SOL: "0", BNB: "0" },
+      history: [],
+      walletGroupCount: groups.length,
+      walletCount: groups.reduce((sum, group) => sum + group.walletCount, 0),
+      dataStatus: "persistence_only",
+      updatedAt: new Date().toISOString(),
+    });
+    return true;
+  }
+  if (
+    request.method === "GET" &&
+    path === "/api/v1/account/login-wallet-assets"
+  ) {
+    sendJson(response, 200, {
+      mode: "unavailable",
+      wallets: session.user.identities.map((identity) => ({
+        chain: identity.chain,
+        address: identity.address,
+        balances: {},
+      })),
+    });
+    return true;
+  }
+  return false;
+}
+
 async function createChallenge(supabase, request, response) {
   const body = await readBody(request);
   const chain = String(body.chain || "").toLowerCase();
@@ -415,6 +778,24 @@ export default async function handler(request, response) {
     }
     if (request.method === "POST" && path === "/api/v1/auth/logout") {
       return await logout(supabase, request, response);
+    }
+    if (
+      path === "/api/v1/wallet-groups" ||
+      path === "/api/v1/account/portfolio" ||
+      path === "/api/v1/account/login-wallet-assets" ||
+      /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}\/wallets$/i.test(path)
+    ) {
+      const session = await loadSession(supabase, request);
+      if (
+        await handleAssetsRoute({
+          supabase,
+          request,
+          response,
+          session,
+        })
+      ) {
+        return;
+      }
     }
     return apiError(response, 404, "ROUTE_NOT_FOUND", "API route was not found");
   } catch (error) {
