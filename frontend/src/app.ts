@@ -44,7 +44,7 @@ const storedTheme = localStorage.getItem("narraops-theme");
 const state = {
   view: getViewFromHash(),
   language: storedLanguage === "en" ? "en" : "zh",
-  theme: storedTheme === "soft" ? "soft" : "dark",
+  theme: storedTheme === "light" ? "light" : "night",
   selectedPlatform: null,
   launchWallet: {
     address: null,
@@ -231,9 +231,16 @@ function applyStaticTranslations() {
 }
 
 function updateTheme() {
-  document.documentElement.dataset.theme = state.theme === "soft" ? "soft" : "dark";
+  // night = black background + light text; light = bright surfaces + dark text
+  const theme = state.theme === "light" ? "light" : "night";
+  state.theme = theme;
+  document.documentElement.dataset.theme = theme;
   const icon = themeButton.querySelector("i");
-  icon.className = state.theme === "soft" ? "fa-regular fa-sun" : "fa-regular fa-moon";
+  icon.className = theme === "light" ? "fa-regular fa-sun" : "fa-regular fa-moon";
+  if (themeButton) {
+    themeButton.setAttribute("aria-label", theme === "light" ? t("切换到暗夜主题", "Switch to night theme") : t("切换到亮色主题", "Switch to light theme"));
+    themeButton.title = theme === "light" ? t("暗夜主题", "Night") : t("亮色主题", "Light");
+  }
 }
 
 function updateNavigation() {
@@ -1129,7 +1136,7 @@ function renderLegacySettings() {
     ${pageHeading("Settings", t("配置来源、界面与安全边界", "Configure sources, interface, and safety boundaries"), t("所有设置仅保存在当前浏览器。", "All settings are stored only in this browser."), `<span class="simulation-pill"><i class="fa-solid fa-lock" aria-hidden="true"></i>${t("真实执行关闭", "Live execution off")}</span>`)}
     <div class="settings-grid">
       <section class="settings-panel"><h3>${t("监控来源", "Monitoring sources")}</h3><p>${t("选择 Pulse 与 Agent 可使用的数据来源。", "Choose data sources available to Pulse and Agent.")}</p><div class="settings-list">${settingsToggle("x", "X", t("推文与账号传播轨迹", "Posts and account propagation"))}${settingsToggle("tiktok", "TikTok", t("短视频趋势与模板扩散", "Short-video trends and template spread"))}${settingsToggle("instagram", "Instagram", t("视觉母题与创作者网络", "Visual motifs and creator networks"))}${settingsToggle("telegram", "Telegram", t("公开社区讨论", "Public community discussions"))}</div></section>
-      <section class="settings-panel"><h3>${t("界面与安全", "Interface and safety")}</h3><p>${t("管理本地体验，不会改变执行权限。", "Manage local experience without changing execution permissions.")}</p><div class="settings-list">${settingsToggle("notifications", t("通知", "Notifications"), t("显示叙事信号提醒", "Show narrative signal alerts"))}<div class="settings-row"><div><strong>${t("语言", "Language")}</strong><span>${state.language === "zh" ? "简体中文" : "English"}</span></div><button class="compact-button" type="button" data-action="language">${state.language === "zh" ? "EN" : "中文"}</button></div><div class="settings-row"><div><strong>${t("主题", "Theme")}</strong><span>${state.theme === "soft" ? t("柔和黑", "Soft dark") : t("深黑", "Deep dark")}</span></div><button class="compact-button" type="button" data-action="theme"><i class="fa-regular ${state.theme === "soft" ? "fa-sun" : "fa-moon"}" aria-hidden="true"></i></button></div><div class="settings-row"><div><strong>${t("链上执行", "On-chain execution")}</strong><span>${t("未接入签名与广播服务", "Signing and broadcast services are not connected")}</span></div><span class="state-pill">Disabled</span></div></div></section>
+      <section class="settings-panel"><h3>${t("界面与安全", "Interface and safety")}</h3><p>${t("管理本地体验，不会改变执行权限。", "Manage local experience without changing execution permissions.")}</p><div class="settings-list">${settingsToggle("notifications", t("通知", "Notifications"), t("显示叙事信号提醒", "Show narrative signal alerts"))}<div class="settings-row"><div><strong>${t("语言", "Language")}</strong><span>${state.language === "zh" ? "简体中文" : "English"}</span></div><button class="compact-button" type="button" data-action="language">${state.language === "zh" ? "EN" : "中文"}</button></div><div class="settings-row"><div><strong>${t("主题", "Theme")}</strong><span>${state.theme === "light" ? t("亮色", "Light") : t("暗夜", "Night")}</span></div><button class="compact-button" type="button" data-action="theme"><i class="fa-regular ${state.theme === "light" ? "fa-sun" : "fa-moon"}" aria-hidden="true"></i></button></div><div class="settings-row"><div><strong>${t("链上执行", "On-chain execution")}</strong><span>${t("未接入签名与广播服务", "Signing and broadcast services are not connected")}</span></div><span class="state-pill">Disabled</span></div></div></section>
     </div>
   `;
 }
@@ -2113,7 +2120,7 @@ languageMenu.addEventListener("click", (event) => {
 });
 
 themeButton.addEventListener("click", () => {
-  state.theme = state.theme === "dark" ? "soft" : "dark";
+  state.theme = state.theme === "night" ? "light" : "night";
   localStorage.setItem("narraops-theme", state.theme);
   updateTheme();
   requestAnimationFrame(drawVisibleCharts);
