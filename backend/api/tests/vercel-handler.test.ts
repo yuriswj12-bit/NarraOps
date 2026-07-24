@@ -230,3 +230,47 @@ test("Vercel auth endpoints fail closed without server credentials", async () =>
       process.env.SUPABASE_SERVICE_ROLE_KEY = previousServiceRole;
   }
 });
+
+test("Go plan endpoint builds a review-only execution plan from Pulse evidence", async () => {
+  const recorder = responseRecorder();
+  await handler(
+    {
+      method: "POST",
+      url: "/api/v1/go/plan",
+      headers: { "content-type": "application/json" },
+      body: {
+        opportunityId: "nar_f5067918d8b31778",
+        command: "/plan nar_f5067918d8b31778",
+      },
+    },
+    recorder.response,
+  );
+  const result = recorder.result();
+  assert.equal(result.status, 200);
+  assert.equal(result.body.schema_version, "go.plan.v1");
+  assert.equal(result.body.execution, "disabled");
+  assert.equal(result.body.card.type, "execution_plan");
+  assert.equal(result.body.plan.opportunity_id, "nar_f5067918d8b31778");
+  assert.equal(result.body.plan.executable, false);
+  assert.equal(result.body.plan.requires_user_confirmation, true);
+  assert.ok(result.body.plan.evidence_count >= 1);
+  assert.equal(result.body.opportunity.opportunityId, "nar_f5067918d8b31778");
+});
+
+test("Go plan endpoint returns not found for unknown opportunity ids", async () => {
+  const recorder = responseRecorder();
+  await handler(
+    {
+      method: "POST",
+      url: "/api/v1/go/plan",
+      headers: { "content-type": "application/json" },
+      body: {
+        opportunityId: "missing-opportunity",
+      },
+    },
+    recorder.response,
+  );
+  const result = recorder.result();
+  assert.equal(result.status, 404);
+  assert.equal(result.body.error.code, "PULSE_OPPORTUNITY_NOT_FOUND");
+});

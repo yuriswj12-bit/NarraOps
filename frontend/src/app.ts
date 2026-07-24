@@ -91,6 +91,10 @@ const state = {
     collector: null,
     limitations: [],
   },
+  go: {
+    pendingOpportunityId: null,
+    busy: false,
+  },
   assets: {
     mode: "mock",
     section: "pnl",
@@ -1644,14 +1648,14 @@ function openOpportunity(id) {
 function openPulseOpportunity(id) {
   const item = opportunities.find((opportunity) => opportunity.id === id);
   if (!item) return;
-  const evidence = item.evidence.map((record) => `
+  const evidence = (item.evidence || []).map((record) => `
     <li>
       <a href="${escapeHtml(record.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(record.publisher || record.title || "Source")}</a>
       <small>${escapeHtml(record.title || "")}</small>
     </li>
   `).join("");
-  const missing = item.missingEvidence.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("");
-  const risks = item.riskFlags.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("");
+  const missing = (item.missingEvidence || []).map((entry) => `<li>${escapeHtml(entry)}</li>`).join("");
+  const risks = (item.riskFlags || []).map((entry) => `<li>${escapeHtml(entry)}</li>`).join("");
   openModal({
     kicker: `${escapeHtml(item.source)} · ${t("证据简报", "Evidence brief")}`,
     title: state.language === "zh" ? item.titleZh : item.titleEn,
@@ -1667,8 +1671,8 @@ function openPulseOpportunity(id) {
       ${risks ? `<h3>${t("风险标记", "Risk flags")}</h3><ul>${risks}</ul>` : ""}
       ${missing ? `<h3>${t("待补证据", "Missing evidence")}</h3><ul>${missing}</ul>` : ""}
       <div class="modal-actions">
-        <button class="secondary-button" type="button" data-modal-action="close">${t("关闭", "Close")}</button>
-        <button class="primary-button" type="button" data-modal-action="agent"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${t("交给 Go 分析", "Analyze in Go")}</button>
+        <button class="secondary-button" type="button" data-modal-action="close">${t("??", "Close")}</button>
+        <button class="primary-button" type="button" data-modal-action="agent" data-opportunity-id="${escapeHtml(item.id)}"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${t("交给 Go 分析", "Analyze in Go")}</button>
       </div>
     `,
   });
@@ -1973,9 +1977,69 @@ function getAgentResponse(command) {
   };
 }
 
+function shouldUsePulsePlan(command) {
+  if (state.go.pendingOpportunityId) return true;
+  return /\/(pulse|narrative|launch|plan)\b|execution plan|analyze in go|pulse opportunity|opportunity id/i.test(command);
+}
+
+function replacePendingMessage(pendingId, message) {
+  const pendingIndex = state.conversation.findIndex((item) => item.pendingId === pendingId);
+  if (pendingIndex === -1) {
+    state.conversation.push(message);
+  } else {
+    state.conversation.splice(pendingIndex, 1, message);
+  }
+  renderConversation();
+}
+
+async function submitPulsePlan(command, pendingId) {
+  const opportunityId = state.go.pendingOpportunityId;
+  state.go.busy = true;
+  try {
+    const payload = await apiRequest("/api/v1/go/plan", {
+      method: "POST",
+      body: JSON.stringify({
+        opportunityId,
+        message: command,
+        command: command.startsWith("/") ? command : undefined,
+        context: {
+          language: state.language,
+          currentView: state.view,
+        },
+      }),
+    });
+    const plan = payload.plan || payload.card?.data || {};
+    replacePendingMessage(pendingId, {
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: payload.message?.content || "已根据 Pulse 证据生成可审阅执行方案，真实执行仍保持关闭。",
+      contentEn: payload.message?.content || "Built a review-only execution plan from Pulse evidence. Live execution remains disabled.",
+      suggestionZh: payload.message?.suggestion || "先核对证据缺口和风险，再进入发射预案。",
+      suggestionEn: payload.message?.suggestion || "Review evidence gaps and risks before moving into a launch draft.",
+      card: payload.card || {
+        type: "execution_plan",
+        status: plan.status || "review_only",
+        data: plan,
+      },
+    });
+  } catch (error) {
+    replacePendingMessage(pendingId, {
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: `Go 方案生成失败：${error instanceof Error ? error.message : String(error)}`,
+      contentEn: `Go plan generation failed: ${error instanceof Error ? error.message : String(error)}`,
+      suggestionZh: "请确认 /api/v1/go/plan 已上线，或稍后重试。",
+      suggestionEn: "Confirm /api/v1/go/plan is deployed, then retry.",
+    });
+  } finally {
+    state.go.busy = false;
+    state.go.pendingOpportunityId = null;
+  }
+}
+
 function submitAgentCommand(value) {
   const command = value.trim();
-  if (!command) return;
+  if (!command || state.go.busy) return;
   const pendingId = `pending-${Date.now()}`;
   state.conversation.push({ role: "user", content: command, timestamp: getMessageTime() });
   state.conversation.push({ role: "agent", pending: true, pendingId, timestamp: getMessageTime() });
@@ -1986,10 +2050,13 @@ function submitAgentCommand(value) {
     input.style.height = "";
   }
 
+  if (shouldUsePulsePlan(command)) {
+    void submitPulsePlan(command, pendingId);
+    return;
+  }
+
   window.setTimeout(() => {
-    const pendingIndex = state.conversation.findIndex((message) => message.pendingId === pendingId);
-    if (pendingIndex !== -1) state.conversation.splice(pendingIndex, 1, getAgentResponse(command));
-    renderConversation();
+    replacePendingMessage(pendingId, getAgentResponse(command));
   }, 0);
 }
 
@@ -2471,9 +2538,15 @@ modal.addEventListener("click", async (event) => {
     closeModal();
   }
   if (action === "agent") {
+    const opportunityId = event.target.closest("[data-opportunity-id]")?.dataset.opportunityId || null;
     closeModal();
+    state.go.pendingOpportunityId = opportunityId;
     switchView("go");
     window.setTimeout(() => {
+      if (opportunityId) {
+        submitAgentCommand(`/plan ${opportunityId}`);
+        return;
+      }
       const input = document.querySelector("#agentInput");
       if (input) {
         input.value = "/narrative ";

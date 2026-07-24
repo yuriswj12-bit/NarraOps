@@ -5,6 +5,7 @@ import bs58 from "bs58";
 import nacl from "tweetnacl";
 import { getAddress, verifyMessage } from "ethers";
 import { REVIEWED_PULSE_SNAPSHOT } from "./pulse-snapshot";
+import { buildPulsePlanResponse } from "../../backend/agents/pulse-plan.ts";
 
 const COOKIE_NAME = "narraops_session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -770,6 +771,21 @@ export default async function handler(request, response) {
   if (request.method === "GET" && path === "/api/v1/pulse") {
     return sendJson(response, 200, pulseStatus(), {
       "cache-control": "public, max-age=0, s-maxage=60, stale-while-revalidate=300",
+    });
+  }
+
+  if (request.method === "POST" && path === "/api/v1/go/plan") {
+    const body = await readBody(request);
+    const result = buildPulsePlanResponse(REVIEWED_PULSE_SNAPSHOT, {
+      opportunityId: body.opportunityId || body.opportunity_id || null,
+      message: body.message || body.input || null,
+      command: body.command || null,
+    });
+    if (!result.ok) {
+      return apiError(response, result.status, result.code, result.message);
+    }
+    return sendJson(response, 200, result.body, {
+      "cache-control": "no-store",
     });
   }
 
