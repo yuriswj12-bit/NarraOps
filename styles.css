@@ -181,16 +181,16 @@ button {
 .product-brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   color: var(--header-text);
   text-decoration: none;
-  min-width: 172px;
+  min-width: 188px;
 }
 
 .product-mark,
 .product-mark-image {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   flex: 0 0 auto;
@@ -221,8 +221,9 @@ button {
 }
 
 .product-name {
-  font-size: 21px;
+  font-size: 22px;
   font-weight: 700;
+  line-height: 1;
 }
 
 .primary-nav {
