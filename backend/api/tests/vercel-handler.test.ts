@@ -81,7 +81,7 @@ test("Vercel health endpoint works without database credentials", async () => {
   assert.equal(recorder.result().body.execution, "disabled");
 });
 
-test("Vercel Pulse is stable without database credentials or fabricated live signals", async () => {
+test("Vercel Pulse publishes only reviewed evidence without investment scoring", async () => {
   const recorder = responseRecorder();
   await handler(
     {
@@ -94,8 +94,12 @@ test("Vercel Pulse is stable without database credentials or fabricated live sig
   const result = recorder.result();
   assert.equal(result.status, 200);
   assert.equal(result.body.schema_version, "pulse.v1");
-  assert.equal(result.body.data_status, "awaiting_evidence_snapshot");
-  assert.deepEqual(result.body.opportunities, []);
+  assert.match(result.body.data_status, /reviewed_snapshot/);
+  assert.equal(result.body.opportunities.length, 1);
+  assert.equal(result.body.opportunities[0].status, "review");
+  assert.equal(result.body.opportunities[0].evidence.length, 2);
+  assert.equal("heat" in result.body.opportunities[0], false);
+  assert.equal("score" in result.body.opportunities[0], false);
   assert.equal(result.body.execution, "disabled");
   assert.match(String(result.headers.get("cache-control")), /s-maxage=60/);
 });
