@@ -1,5 +1,5 @@
-﻿import { REVIEWED_PULSE_SNAPSHOT } from "../pulse-snapshot";
-import { buildPulsePlanResponse } from "../../../backend/agents/pulse-plan.ts";
+import { REVIEWED_PULSE_SNAPSHOT } from "../pulse-snapshot";
+import { buildPulsePlanResponse } from "./pulse-plan";
 
 function sendJson(response, status, body, headers = {}) {
   response.statusCode = status;

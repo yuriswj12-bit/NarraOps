@@ -5,7 +5,7 @@ import bs58 from "bs58";
 import nacl from "tweetnacl";
 import { getAddress, verifyMessage } from "ethers";
 import { REVIEWED_PULSE_SNAPSHOT } from "./pulse-snapshot";
-import { buildPulsePlanResponse } from "../../backend/agents/pulse-plan.ts";
+import { buildPulsePlanResponse } from "./go/pulse-plan";
 
 const COOKIE_NAME = "narraops_session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
