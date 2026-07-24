@@ -198,6 +198,13 @@ Remaining integration work:
 - Production requires applying migration `010` before the new endpoints become ready. Missing tables return `503 ASSETS_PERSISTENCE_NOT_READY`.
 - Verification: TypeScript, frontend build, Vercel CLI build, and backend API tests pass (53/53), including Vercel user-isolation tests.
 
+## 2026-07-24 Pulse Vercel API boundary
+
+- `GET /api/v1/pulse` is now a public Vercel function and does not require Supabase credentials.
+- The initial production response is intentionally empty with `data_status: "awaiting_evidence_snapshot"`.
+- It exposes the v0 gate/state vocabulary and explicit limitations. Historical evaluation rows and old mock opportunities are not presented as live evidence.
+- The endpoint uses a short CDN cache while the first reviewed evidence snapshot and refresh worker are still pending.
+
 GitHub sync:
 
 - Pulse commit: `398d39c` (`Add Pulse discovery evidence pipeline`).

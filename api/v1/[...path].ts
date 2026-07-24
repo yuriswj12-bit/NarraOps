@@ -39,6 +39,24 @@ function requestPath(request) {
   return new URL(request.url || "/", "https://narraops.invalid").pathname;
 }
 
+function pulseStatus() {
+  return {
+    schema_version: "pulse.v1",
+    mode: "evidence_pipeline",
+    data_status: "awaiting_evidence_snapshot",
+    observed_at: null,
+    opportunities: [],
+    gates: ["evidence_eligibility", "narrative", "amplification"],
+    states: ["watch", "review", "high_priority"],
+    limitations: [
+      "No production evidence snapshot is connected yet.",
+      "Historical evaluation data is not exposed as a live signal.",
+      "Social-platform evidence is deferred until an official or authenticated adapter is configured.",
+    ],
+    execution: "disabled",
+  };
+}
+
 async function readBody(request) {
   if (request.body && typeof request.body === "object") return request.body;
   const chunks = [];
@@ -742,6 +760,11 @@ export default async function handler(request, response) {
       version: "v1",
       persistence: serverSupabase() ? "supabase" : "unconfigured",
       execution: "disabled",
+    });
+  }
+  if (request.method === "GET" && path === "/api/v1/pulse") {
+    return sendJson(response, 200, pulseStatus(), {
+      "cache-control": "public, max-age=0, s-maxage=60, stale-while-revalidate=300",
     });
   }
 
