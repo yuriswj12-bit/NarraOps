@@ -41,6 +41,16 @@
 - No remote push was performed.
 - Remaining product blockers: deploy `/api/v1` online, verify the production Web3 session loop, isolate Assets by authenticated identity, and connect Pulse to live evidence data.
 
+## 2026-07-24 Vercel API and Web3 persistence
+
+- PR #6 merged to `main` at `c746e2d`.
+- Production `GET /api/v1/health` returns 200 on both `www.narraops.xyz` and `narra-ops.vercel.app`.
+- Added server-only Supabase tables for Web3 users, identities, one-time challenges, and hashed sessions in migration `009_web3_identity_sessions.sql`.
+- Added Vercel Functions for Web3 challenge, verification, session lookup, and logout.
+- Verification: TypeScript passed; backend API 50/50; production Vercel deployment passed.
+- Production auth remains fail-closed with `SUPABASE_SERVER_NOT_CONFIGURED` until migration 009 is applied and `SUPABASE_SECRET_KEY` is added to Vercel.
+- Real execution remains disabled.
+
 ## 2026-07-16 launch integration handoff
 
 ### Integrated today
