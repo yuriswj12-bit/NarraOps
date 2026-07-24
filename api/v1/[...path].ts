@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
 import { getAddress, verifyMessage } from "ethers";
+import { REVIEWED_PULSE_SNAPSHOT } from "./pulse-snapshot.ts";
 
 const COOKIE_NAME = "narraops_session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -40,18 +41,22 @@ function requestPath(request) {
 }
 
 function pulseStatus() {
+  const observedAt = REVIEWED_PULSE_SNAPSHOT.observedAt;
+  const snapshotAgeMs = Date.now() - Date.parse(observedAt);
+  const stale = snapshotAgeMs > 24 * 60 * 60 * 1000;
   return {
     schema_version: "pulse.v1",
     mode: "evidence_pipeline",
-    data_status: "awaiting_evidence_snapshot",
-    observed_at: null,
-    opportunities: [],
+    data_status: stale ? "stale_reviewed_snapshot" : "reviewed_snapshot",
+    observed_at: observedAt,
+    opportunities: REVIEWED_PULSE_SNAPSHOT.opportunities,
+    collector: REVIEWED_PULSE_SNAPSHOT.collector,
     gates: ["evidence_eligibility", "narrative", "amplification"],
     states: ["watch", "review", "high_priority"],
     limitations: [
-      "No production evidence snapshot is connected yet.",
       "Historical evaluation data is not exposed as a live signal.",
       "Social-platform evidence is deferred until an official or authenticated adapter is configured.",
+      "Only manually reviewed candidates are published; the remaining collector output stays in the review queue.",
     ],
     execution: "disabled",
   };

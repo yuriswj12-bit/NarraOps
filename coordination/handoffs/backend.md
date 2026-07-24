@@ -205,6 +205,14 @@ Remaining integration work:
 - It exposes the v0 gate/state vocabulary and explicit limitations. Historical evaluation rows and old mock opportunities are not presented as live evidence.
 - The endpoint uses a short CDN cache while the first reviewed evidence snapshot and refresh worker are still pending.
 
+## 2026-07-24 First reviewed Pulse snapshot
+
+- A live bounded RSS run completed with 3/3 healthy sources, 90 candidates, 70 clusters, and 39 automatically active candidates.
+- The automatic queue contained clear false positives and stale/cross-topic clusters, so it was not published wholesale.
+- One opportunity, the multi-outlet Jimothy raccoon event, passed manual publication review and is exposed as `review`, never `high_priority`.
+- The card preserves two independent publisher evidence records and explicitly lists the missing original social post, remix evidence, and GMGN prior-tokenization check.
+- No heat, profitability, or investment score is returned. Snapshots older than 24 hours automatically report `stale_reviewed_snapshot`.
+
 GitHub sync:
 
 - Pulse commit: `398d39c` (`Add Pulse discovery evidence pipeline`).
