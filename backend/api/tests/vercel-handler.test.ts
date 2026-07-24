@@ -81,6 +81,25 @@ test("Vercel health endpoint works without database credentials", async () => {
   assert.equal(recorder.result().body.execution, "disabled");
 });
 
+test("Vercel Pulse is stable without database credentials or fabricated live signals", async () => {
+  const recorder = responseRecorder();
+  await handler(
+    {
+      method: "GET",
+      url: "/api/v1/pulse",
+      headers: {},
+    },
+    recorder.response,
+  );
+  const result = recorder.result();
+  assert.equal(result.status, 200);
+  assert.equal(result.body.schema_version, "pulse.v1");
+  assert.equal(result.body.data_status, "awaiting_evidence_snapshot");
+  assert.deepEqual(result.body.opportunities, []);
+  assert.equal(result.body.execution, "disabled");
+  assert.match(String(result.headers.get("cache-control")), /s-maxage=60/);
+});
+
 test("Vercel Assets lists only wallet groups owned by the Web3 session", async () => {
   const userA = "11111111-1111-4111-8111-111111111111";
   const userB = "22222222-2222-4222-8222-222222222222";
