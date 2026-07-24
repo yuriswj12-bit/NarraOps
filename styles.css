@@ -24,6 +24,10 @@
   --danger-text: #ffaaa4;
   --danger-border: rgba(255, 105, 97, 0.45);
   --danger-bg: rgba(255, 105, 97, 0.08);
+  --header-bg: rgba(7, 9, 8, 0.96);
+  --header-text: #f4f7f4;
+  --header-muted: #a0a8a2;
+  --brand-mark: #f4f7f4;
 }
 
 /* Bright / light theme: dark text on light surfaces */
@@ -48,6 +52,10 @@
   --danger-text: #a52730;
   --danger-border: rgba(196, 59, 69, 0.35);
   --danger-bg: rgba(196, 59, 69, 0.08);
+  --header-bg: rgba(255, 255, 255, 0.94);
+  --header-text: #101412;
+  --header-muted: #5b665f;
+  --brand-mark: #101412;
 }
 
 /* Compact Assets workspace */
@@ -165,7 +173,8 @@ button {
   gap: 28px;
   padding: 0 28px;
   border-bottom: 1px solid var(--line);
-  background: rgba(7, 9, 8, 0.96);
+  background: var(--header-bg);
+  color: var(--header-text);
   backdrop-filter: blur(16px);
 }
 
@@ -173,7 +182,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  color: var(--text);
+  color: var(--header-text);
   text-decoration: none;
   min-width: 172px;
 }
@@ -195,13 +204,13 @@ button {
   font-weight: 800;
 }
 
-/* Theme-aware logo: mask follows --text so it never blends into the page */
+/* Theme-aware logo: follows header brand color, not body text alone */
 .product-mark-image {
   border-radius: 0;
-  background-color: var(--text);
+  background-color: var(--brand-mark);
   color: transparent;
-  -webkit-mask-image: url("./assets/narraops-mark.svg");
-  mask-image: url("./assets/narraops-mark.svg");
+  -webkit-mask-image: url("./assets/narraops-mark-mask.png");
+  mask-image: url("./assets/narraops-mark-mask.png");
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
   -webkit-mask-position: center;
@@ -239,7 +248,7 @@ button {
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
-  color: var(--muted);
+  color: var(--header-muted);
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -247,7 +256,7 @@ button {
 
 .nav-link:hover,
 .nav-link:focus-visible {
-  color: var(--text);
+  color: var(--header-text);
   background: var(--surface-2);
 }
 
@@ -307,13 +316,13 @@ button {
   border: 1px solid var(--line);
   border-radius: 50%;
   background: transparent;
-  color: var(--muted);
+  color: var(--header-muted);
   cursor: pointer;
 }
 
 .icon-button:hover,
 .icon-button:focus-visible {
-  color: var(--text);
+  color: var(--header-text);
   border-color: var(--line-strong);
   background: var(--surface-2);
 }
@@ -326,7 +335,7 @@ button {
   height: 6px;
   border-radius: 50%;
   background: var(--green);
-  box-shadow: 0 0 0 2px var(--page);
+  box-shadow: 0 0 0 2px var(--header-bg);
 }
 
 .action-menu-wrap {
