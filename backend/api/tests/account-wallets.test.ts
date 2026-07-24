@@ -65,6 +65,29 @@ async function post(baseUrl, path, body, headers = {}) {
   });
 }
 
+test("wallet groups are isolated by authenticated Web3 user", async (t) => {
+  const authService = {
+    authenticate(cookie = "") {
+      const userId = cookie.includes("user-a") ? "user-a" : cookie.includes("user-b") ? "user-b" : null;
+      return userId ? { user: { userId } } : null;
+    },
+  };
+  const walletGroupRepository = new InMemoryWalletGroupRepository({ seed: false });
+  const { application, baseUrl } = await startApi({ authService, walletGroupRepository });
+  t.after(() => application.close());
+
+  assert.equal((await fetch(`${baseUrl}/api/v1/wallet-groups`)).status, 401);
+  const created = await post(baseUrl, "/api/v1/wallet-groups", { name: "User A", walletCount: 1 }, { cookie: "session=user-a" });
+  assert.equal(created.status, 201);
+  const group = await created.json();
+
+  const userA = await fetch(`${baseUrl}/api/v1/wallet-groups`, { headers: { cookie: "session=user-a" } }).then((response) => response.json());
+  const userB = await fetch(`${baseUrl}/api/v1/wallet-groups`, { headers: { cookie: "session=user-b" } }).then((response) => response.json());
+  assert.equal(userA.groups.length, 1);
+  assert.equal(userB.groups.length, 0);
+  assert.equal((await fetch(`${baseUrl}/api/v1/wallet-groups/${group.groupId}/wallets`, { headers: { cookie: "session=user-b" } })).status, 404);
+});
+
 test("portfolio supports every period and returns monetary values as strings", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
