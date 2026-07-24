@@ -1,8 +1,19 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "buildCommand": "npm run build:vercel",
-  "outputDirectory": "dist/vercel",
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist/vercel"
+      }
+    },
+    {
+      "src": "api/v1/**/*.ts",
+      "use": "@vercel/node"
+    }
+  ],
   "cleanUrls": true,
   "headers": [
     {
@@ -23,10 +34,13 @@
       ]
     }
   ],
-  "rewrites": [
+  "routes": [
     {
-      "source": "/app",
-      "destination": "/app.html"
+      "handle": "filesystem"
+    },
+    {
+      "src": "/app",
+      "dest": "/app.html"
     }
   ]
 }

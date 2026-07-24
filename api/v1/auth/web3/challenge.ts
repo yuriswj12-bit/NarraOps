@@ -1,1 +1,1 @@
-export { default } from "../../[...path].ts";
+export { default } from "../../[...path]";
