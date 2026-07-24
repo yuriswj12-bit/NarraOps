@@ -36,6 +36,10 @@
   ],
   "routes": [
     {
+      "src": "/api/v1/wallet-groups/([^/]+)/wallets",
+      "dest": "/api/v1/wallet-groups/[groupId]/wallets.ts"
+    },
+    {
       "src": "/api/v1/(.*)",
       "dest": "/api/v1/$1.ts"
     },
