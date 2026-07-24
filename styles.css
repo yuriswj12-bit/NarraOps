@@ -155,16 +155,27 @@ button {
   min-width: 172px;
 }
 
-.product-mark {
+.product-mark,
+.product-mark-image {
   width: 36px;
   height: 36px;
   display: grid;
   place-items: center;
+  flex: 0 0 auto;
+}
+
+.product-mark {
   border-radius: 50%;
   background: var(--green);
   color: #06120a;
   font-size: 20px;
   font-weight: 800;
+}
+
+.product-mark-image {
+  border-radius: 0;
+  object-fit: contain;
+  color: #fff;
 }
 
 .product-name {
