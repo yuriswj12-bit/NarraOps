@@ -83,6 +83,14 @@ const state = {
     reconnects: 0,
   },
   auth: { loading: true, session: null, busy: false },
+  pulse: {
+    loading: false,
+    error: null,
+    dataStatus: "loading",
+    observedAt: null,
+    collector: null,
+    limitations: [],
+  },
   assets: {
     mode: "mock",
     section: "pnl",
@@ -136,7 +144,7 @@ const intelSeries = [
   [22, 27, 26, 32, 36, 42, 45, 50, 54, 60],
 ];
 
-const opportunities = [
+const sampleOpportunities = [
   {
     id: "op-1",
     source: "X",
@@ -186,6 +194,8 @@ const opportunities = [
     reach: "680K",
   },
 ];
+
+let opportunities = [];
 
 function getViewFromHash() {
   const value = window.location.hash.replace("#", "");
@@ -317,6 +327,140 @@ function renderPulse() {
   `;
 
   requestAnimationFrame(drawVisibleCharts);
+}
+
+function pulseViewModel(card) {
+  const evidence = Array.isArray(card?.evidence) ? card.evidence : [];
+  const missingEvidence = Array.isArray(card?.missingEvidence) ? card.missingEvidence : [];
+  return {
+    id: card.opportunityId,
+    source: evidence.map((item) => item.publisher).filter(Boolean).join(" · ") || "Public evidence",
+    icon: "fa-regular fa-newspaper",
+    titleZh: card.title,
+    titleEn: card.title,
+    bodyZh: card.summary,
+    bodyEn: card.summary,
+    score: String(card.status || "review").toUpperCase(),
+    momentum: String(evidence.length),
+    reach: String(missingEvidence.length),
+    evidence,
+    missingEvidence,
+    riskFlags: Array.isArray(card?.riskFlags) ? card.riskFlags : [],
+    stage: card.stage || "unknown",
+  };
+}
+
+function formatPulseObservedAt(value) {
+  if (!value) return t("尚未获取", "Not available");
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+async function loadPulse() {
+  if (state.pulse.loading) return;
+  state.pulse.loading = true;
+  state.pulse.error = null;
+  if (state.view === "pulse") renderPulseConnected();
+  try {
+    const payload = await apiRequest("/api/v1/pulse");
+    opportunities = Array.isArray(payload.opportunities)
+      ? payload.opportunities.map(pulseViewModel)
+      : [];
+    state.pulse.dataStatus = payload.data_status || "unavailable";
+    state.pulse.observedAt = payload.observed_at || null;
+    state.pulse.collector = payload.collector || null;
+    state.pulse.limitations = Array.isArray(payload.limitations) ? payload.limitations : [];
+  } catch (error) {
+    opportunities = [];
+    state.pulse.dataStatus = "unavailable";
+    state.pulse.error = error instanceof Error ? error.message : String(error);
+    state.pulse.collector = null;
+    state.pulse.limitations = [];
+  } finally {
+    state.pulse.loading = false;
+    if (state.view === "pulse") renderPulseConnected();
+  }
+}
+
+function renderPulseConnected() {
+  const collector = state.pulse.collector || {};
+  const sourceCount = Number(collector.sourceCount || 0);
+  const healthySourceCount = Number(collector.healthySourceCount || 0);
+  const candidateCount = Number(collector.candidateCount || 0);
+  const clusterCount = Number(collector.clusterCount || 0);
+  const activeCandidateCount = Number(collector.activeCandidateCount || 0);
+  const statusLabel = String(state.pulse.dataStatus || "loading").replaceAll("_", " ");
+  const actions = `
+    <span class="simulation-pill"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>${escapeHtml(statusLabel)}</span>
+    <button class="secondary-button" type="button" data-action="scan" ${state.pulse.loading ? "disabled" : ""}>
+      <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i>
+      ${state.pulse.loading ? t("正在读取", "Loading") : t("刷新证据", "Refresh evidence")}
+    </button>
+  `;
+  const metrics = [
+    ["fa-solid fa-satellite-dish", t("来源健康度", "Source health"), `${healthySourceCount}/${sourceCount}`, t("公开来源可用", "public sources available")],
+    ["fa-solid fa-filter-circle-dollar", t("候选池", "Candidate pool"), String(candidateCount), `${clusterCount} ${t("个聚类", "clusters")}`],
+    ["fa-solid fa-clipboard-check", t("审核发布", "Reviewed output"), String(opportunities.length), `${activeCandidateCount} ${t("条待审核", "queued")}`],
+  ].map((card) => `
+    <article class="signal-card">
+      <div class="signal-topline">
+        <span class="signal-name">${card[1]}</span>
+        <span class="signal-icon"><i class="${card[0]}" aria-hidden="true"></i></span>
+      </div>
+      <div class="signal-value"><strong>${escapeHtml(card[2])}</strong></div>
+      <div class="card-meta"><span>${escapeHtml(card[3])}</span><span>${escapeHtml(formatPulseObservedAt(state.pulse.observedAt))}</span></div>
+    </article>
+  `).join("");
+  const opportunityCards = opportunities.map((item) => `
+    <button class="opportunity-card" type="button" data-opportunity="${escapeHtml(item.id)}">
+      <div class="opportunity-topline">
+        <span class="opportunity-source"><span class="source-icon"><i class="${item.icon}" aria-hidden="true"></i></span><span class="source-pill">${escapeHtml(item.source)}</span></span>
+        <span class="score-pill">${escapeHtml(item.score)}</span>
+      </div>
+      <h3>${escapeHtml(state.language === "zh" ? item.titleZh : item.titleEn)}</h3>
+      <p>${escapeHtml(state.language === "zh" ? item.bodyZh : item.bodyEn)}</p>
+      <div class="opportunity-footer">
+        <span class="metric-stack"><span>${t("公开证据", "Public evidence")}</span><strong>${escapeHtml(item.momentum)}</strong></span>
+        <span class="metric-stack"><span>${t("证据缺口", "Evidence gaps")}</span><strong>${escapeHtml(item.reach)}</strong></span>
+      </div>
+    </button>
+  `).join("");
+  const emptyState = state.pulse.loading
+    ? `<div class="empty-state large"><i class="fa-solid fa-spinner fa-spin"></i>${t("正在读取已审核证据…", "Loading reviewed evidence…")}</div>`
+    : state.pulse.error
+      ? `<div class="empty-state large"><i class="fa-solid fa-triangle-exclamation"></i>${t("Pulse API 暂时不可用：", "Pulse API is unavailable: ")}${escapeHtml(state.pulse.error)}</div>`
+      : `<div class="empty-state large"><i class="fa-regular fa-folder-open"></i>${t("当前没有通过人工审核的机会。", "No opportunities have passed manual review.")}</div>`;
+  const limitationCards = (state.pulse.limitations.length ? state.pulse.limitations : [
+    t("仅展示人工审核后的公开证据。", "Only manually reviewed public evidence is displayed."),
+  ]).map((item) => `
+    <article class="intel-card">
+      <div class="intel-topline"><span class="signal-icon"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></span></div>
+      <h3>${t("证据边界", "Evidence boundary")}</h3>
+      <p>${escapeHtml(item)}</p>
+    </article>
+  `).join("");
+
+  viewRoot.innerHTML = `
+    ${pageHeading(
+      "Narra Pulse",
+      t("发现下一条可验证叙事", "Discover the next verifiable narrative"),
+      t("当前页面只发布已人工审核的公开证据，不展示虚构热度、评分或收益预测。", "This view publishes manually reviewed public evidence only—no fabricated heat, score, or profitability."),
+      actions,
+    )}
+    <section aria-label="${t("采集状态", "Collector status")}"><div class="signal-grid">${metrics}</div></section>
+    <section class="section-block">
+      <div class="section-header"><div><h2>${t("已审核机会", "Reviewed opportunities")}</h2><p>${t("点击卡片查看证据来源、风险和缺口。", "Open a card to inspect sources, risks, and evidence gaps.")}</p></div></div>
+      <div class="opportunity-grid">${opportunityCards || emptyState}</div>
+    </section>
+    <section class="section-block">
+      <div class="section-header"><div><h2>${t("数据边界", "Data boundaries")}</h2><p>${t("尚未接入的信号会明确标注，不会用样本数据替代。", "Missing signals are stated explicitly and never replaced by sample data.")}</p></div></div>
+      <div class="intel-grid">${limitationCards}</div>
+    </section>
+  `;
 }
 
 function getMessageTime() {
@@ -1402,7 +1546,7 @@ function renderCurrentView() {
   applyStaticTranslations();
   if (state.view === "go") renderGo();
   else if (state.view === "assets") renderAssets();
-  else renderPulse();
+  else renderPulseConnected();
 }
 
 function drawSparkline(canvas, values, color) {
@@ -1493,6 +1637,39 @@ function openOpportunity(id) {
       <p>${state.language === "zh" ? item.bodyZh : item.bodyEn}</p>
       <div class="modal-metrics"><div class="modal-metric"><span>${t("叙事评分", "Narrative score")}</span><strong>${item.score}</strong></div><div class="modal-metric"><span>${t("传播动量", "Momentum")}</span><strong class="positive">${item.momentum}</strong></div><div class="modal-metric"><span>${t("估算触达", "Estimated reach")}</span><strong>${item.reach}</strong></div></div>
       <div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("关闭", "Close")}</button><button class="primary-button" type="button" data-modal-action="agent"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${t("交给 Agent 分析", "Analyze with Agent")}</button></div>
+    `,
+  });
+}
+
+function openPulseOpportunity(id) {
+  const item = opportunities.find((opportunity) => opportunity.id === id);
+  if (!item) return;
+  const evidence = item.evidence.map((record) => `
+    <li>
+      <a href="${escapeHtml(record.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(record.publisher || record.title || "Source")}</a>
+      <small>${escapeHtml(record.title || "")}</small>
+    </li>
+  `).join("");
+  const missing = item.missingEvidence.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("");
+  const risks = item.riskFlags.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("");
+  openModal({
+    kicker: `${escapeHtml(item.source)} · ${t("证据简报", "Evidence brief")}`,
+    title: state.language === "zh" ? item.titleZh : item.titleEn,
+    content: `
+      <p>${escapeHtml(state.language === "zh" ? item.bodyZh : item.bodyEn)}</p>
+      <div class="modal-metrics">
+        <div class="modal-metric"><span>${t("审核状态", "Review status")}</span><strong>${escapeHtml(item.score)}</strong></div>
+        <div class="modal-metric"><span>${t("公开证据", "Public evidence")}</span><strong>${escapeHtml(item.momentum)}</strong></div>
+        <div class="modal-metric"><span>${t("证据缺口", "Evidence gaps")}</span><strong>${escapeHtml(item.reach)}</strong></div>
+      </div>
+      <h3>${t("证据来源", "Evidence sources")}</h3>
+      <ul>${evidence || `<li>${t("暂无公开证据", "No public evidence")}</li>`}</ul>
+      ${risks ? `<h3>${t("风险标记", "Risk flags")}</h3><ul>${risks}</ul>` : ""}
+      ${missing ? `<h3>${t("待补证据", "Missing evidence")}</h3><ul>${missing}</ul>` : ""}
+      <div class="modal-actions">
+        <button class="secondary-button" type="button" data-modal-action="close">${t("关闭", "Close")}</button>
+        <button class="primary-button" type="button" data-modal-action="agent"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${t("交给 Go 分析", "Analyze in Go")}</button>
+      </div>
     `,
   });
 }
@@ -1878,7 +2055,7 @@ themeButton.addEventListener("click", () => {
 viewRoot.addEventListener("click", async (event) => {
   const opportunity = event.target.closest("[data-opportunity]");
   if (opportunity) {
-    openOpportunity(opportunity.dataset.opportunity);
+    openPulseOpportunity(opportunity.dataset.opportunity);
     return;
   }
 
@@ -1979,7 +2156,8 @@ viewRoot.addEventListener("click", async (event) => {
 
   const action = event.target.closest("[data-action]")?.dataset.action;
   if (action === "scan") {
-    showToast(t("样本已刷新；生产数据源接入后将切换为实时发现。", "Samples refreshed. Live discovery will activate after production sources are connected."));
+    await loadPulse();
+    showToast(t("公开证据已刷新。", "Public evidence refreshed."));
   } else if (action === "view-all") {
     showToast(t("完整机会库将在数据源接入后开放。", "The full opportunity library opens after source integration."));
   } else if (action === "language") {
@@ -2347,6 +2525,7 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("hashchange", () => {
   state.view = getViewFromHash();
   renderCurrentView();
+  if (state.view === "pulse") loadPulse();
   if (state.view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
   if (state.view === "launch") loadLaunchGroups();
 });
@@ -2360,5 +2539,6 @@ window.addEventListener("resize", () => {
 updateTheme();
 renderCurrentView();
 loadAuthSession();
+if (state.view === "pulse") loadPulse();
 if (state.view === "assets") loadAssets();
 if (state.view === "launch") loadLaunchGroups();
