@@ -27,4 +27,4 @@ Moved to `../_archive/2026-07/`:
 - CSS accent tokens no longer alias through `--green*`
 - Theme toggle removed; single night brand theme
 - Shared language key `narraops-language` (legacy landing key read-only migration)
-- Launch UI/helpers isolated to `frontend/src/launch-workbench.ts`
+- Old frontend Launch page removed; launch remains a Go AI plan capability only

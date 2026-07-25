@@ -1,7 +1,4 @@
 // @ts-nocheck
-import { createLaunchWorkbench } from "./launch-workbench";
-
-let launchWorkbench = null;
 // Transitional TypeScript entrypoint. New modules must remain strict; this
 // monolith is migrated incrementally while behavior is covered by regression tests.
 import { apiRequest } from "./lib/api-client";
@@ -70,24 +67,6 @@ const state = {
   // Product default is English; Chinese only when user explicitly chose zh.
   language: storedLanguage === "zh" ? "zh" : "en",
   theme: "night",
-  selectedPlatform: null,
-  launchWallet: {
-    address: null,
-    chainId: null,
-    balance: null,
-    connecting: false,
-    error: null,
-  },
-  launchMedia: {
-    file: null,
-    previewUrl: null,
-    metadataUri: null,
-    generating: false,
-  },
-  launchResult: (() => {
-    try { return JSON.parse(sessionStorage.getItem("narraops-last-launch-result") || "null"); }
-    catch { return null; }
-  })(),
   settings: {
     x: true,
     tiktok: true,
@@ -1376,13 +1355,6 @@ function openDepositAddresses() {
   openModal({ kicker: t("真实链上充值", "Live on-chain deposit"), title: `${selected.name} · ${t("充值地址", "Deposit addresses")}`, content: `<p>${t("请仅向对应链地址发送原生资产。Solana 地址接收 SOL，BSC 地址接收 BNB。", "Send native assets only on the matching chain: SOL to Solana addresses and BNB to BSC addresses.")}</p><div class="transfer-pair-list">${rows}</div><div class="modal-actions"><button class="primary-button" type="button" data-modal-action="close">${t("完成", "Done")}</button></div>` });
 }
 
-function openLaunchImageGenerator(mode = "ai") {
-  openModal({
-    kicker: t("Cooking 图片", "Cooking image"),
-    title: mode === "text" ? t("文生图", "Text to image") : t("AI 生图", "AI image generation"),
-    content: `<form class="form-stack" id="launchImageGeneratorForm"><input type="hidden" name="mode" value="${mode}" /><label class="field-label">${t("画面描述", "Image prompt")}<textarea class="field-input" name="prompt" maxlength="1000" required placeholder="${t("描述角色、场景、风格和色彩", "Describe the character, scene, style, and colors")}"></textarea></label><label class="field-label">${t("画面比例", "Aspect ratio")}<select class="field-select" name="aspectRatio"><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="16:9">16:9</option></select></label><p>${t("生成结果会自动进入发射图片，并在提交前完成元数据固定。", "The result will become the launch image and be pinned with token metadata before submission.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit"><i class="fa-solid fa-wand-magic-sparkles"></i>${t("生成图片", "Generate image")}</button></div></form>`,
-  });
-}
 
 function isFinancialCommand(value) {
   return /(钱包|转账|提取|发射|买入|卖出|wallet|transfer|withdraw|launch|buy|sell)/i.test(value);
@@ -1672,40 +1644,6 @@ viewRoot.addEventListener("click", async (event) => {
     return;
   }
 
-  const platform = event.target.closest("[data-platform]");
-  if (platform) {
-    state.selectedPlatform = platform.dataset.platform;
-    launchWorkbench.renderLaunch();
-    return;
-  }
-
-  const launchWalletAction = event.target.closest("[data-launch-wallet]")?.dataset.launchWallet;
-  if (launchWalletAction === "connect") {
-    await launchWorkbench.connectRobinhoodWallet();
-    return;
-  }
-
-  if (event.target.closest("[data-pons-launch]")) {
-    const form = document.querySelector("#launchParameterForm");
-    if (form) await launchWorkbench.submitPonsLaunch(form);
-    return;
-  }
-
-  if (event.target.closest("[data-internal-launch]")) {
-    const form = document.querySelector("#launchParameterForm");
-    if (form) await launchWorkbench.submitInternalLaunch(form);
-    return;
-  }
-
-  const imageAction = event.target.closest("[data-launch-image]")?.dataset.launchImage;
-  if (imageAction === "library") {
-    openModal({ kicker: t("Cooking 图片", "Cooking image"), title: t("图片库", "Image library"), content: `<div class="empty-state large"><i class="fa-regular fa-images"></i>${t("图片库将在对象存储接入后显示已上传和已生成的图片。", "Uploaded and generated images will appear after object storage is configured.")}</div><div class="modal-actions"><button class="primary-button" type="button" data-modal-action="close">${t("知道了", "Done")}</button></div>` });
-    return;
-  }
-  if (imageAction === "text" || imageAction === "ai") {
-    openLaunchImageGenerator(imageAction);
-    return;
-  }
 
   const period = event.target.closest("[data-asset-period]")?.dataset.assetPeriod;
   if (period) {
@@ -1873,19 +1811,6 @@ modal.addEventListener("submit", async (event) => {
       showToast(t("钱包已添加", "Wallets added"));
     } catch (error) { showToast(error.message); }
   }
-  if (event.target.id === "launchImageGeneratorForm") {
-    event.preventDefault();
-    const form = new FormData(event.target);
-    state.launchMedia.generating = true;
-    try {
-      const result = await apiRequest("/api/v1/launch/images", { method: "POST", body: JSON.stringify({ prompt: form.get("prompt"), mode: form.get("mode"), aspectRatio: form.get("aspectRatio") }) });
-      state.launchMedia.previewUrl = result.imageUrl;
-      state.launchMedia.metadataUri = result.metadataUri || null;
-      closeModal();
-      launchWorkbench.renderLaunch();
-    } catch (error) { showToast(error.message); }
-    finally { state.launchMedia.generating = false; }
-  }
 });
 
 modal.addEventListener("change", (event) => {
@@ -1971,28 +1896,6 @@ viewRoot.addEventListener("change", (event) => {
     state.assets.transferChain = event.target.value;
     state.assets.transferPreview = null;
     renderAssets();
-    return;
-  }
-  if (event.target.id === "buyAllocationMode") {
-    const random = event.target.value === "TOTAL_RANDOM";
-    const equalField = document.querySelector("#equalBoundBuyAmountField");
-    const randomField = document.querySelector("#randomBoundBuyTotalField");
-    if (equalField) equalField.hidden = random;
-    if (randomField) randomField.hidden = !random;
-    return;
-  }
-  if (event.target.id === "launchImageInput") {
-    const [file] = event.target.files || [];
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      showToast(t("图片不能超过 10MB。", "Images must be 10MB or smaller."));
-      return;
-    }
-    if (state.launchMedia.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(state.launchMedia.previewUrl);
-    state.launchMedia.file = file;
-    state.launchMedia.previewUrl = URL.createObjectURL(file);
-    state.launchMedia.metadataUri = null;
-    launchWorkbench.renderLaunch();
     return;
   }
   if (event.target.id === "transferSource") {
@@ -2112,7 +2015,6 @@ window.addEventListener("hashchange", () => {
   renderCurrentView();
   if (state.view === "pulse") loadPulse();
   if (state.view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
-  if (state.view === "launch") launchWorkbench.loadLaunchGroups();
 });
 
 let resizeTimer;
@@ -2121,19 +2023,9 @@ window.addEventListener("resize", () => {
   resizeTimer = window.setTimeout(drawVisibleCharts, 120);
 });
 
-launchWorkbench = createLaunchWorkbench({
-  getState: () => state,
-  t,
-  apiRequest,
-  showToast,
-  escapeHtml,
-  pageHeading,
-  viewRoot,
-});
 
 updateTheme();
 renderCurrentView();
 loadAuthSession();
 if (state.view === "pulse") loadPulse();
 if (state.view === "assets") loadAssets();
-if (state.view === "launch") launchWorkbench.loadLaunchGroups();
