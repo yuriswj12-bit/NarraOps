@@ -44,7 +44,7 @@ const storedTheme = localStorage.getItem("narraops-theme");
 const state = {
   view: getViewFromHash(),
   language: storedLanguage === "en" ? "en" : "zh",
-  theme: storedTheme === "light" ? "light" : "night",
+  theme: "night",
   selectedPlatform: null,
   launchWallet: {
     address: null,
@@ -231,15 +231,16 @@ function applyStaticTranslations() {
 }
 
 function updateTheme() {
-  // night = black background + light text; light = bright surfaces + dark text
-  const theme = state.theme === "light" ? "light" : "night";
-  state.theme = theme;
-  document.documentElement.dataset.theme = theme;
-  const icon = themeButton.querySelector("i");
-  icon.className = theme === "light" ? "fa-regular fa-sun" : "fa-regular fa-moon";
+  // AAB: single restrained purple-black-white brand theme only
+  state.theme = "night";
+  document.documentElement.dataset.theme = "night";
+  localStorage.setItem("narraops-theme", "night");
   if (themeButton) {
-    themeButton.setAttribute("aria-label", theme === "light" ? t("切换到暗夜主题", "Switch to night theme") : t("切换到亮色主题", "Switch to light theme"));
-    themeButton.title = theme === "light" ? t("暗夜主题", "Night") : t("亮色主题", "Light");
+    const icon = themeButton.querySelector("i");
+    if (icon) icon.className = "fa-regular fa-moon";
+    themeButton.hidden = true;
+    themeButton.setAttribute("aria-label", t("品牌主题", "Brand theme"));
+    themeButton.title = t("品牌主题", "Brand theme");
   }
 }
 
@@ -2120,8 +2121,7 @@ languageMenu.addEventListener("click", (event) => {
 });
 
 themeButton.addEventListener("click", () => {
-  state.theme = state.theme === "night" ? "light" : "night";
-  localStorage.setItem("narraops-theme", state.theme);
+  // Theme toggle retired - single brand theme
   updateTheme();
   requestAnimationFrame(drawVisibleCharts);
 });
