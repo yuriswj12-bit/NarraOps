@@ -38,12 +38,38 @@ if (supabaseClient) {
 }
 
 const allowedViews = new Set(["pulse", "go", "assets"]);
-const storedLanguage = localStorage.getItem("narraops-language");
+function readLanguagePreference() {
+  try {
+    const primary = localStorage.getItem("narraops-language");
+    if (primary === "en" || primary === "zh") return primary;
+    // Backward-compat with landing-only key from earlier builds.
+    const legacy = localStorage.getItem("narraops-landing-lang");
+    if (legacy === "en" || legacy === "zh") return legacy;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function persistLanguagePreference(language) {
+  const next = language === "zh" ? "zh" : "en";
+  try {
+    localStorage.setItem("narraops-language", next);
+    localStorage.setItem("narraops-landing-lang", next);
+  } catch {
+    /* ignore */
+  }
+  return next;
+}
+
+const storedLanguage = readLanguagePreference();
 const storedTheme = localStorage.getItem("narraops-theme");
+
 
 const state = {
   view: getViewFromHash(),
-  language: storedLanguage === "en" ? "en" : "zh",
+  // Product default is English; Chinese only when user explicitly chose zh.
+  language: storedLanguage === "zh" ? "zh" : "en",
   theme: "night",
   selectedPlatform: null,
   launchWallet: {
@@ -2115,7 +2141,8 @@ languageMenu.addEventListener("click", (event) => {
   const button = event.target.closest("[data-language]");
   if (!button) return;
   state.language = button.dataset.language;
-  localStorage.setItem("narraops-language", state.language);
+  persistLanguagePreference(state.language);
+
   languageMenu.classList.add("hidden");
   renderCurrentView();
 });
@@ -2236,7 +2263,8 @@ viewRoot.addEventListener("click", async (event) => {
     showToast(t("完整机会库将在数据源接入后开放。", "The full opportunity library opens after source integration."));
   } else if (action === "language") {
     state.language = state.language === "zh" ? "en" : "zh";
-    localStorage.setItem("narraops-language", state.language);
+    persistLanguagePreference(state.language);
+
     renderCurrentView();
   } else if (action === "theme") {
     themeButton.click();
