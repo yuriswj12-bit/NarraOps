@@ -4,7 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
-    <title>NarraOps | Agentic Meme Launch OS</title>
+        <link rel="icon" href="./assets/favicon.ico" sizes="any" />
+    <link rel="icon" href="./assets/favicon-16.png" type="image/png" sizes="16x16" />
+    <link rel="icon" href="./assets/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="./assets/favicon-48.png" type="image/png" sizes="48x48" />
+    <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" sizes="180x180" />
+    <title>NarraOps | Narrative Discovery Workspace</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
@@ -14,8 +19,8 @@
   <body>
     <div class="app-frame">
       <header class="global-header">
-        <a class="product-brand" href="./index.html" aria-label="NarraOps 官网">
-          <span class="product-mark" aria-hidden="true">N</span>
+        <a class="product-brand" href="./index.html" aria-label="NarraOps home">
+          <span class="product-mark-image" aria-hidden="true"></span>
           <span class="product-name">NarraOps</span>
         </a>
 
@@ -24,17 +29,9 @@
             <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
             <span>Go</span>
           </button>
-          <button class="nav-link" type="button" data-view="launch">
-            <i class="fa-solid fa-rocket" aria-hidden="true"></i>
-            <span>Launch</span>
-          </button>
           <button class="nav-link active" type="button" data-view="pulse">
             <i class="fa-solid fa-wave-square" aria-hidden="true"></i>
             <span>Pulse</span>
-          </button>
-          <button class="nav-link" type="button" data-view="invite">
-            <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
-            <span>Invite</span>
           </button>
           <button class="nav-link" type="button" data-view="assets">
             <i class="fa-solid fa-wallet" aria-hidden="true"></i>
@@ -43,8 +40,7 @@
         </nav>
 
         <div class="header-actions">
-          <button class="auth-button quiet" type="button" data-auth="login" data-i18n="login">登录</button>
-          <button class="auth-button primary" type="button" data-auth="register" data-i18n="register">注册</button>
+          <button class="auth-button primary" type="button" data-auth="web3"><i class="fa-solid fa-wallet"></i>连接</button>
           <div class="action-menu-wrap">
             <button class="icon-button" id="notificationButton" type="button" aria-label="通知" aria-expanded="false">
               <i class="fa-regular fa-bell" aria-hidden="true"></i>
@@ -62,7 +58,7 @@
               <div class="notification-item">
                 <span class="notification-icon safe"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></span>
                 <div>
-                  <strong data-i18n="simulationOnly">模拟模式已开启</strong>
+                  <strong data-i18n="simulationOnly">执行保护已开启</strong>
                   <p data-i18n="simulationBody">资金与发射动作不会提交至链上。</p>
                 </div>
               </div>
@@ -77,10 +73,7 @@
               <button type="button" data-language="en" role="menuitem">English <i class="fa-solid fa-check" aria-hidden="true"></i></button>
             </div>
           </div>
-          <button class="icon-button" id="themeButton" type="button" aria-label="切换主题">
-            <i class="fa-regular fa-moon" aria-hidden="true"></i>
-          </button>
-          <button class="icon-button" type="button" data-view-trigger="assets" aria-label="资产">
+<button class="icon-button" id="accountAssetsButton" type="button" aria-label="账户资产">
             <i class="fa-solid fa-wallet" aria-hidden="true"></i>
           </button>
         </div>
@@ -104,6 +97,7 @@
     </section>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

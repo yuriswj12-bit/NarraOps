@@ -1,0 +1,17 @@
+server.js
+.env
+.env.*
+!.env.example
+.venv
+.agents
+node_modules
+data
+logs
+backend
+database
+deploy/alicloud
+deploy/docker
+deploy/nginx
+research
+qa
+*.zip

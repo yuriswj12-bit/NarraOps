@@ -4,7 +4,7 @@ Read this file and `coordination/PROJECT_STATE.md` before changing code.
 
 ## Product
 
-NarraOps is an Agentic Meme Launch and Operations OS. It connects narrative discovery, meme construction, launch planning, wallet-group execution, and community operations. The current product is a prototype: do not describe mocked or planning-only behavior as live execution.
+NarraOps is an AI-native narrative discovery and meme operations workspace. It helps Meme Devs discover, filter, and explain memeable internet narratives, then turn selected narratives into reviewable launch-ready plans. Do not describe review-only, disabled, mocked, or planning-only behavior as live execution.
 
 ## Worktrees and ownership
 
@@ -40,6 +40,8 @@ At handoff, update only the matching handoff file and report the commit hash, te
 - Browser code calls relative `/api/v1` URLs. Never hard-code local backend ports in product code.
 - Decimal monetary values cross boundaries as strings.
 - `planned`, `signing`, `submitted`, and `confirmed` are distinct states. Submitted is not success.
+- Product surfaces are Go, Pulse, and Assets. Launch adapters remain backend tools callable through controlled workflows, not first-level product navigation. Invite is not part of the current product surface.
+- Long-term implementation is split by language: TypeScript for product UI/API/state boundaries, Python for Pulse data and AI evidence work, SQL/Supabase for durable state, and OpenAPI/JSON Schema for cross-language contracts.
 
 ## Security
 
@@ -54,4 +56,10 @@ At handoff, update only the matching handoff file and report the commit hash, te
 - Keep commits scoped to one responsibility.
 - Do not rewrite or reset another role's branch.
 - Do not push unless the user explicitly requests it.
+
+## Workspace boundary
+
+- Active product path: `narraops-product` (this repo / GitHub `yuriswj12-bit/NarraOps`).
+- Local historical trees under `../_archive/` are reference-only and must not receive new product work.
+- First-level product navigation remains Go / Pulse / Assets. Launch adapters stay internal workbench/backend capability, not primary nav.
 

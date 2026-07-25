@@ -127,3 +127,96 @@ Production blockers:
 
 Verification after this section: `npm test` passes 32/32 tests, including portfolio decimal strings, wallet creation/listing, protected two-step deletion, export gates/audit, transfer idempotency, and disabled planned submission.
 
+## 2026-07-20 Pulse public-evidence processor
+
+- Added `backend/integrations/pulse-evidence/evidence_processor.py` for read-only enrichment of the historical Pulse JSONL dataset.
+- Preserves `provided_sources`; writes separate `evidence_details` with fetch status, source adapter, title, relevant excerpt, content hash, evidence signals, and shared-source metadata.
+- Static public webpages are fetched with SSRF protection, redirect revalidation, response-size/content-type limits, and explicit failure states.
+- X, Instagram, and TikTok are not falsely treated as fetched: they return `dynamic_render_required` pending an official API or authenticated-browser adapter.
+- Added pinned dependencies and five unit tests covering unsafe URL rejection, dynamic-source honesty, shared-source detection, JSONL round-trip, and relevant-excerpt selection.
+- Live five-token smoke run produced 5/5 successful static webpage fetches and 5/5 honest `dynamic_render_required` X results. The generated result is locally available under the ignored `artifacts/test-five-output.jsonl`.
+- The canonical 200-row research input loads successfully as UTF-8 with all 200 rows. Avoid Windows PowerShell's default `Get-Content` decoding for transformations because it can display UTF-8 annotations as mojibake; the Python loader is the canonical path.
+
+Verification: isolated Python 3.14 environment; `python -m unittest test_evidence_processor.py -v` passes 5/5.
+
+Full historical run:
+
+- Added bounded concurrency (`--workers`, capped at 16); the 200-token / 373-source run completed in about 90 seconds with 8 workers.
+- Result counts: 101 static successes, 224 dynamic-social deferrals, 8 unsafe/invalid URLs, 4 blocked, 27 upstream errors, 4 timeouts, 2 oversized responses, 1 rate limit, 1 not found, and 1 other unavailable response.
+- Output and cohort summary are under the locally ignored `backend/integrations/pulse-evidence/artifacts/` directory.
+- Current evidence suggests high-ATH cohorts more often have readable sources naming the token, but this is likely partly post-launch survivorship. Current website availability, later endorsements, and later licensing must not leak into the pre-launch scoring feature set.
+- Added `PRELAUNCH_FEATURE_SCHEMA.md` and `build_prelaunch_sample.py`. The sampler deterministically selects 10 records from each L0-L4 cohort while balancing four evidence-coverage tiers.
+- Generated a 50-row blind review packet plus a separate outcome-label file. The blind packet contains no `outcome_label`; alignment and uniqueness checks pass, preventing ATH labels from influencing feature extraction before evaluation.
+- Completed the 50-row blind baseline, then joined the hidden labels only for evaluation. The baseline's L4-vs-rest pairwise AUC is 0.83; it does not reliably distinguish L0-L3, so Pulse must not expose one aggregate score as a success probability.
+- Added `review_prelaunch_sample.py`, `evaluate_prelaunch_sample.py`, and `PULSE_V0_RULES.md`. The operational model is now evidence eligibility -> narrative gate -> amplification gate -> Reject/Watch/Review/High priority.
+
+## 2026-07-20 Pulse discovery MVP
+
+- Added `pulse_discovery.py`, `pulse-sources.example.json`, `PULSE_DISCOVERY_README.md`, and `test_pulse_discovery.py` under `backend/integrations/pulse-evidence/`.
+- The worker fetches bounded RSS/Atom sources with URL validation, redirect revalidation, timeouts, and response-size limits; normalizes candidate fields; performs exact dedupe; and clusters events conservatively using title similarity and low-frequency named entities.
+- Event clustering keeps a fixed representative instead of unioning cluster vocabularies, preventing unrelated chain-merges. Short hook matching uses word boundaries, so `cat` no longer matches `catalog`.
+- Pulse cards preserve evidence URLs/publishers, story/amplification gate results, risk/missing-evidence fields, and one of `reject`, `watch`, `review`, or `high_priority`. No profitability score is exposed.
+- A real three-source RSS run collected 90 bounded candidates, produced 73 auditable clusters, rejected 33, and emitted 40 active cards. The Jimothy event consolidated four independent media sources.
+- Generated live artifacts are ignored under `artifacts/discovery-live/`; `pulse-active.jsonl` is the current product-consumption fixture. Public API exposure still requires an integration-owned shared contract update.
+
+Verification: 10/10 Python unit tests pass across evidence and discovery modules; real RSS source health was 3/3 successful.
+
+## 2026-07-21 Supabase MVP authentication and analytics
+
+- Added `database/migrations/008_supabase_mvp_auth_analytics.sql` with user profiles, per-user counters, append-only analytics events, RLS policies, an Auth signup trigger, and a transactional analytics RPC.
+- Hosted Supabase requires an SMS provider for native Phone Auth. The MVP therefore keeps Phone disabled and uses Email/Password internally behind a phone-number-and-password UI.
+- Phone numbers are normalized and converted to deterministic internal login aliases. The normalized phone is stored in Auth metadata and copied into `public.profiles` by the signup trigger.
+- Email confirmation is disabled for this alias flow. Phone ownership is not verified, and password recovery remains unavailable until a verified recovery method is added.
+- Added `backend/api/SUPABASE_MVP_SETUP.md` and placeholder-only Supabase variables in `.env.example`. The secret/service-role key remains server-only and is not required for basic client Auth or RLS-protected reads.
+
+Remaining integration work:
+
+- Run migration `008` in the hosted Supabase SQL Editor and verify RLS with two test accounts.
+- Add the frontend Supabase client, E.164 normalization, deterministic login-alias helper, and phone/password forms in the frontend worktree.
+- Add backend JWT verification and authenticated actor scoping before exposing account or execution routes in production.
+
+## 2026-07-24 Assets ownership boundary
+
+- Assets portfolio and wallet-group routes now require a valid Web3 session whenever authentication is configured.
+- New wallet groups persist the authenticated `userId` as owner metadata.
+- List and detail reads filter by owner; cross-user direct access returns 404.
+- Add-wallet, batch-delete, and export operations verify ownership before mutation.
+- Verification: TypeScript passed; backend API 51/51, including anonymous rejection and two-user isolation.
+- Remaining: apply the same actor scope to transfer previews/submissions and replace file persistence with Supabase repositories before production Assets deployment.
+
+## 2026-07-24 Supabase Assets Vercel API
+
+- Migration `010_assets_user_persistence.sql` adds user-owned wallet groups, planned public wallet records, and transfer-plan persistence. Wallet-group networks match the product contract: `solana` or `evm`.
+- Vercel now exposes authenticated, Supabase-backed:
+  - `GET/POST /api/v1/wallet-groups`
+  - `GET/POST /api/v1/wallet-groups/{groupId}/wallets`
+  - `GET /api/v1/account/portfolio`
+  - `GET /api/v1/account/login-wallet-assets`
+- Every query derives `user_id` from the signed Web3 session. Anonymous access returns `401`; cross-user group access returns `404`.
+- Creation persists planned wallet placeholders only. No key generation, signer reference, balance fabrication, signing, or broadcasting occurs.
+- Until a signer/provisioning service is reviewed, wallet rows remain `planned`, balances remain explicitly unavailable, and execution remains disabled.
+- Production requires applying migration `010` before the new endpoints become ready. Missing tables return `503 ASSETS_PERSISTENCE_NOT_READY`.
+- Verification: TypeScript, frontend build, Vercel CLI build, and backend API tests pass (53/53), including Vercel user-isolation tests.
+
+## 2026-07-24 Pulse Vercel API boundary
+
+- `GET /api/v1/pulse` is now a public Vercel function and does not require Supabase credentials.
+- The initial production response is intentionally empty with `data_status: "awaiting_evidence_snapshot"`.
+- It exposes the v0 gate/state vocabulary and explicit limitations. Historical evaluation rows and old mock opportunities are not presented as live evidence.
+- The endpoint uses a short CDN cache while the first reviewed evidence snapshot and refresh worker are still pending.
+
+## 2026-07-24 First reviewed Pulse snapshot
+
+- A live bounded RSS run completed with 3/3 healthy sources, 90 candidates, 70 clusters, and 39 automatically active candidates.
+- The automatic queue contained clear false positives and stale/cross-topic clusters, so it was not published wholesale.
+- One opportunity, the multi-outlet Jimothy raccoon event, passed manual publication review and is exposed as `review`, never `high_priority`.
+- The card preserves two independent publisher evidence records and explicitly lists the missing original social post, remix evidence, and GMGN prior-tokenization check.
+- No heat, profitability, or investment score is returned. Snapshots older than 24 hours automatically report `stale_reviewed_snapshot`.
+
+GitHub sync:
+
+- Pulse commit: `398d39c` (`Add Pulse discovery evidence pipeline`).
+- Supabase commit: `caca088` (`Add Supabase MVP auth foundation`).
+- Validation before publish: Pulse Python tests 10/10; backend API tests 40/40; credential-pattern scan clean.
+- Published branch: `feat/backend-agent`; Draft PR targets `main`.
+

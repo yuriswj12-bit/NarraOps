@@ -30,6 +30,27 @@
 - Merge these coordination rules into each active feature branch before the windows resume.
 - Add contract validation tooling when the package strategy is selected.
 
+## 2026-07-24 local/remote reconciliation
+
+- Preserved the former local `main` tip at `backup/main-pre-sync-20260724` (`f5bdad2`).
+- Reconciled the 31 local Web3, Assets, wallet-group, and execution commits with the 25 remote Go/Pulse, TypeScript, Vercel, and Supabase commits.
+- Merge commit: `ad1a3d8`.
+- The TypeScript mainline already contains the migrated Web3 and Assets behavior, so obsolete generated JavaScript and duplicate legacy modules were not restored.
+- Fixed the backend API check script to use `tsconfig.json`.
+- Verification: TypeScript passed; backend API 48/48; execution 43/43; frontend and backend builds passed.
+- No remote push was performed.
+- Remaining product blockers: deploy `/api/v1` online, verify the production Web3 session loop, isolate Assets by authenticated identity, and connect Pulse to live evidence data.
+
+## 2026-07-24 Vercel API and Web3 persistence
+
+- PR #6 merged to `main` at `c746e2d`.
+- Production `GET /api/v1/health` returns 200 on both `www.narraops.xyz` and `narra-ops.vercel.app`.
+- Added server-only Supabase tables for Web3 users, identities, one-time challenges, and hashed sessions in migration `009_web3_identity_sessions.sql`.
+- Added Vercel Functions for Web3 challenge, verification, session lookup, and logout.
+- Verification: TypeScript passed; backend API 50/50; production Vercel deployment passed.
+- Production auth remains fail-closed with `SUPABASE_SERVER_NOT_CONFIGURED` until migration 009 is applied and `SUPABASE_SECRET_KEY` is added to Vercel.
+- Real execution remains disabled.
+
 ## 2026-07-16 launch integration handoff
 
 ### Integrated today
@@ -67,3 +88,49 @@
 - No live execution is pending.
 - No remote push was performed.
 - Daily report: `coordination/DAILY_REPORT_2026-07-16_CN.md`.
+
+## 2026-07-17 launch-bound-buy integration
+
+- Replaced the provisional Launch follow-buy contract with `boundBuy`.
+- Launch supports disabled mode or T1-T5 block-offset execution; T0 is rejected with `T0_BUNDLE_UNAVAILABLE` until a reviewed bundle relay is configured.
+- Launch allocation is now per-wallet equal or per-wallet custom. Random and ladder allocation were removed from the Launch execution path.
+- The coordinator records the confirmed launch block, waits for the selected target block, applies a deadline window, and stores per-wallet bound-buy results.
+- Safe retry operates only on failed bound-buy wallet entries.
+- Launch UI now labels the feature 发射绑定买入, selects T1-T5, accepts a per-wallet amount, and previews the wallet-group total budget.
+- Shared contract commit: `70ac3a7`.
+- Execution integration commit: `fe6c3ce` (source role commit `7c26871`).
+- Backend integration commit: `7152223` (source role commit `9893bb0`).
+- Frontend integration commit: `0c2b44b` (source role commit `873e1ee`).
+- Verification: frontend/root syntax check passed; backend 40/40; execution 37/37.
+- Real execution remains disabled. No transaction or fund movement occurred.
+- Remaining blocker: true T0 requires platform-specific deterministic addressing, pre-signing, and a reviewed Solana/BSC bundle relay implementation.
+
+### T1-T5 semantics correction
+
+- T0 is the launch block and includes the Cooking/dev buy; wallet-group buying is the subsequent T1-T5 window.
+- Removed the misleading frontend selector for an exact T1, T2, T3, T4, or T5 block.
+- The UI now labels the selector `T1-T5 买入钱包组` and explains that actual inclusion depends on chain conditions.
+- Backend execution enters at the earliest observed block from N+1 and expires unsubmitted work after N+5; it records the actual offset for audit.
+- Verification after correction: backend 40/40, execution 37/37, frontend syntax check passed.
+
+### Equal and random T1-T5 allocation
+
+- Launch now offers `PER_WALLET_EQUAL` and `TOTAL_RANDOM` allocation modes.
+- Equal mode accepts one amount per wallet and derives the total budget.
+- Random mode accepts one fixed wallet-group total and deterministically splits it into positive, unequal atomic amounts whose sum exactly matches the requested total.
+- The execution ID seeds the allocation; the prepared per-wallet amounts are persisted and returned before confirmation.
+- Confirmation and failed-wallet retry reuse the frozen allocation and never randomize a second time.
+- ForgeX reference note: ForgeX launch accepts explicit per-wallet sniper amounts (or defaults each to 0.01); its unrelated robot random mode does not preserve a fixed group total, so NarraOps uses its own auditable fixed-total behavior.
+- Verification: backend 40/40, execution 38/38, frontend syntax check passed.
+
+## 2026-07-22 public Beta and language foundation
+
+- Preserved the existing dirty integration worktree; no prior wallet, transfer, execution, product-pivot, or research changes were discarded.
+- Added buildable frontend/backend Docker definitions, container health checks, persistent data volume wiring, an ingress health endpoint, and public-Beta deployment/rollback guidance.
+- Deployment configuration forces `REAL_EXECUTION_ENABLED=false` for the public Beta.
+- Added the first cross-language contracts for narrative evidence, Pulse opportunity cards, and Go launch-ready plans.
+- Added strict shared TypeScript types plus a minimal `tsconfig` and `npm run typecheck`; existing JS/MJS behavior remains unchanged.
+- Added `coordination/PUBLIC_BETA_CHECKLIST.md` for product, safety, operations, and Build in Public acceptance.
+- Verification: root syntax check passed; shared TypeScript check passed; backend API 48/48; execution 43/43; JSON schemas parse successfully.
+- Docker runtime verification is still pending because Docker is not installed in the current Windows environment.
+- External deployment remains pending a selected host, public domain/origin, TLS, secret configuration, monitoring destination, and rollback target.

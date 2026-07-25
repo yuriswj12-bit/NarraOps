@@ -1,9 +1,14 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NarraOps • 发现叙事，发射资产</title>
+        <link rel="icon" href="./assets/favicon.ico" sizes="any" />
+    <link rel="icon" href="./assets/favicon-16.png" type="image/png" sizes="16x16" />
+    <link rel="icon" href="./assets/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="./assets/favicon-48.png" type="image/png" sizes="48x48" />
+    <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" sizes="180x180" />
+    <title>NarraOps • Discover narratives, launch assets</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
@@ -40,7 +45,7 @@
             position: absolute;
             inset: 0;
             z-index: -2;
-            background-image: url('./assets/narraops-hero-signals.png');
+            background-image: radial-gradient(ellipse 70% 55% at 78% 20%, rgba(139, 124, 255, 0.10), transparent 60%), radial-gradient(ellipse 55% 45% at 15% 80%, rgba(111, 92, 255, 0.06), transparent 58%), linear-gradient(180deg, #07070c 0%, #050507 100%);
             background-repeat: no-repeat;
             background-position: center center;
             background-size: cover;
@@ -147,7 +152,55 @@
         }
 
         .lang-dropdown {
+            display: none;
+            flex-direction: column;
+            gap: 2px;
+            box-sizing: border-box;
             animation: dropdownPop 0.2s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+        }
+
+        .lang-dropdown.is-open {
+            display: flex;
+        }
+
+        .lang-option {
+            width: 100%;
+            box-sizing: border-box;
+            margin: 0;
+            border: 0;
+            background: transparent;
+            cursor: pointer;
+            color: #d4d4d8;
+            font: inherit;
+        }
+
+        .lang-option:hover,
+        .lang-option:focus-visible {
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+            outline: none;
+        }
+
+        .lang-option.is-active {
+            color: #fff;
+        }
+
+        .lang-option .lang-check {
+            width: 1rem;
+            flex: 0 0 1rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .lang-option .lang-check i {
+            font-size: 0.75rem;
+            color: #a78bfa;
+            visibility: hidden;
+        }
+
+        .lang-option.is-active .lang-check i {
+            visibility: visible;
         }
 
         @keyframes dropdownPop {
@@ -165,12 +218,10 @@
 
                 <!-- Logo -->
                 <div class="flex items-center gap-x-3">
-                    <div class="flex items-center gap-x-2.5">
-                        <div class="w-9 h-9 bg-gradient-to-br from-emerald-400 via-teal-400 to-cyan-400 rounded-2xl flex items-center justify-center">
-                            <span class="text-[#0a0a0f] font-black text-3xl tracking-[-3px]">N</span>
-                        </div>
+                    <a href="./index.html" class="flex items-center gap-x-2.5" aria-label="NarraOps">
+                        <img src="./assets/narraops-mark.png" width="44" height="44" alt="" class="w-11 h-11" />
                         <span class="font-display text-[26px] font-semibold tracking-[-1.2px]">NarraOps</span>
-                    </div>
+                    </a>
                 </div>
 
                 <!-- Right Actions -->
@@ -189,25 +240,37 @@
                         </a>
                     </div>
 
-                    <!-- Language Switcher (HertzFlow Style) -->
-                    <div class="relative">
-                        <button onclick="toggleLanguageDropdown()"
-                                class="w-9 h-9 flex items-center justify-center rounded-2xl border border-zinc-700 hover:bg-zinc-900 transition-colors">
-                            <i class="fa-solid fa-globe text-lg text-zinc-300"></i>
+                    <!-- Language Switcher -->
+                    <div class="relative" data-language-root>
+                        <button type="button"
+                                id="languageToggle"
+                                class="w-9 h-9 flex items-center justify-center rounded-2xl border border-zinc-700 hover:bg-zinc-900 transition-colors"
+                                aria-haspopup="listbox"
+                                aria-expanded="false"
+                                aria-controls="lang-dropdown"
+                                aria-label="Language">
+                            <i class="fa-solid fa-globe text-lg text-zinc-300" aria-hidden="true"></i>
                         </button>
 
-                        <div id="lang-dropdown" class="lang-dropdown hidden absolute right-0 top-11 w-44 glass rounded-2xl py-1 shadow-2xl border border-zinc-700 z-50 text-sm">
-                            <button onclick="selectLanguage('en')" class="lang-option w-full px-4 py-2.5 text-left flex items-center justify-between hover:bg-white/5 rounded-xl mx-1 text-zinc-300 hover:text-white">
+                        <div id="lang-dropdown"
+                             class="lang-dropdown absolute right-0 top-11 w-44 glass rounded-2xl p-1.5 shadow-2xl border border-zinc-700 z-50 text-sm"
+                             role="listbox"
+                             aria-label="Language">
+                            <button type="button"
+                                    class="lang-option is-active px-3 py-2.5 text-left flex items-center justify-between gap-3 rounded-xl"
+                                    role="option"
+                                    data-lang="en"
+                                    aria-selected="true">
                                 <span>English</span>
+                                <span class="lang-check" aria-hidden="true"><i class="fa-solid fa-check"></i></span>
                             </button>
-
-                            <button onclick="selectLanguage('zh')" class="lang-option w-full px-4 py-2.5 text-left flex items-center justify-between hover:bg-white/5 rounded-xl mx-1 text-white">
+                            <button type="button"
+                                    class="lang-option px-3 py-2.5 text-left flex items-center justify-between gap-3 rounded-xl"
+                                    role="option"
+                                    data-lang="zh"
+                                    aria-selected="false">
                                 <span>简体中文</span>
-                                <i class="fa-solid fa-check text-emerald-400 text-xs ml-auto" id="check-zh"></i>
-                            </button>
-
-                            <button onclick="selectLanguage('zh-tw')" class="lang-option w-full px-4 py-2.5 text-left flex items-center justify-between hover:bg-white/5 rounded-xl mx-1 text-zinc-300 hover:text-white">
-                                <span>繁体中文</span>
+                                <span class="lang-check" aria-hidden="true"><i class="fa-solid fa-check"></i></span>
                             </button>
                         </div>
                     </div>
@@ -215,7 +278,7 @@
                     <!-- Enter App Button -->
                     <button onclick="enterApp()"
                             class="ml-1 px-4 sm:px-6 py-2 bg-white text-black font-semibold text-sm rounded-3xl flex items-center gap-x-2 active:scale-[0.985] transition-all hover:bg-zinc-100">
-                        <span>进入应用</span>
+                        <span data-i18n="cta.enter">Enter App</span>
                     </button>
                 </div>
             </div>
@@ -229,30 +292,30 @@
             <div class="hero-content">
                 <div class="hero-copy">
                     <div class="inline-flex items-center gap-x-2 px-4 py-1.5 rounded-full bg-black/35 border border-white/15 mb-6 backdrop-blur-md">
-                        <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
-                        <span class="font-medium tracking-[1.5px] text-sm text-emerald-300">AGENTIC MEME LAUNCH OS</span>
+                        <span class="w-1.5 h-1.5 bg-violet-400 rounded-full animate-pulse"></span>
+                        <span class="font-medium tracking-[1.5px] text-sm text-violet-300" data-i18n="hero.eyebrow">AI-NATIVE NARRATIVE DISCOVERY</span>
                     </div>
 
                     <h1 class="font-display text-[64px] max-sm:text-[38px] leading-[1.08] tracking-normal font-semibold text-white">
-                        发现叙事，发射资产
+                        <span data-i18n="hero.title">Discover narratives, launch assets</span>
                     </h1>
                 </div>
 
                 <div class="hero-actions">
                     <p class="text-lg max-sm:text-base text-zinc-200 leading-relaxed drop-shadow-lg">
-                        NarraOps 由 Agent 驱动，将叙事发现、Meme 构建、链上发射、钱包组执行和社区运营连接为一套完整工作流。
+                        <span data-i18n="hero.subtitle">NarraOps is agent-driven. It connects narrative discovery, meme crafting, on-chain launch prep, wallet-group execution, and community ops into one workflow.</span>
                     </p>
 
                     <div class="grid grid-cols-2 max-sm:grid-cols-1 gap-4 mt-6">
                         <button onclick="enterApp()"
-                                class="h-12 px-7 bg-emerald-400 hover:bg-emerald-300 active:bg-emerald-500 text-black font-semibold text-base rounded-2xl flex items-center justify-center gap-x-3 transition-all shadow-xl shadow-emerald-400/20">
-                            <span>进入应用</span>
+                                class="h-12 px-7 bg-violet-500 hover:bg-violet-400 active:bg-violet-600 text-white font-semibold text-base rounded-2xl flex items-center justify-center gap-x-3 transition-all shadow-xl shadow-violet-400/20">
+                            <span data-i18n="cta.enter">Enter App</span>
                             <i class="fa-solid fa-arrow-right text-sm"></i>
                         </button>
 
                         <button onclick="document.getElementById('capabilities').scrollIntoView({ behavior: 'smooth' })"
                                 class="h-12 px-7 border border-white/40 bg-black/20 hover:bg-white/10 text-white font-medium text-base rounded-2xl flex items-center justify-center gap-x-2 transition-colors backdrop-blur-md">
-                            <span>了解工作流</span>
+                            <span data-i18n="hero.learn">Explore the workflow</span>
                         </button>
                     </div>
                 </div>
@@ -263,58 +326,34 @@
     <!-- CAPABILITIES -->
     <section id="capabilities" class="max-w-screen-2xl mx-auto px-8 py-20 border-t border-zinc-800">
         <div class="max-w-2xl mb-10">
-            <div class="text-xs tracking-[2px] text-zinc-500 font-semibold mb-3">CORE WORKFLOW</div>
-            <h2 class="font-display text-5xl tracking-[-1.8px] leading-none">一套被 Agent 串联的工作流</h2>
+            <div class="text-xs tracking-[2px] text-zinc-500 font-semibold mb-3" data-i18n="core.kicker">CORE SYSTEM</div>
+            <h2 class="font-display text-5xl tracking-[-1.8px] leading-none" data-i18n="core.title">From internet narratives to reviewable plans</h2>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 
             <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
-                <div class="w-10 h-10 rounded-2xl bg-emerald-400/10 flex items-center justify-center mb-5">
-                    <i class="fa-solid fa-search text-emerald-400 text-xl"></i>
+                <div class="w-10 h-10 rounded-2xl bg-violet-400/10 flex items-center justify-center mb-5">
+                    <i class="fa-solid fa-search text-violet-400 text-xl"></i>
                 </div>
-                <div class="font-semibold text-xl tracking-tight">Narrative Engine</div>
-                <div class="text-sm text-zinc-400 mt-3 leading-snug">实时监控多平台热点与指定账号，自动识别可转化为链上资产的叙事。</div>
+                <div class="font-semibold text-xl tracking-tight">Narrative Discovery</div>
+                <div class="text-sm text-zinc-400 mt-3 leading-snug" data-i18n="core.discovery.desc">Surface meme-ready stories, events, people, and cultural symbols from public internet content.</div>
             </div>
 
             <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
                 <div class="w-10 h-10 rounded-2xl bg-purple-400/10 flex items-center justify-center mb-5">
-                    <i class="fa-solid fa-hammer text-purple-400 text-xl"></i>
+                    <i class="fa-solid fa-scale-balanced text-purple-400 text-xl"></i>
                 </div>
-                <div class="font-semibold text-xl tracking-tight">Meme Forge</div>
-                <div class="text-sm text-zinc-400 mt-3 leading-snug">Agent 协助生成名称、视觉方向、文案、叙事角度与 token 经济模型。</div>
+                <div class="font-semibold text-xl tracking-tight">Evidence Filtering</div>
+                <div class="text-sm text-zinc-400 mt-3 leading-snug" data-i18n="core.evidence.desc">Compress raw sources, propagation evidence, crowding, and risk so every judgment is grounded.</div>
             </div>
 
             <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
                 <div class="w-10 h-10 rounded-2xl bg-amber-400/10 flex items-center justify-center mb-5">
-                    <i class="fa-solid fa-bolt text-amber-400 text-xl"></i>
+                    <i class="fa-solid fa-file-signature text-amber-400 text-xl"></i>
                 </div>
-                <div class="font-semibold text-xl tracking-tight">Signal Launcher</div>
-                <div class="text-sm text-zinc-400 mt-3 leading-snug">当检测到符合条件的信号时，自动生成完整发射方案，支持 Solana 与 BSC。</div>
-            </div>
-
-            <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
-                <div class="w-10 h-10 rounded-2xl bg-sky-400/10 flex items-center justify-center mb-5">
-                    <i class="fa-solid fa-layer-group text-sky-400 text-xl"></i>
-                </div>
-                <div class="font-semibold text-xl tracking-tight">Wallet Fabric</div>
-                <div class="text-sm text-zinc-400 mt-3 leading-snug">智能创建与管理钱包组，实现资金分散、防 MEV 与批量执行策略。</div>
-            </div>
-
-            <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
-                <div class="w-10 h-10 rounded-2xl bg-orange-400/10 flex items-center justify-center mb-5">
-                    <i class="fa-solid fa-users text-orange-400 text-xl"></i>
-                </div>
-                <div class="font-semibold text-xl tracking-tight">Community Agent</div>
-                <div class="text-sm text-zinc-400 mt-3 leading-snug">发射后由 Agent 辅助生成内容、匹配 KOL 并持续追踪社区健康度。</div>
-            </div>
-
-            <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
-                <div class="w-10 h-10 rounded-2xl bg-rose-400/10 flex items-center justify-center mb-5">
-                    <i class="fa-solid fa-rocket text-rose-400 text-xl"></i>
-                </div>
-                <div class="font-semibold text-xl tracking-tight">Launch OS</div>
-                <div class="text-sm text-zinc-400 mt-3 leading-snug">一站式配置与执行发射流程，包含合约部署、流动性与初始做市策略。</div>
+                <div class="font-semibold text-xl tracking-tight">Launch-ready Plans</div>
+                <div class="text-sm text-zinc-400 mt-3 leading-snug" data-i18n="core.plans.desc">Turn selected narratives into editable, savable, confirmable structured plans.</div>
             </div>
 
         </div>
@@ -325,11 +364,11 @@
         <div class="max-w-screen-2xl mx-auto px-8">
             <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-y-4 mb-8">
                 <div>
-                    <div class="text-xs tracking-[2px] text-zinc-500 font-semibold mb-2">PRODUCT INTERFACE</div>
-                    <h3 class="font-display text-4xl tracking-[-1px]">真实的工作台体验</h3>
+                    <div class="text-xs tracking-[2px] text-zinc-500 font-semibold mb-2" data-i18n="product.kicker">PRODUCT INTERFACE</div>
+                    <h3 class="font-display text-4xl tracking-[-1px]" data-i18n="product.title">A real workbench experience</h3>
                 </div>
                 <button onclick="enterApp()" class="text-sm px-5 py-2.5 border border-white/20 hover:bg-white/5 rounded-2xl flex items-center gap-x-2 self-start lg:self-auto transition-colors">
-                    <span>打开完整工作台</span>
+                    <span data-i18n="product.open">Open full workbench</span>
                 </button>
             </div>
 
@@ -338,36 +377,36 @@
                     <div class="px-6 py-3 border-b border-zinc-800 flex items-center justify-between text-xs">
                         <div class="flex items-center gap-x-4 text-zinc-400">
                             <span class="font-mono">NarraOps</span>
-                            <span class="text-emerald-400">Agent 在线</span>
+                            <span class="text-violet-400" data-i18n="mock.online">Agent online</span>
                         </div>
-                        <div class="font-mono text-emerald-400 text-[10px]">v0.9.2</div>
+                        <div class="font-mono text-violet-400 text-[10px]">v0.9.2</div>
                     </div>
 
                     <div class="p-7 grid grid-cols-1 lg:grid-cols-12 gap-6">
                         <div class="lg:col-span-5">
-                            <div class="text-xs text-zinc-500 mb-3">Narrative Engine • 实时信号</div>
+                            <div class="text-xs text-zinc-500 mb-3" data-i18n="mock.engine">Narrative Engine • Live signals</div>
                             <div class="space-y-2 text-sm">
                                 <div class="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex justify-between items-center">
-                                    <div>AI Agent 经济体</div>
-                                    <div class="text-emerald-400 text-xs font-medium">92</div>
+                                    <div data-i18n="mock.signal1">AI Agent economy</div>
+                                    <div class="text-violet-400 text-xs font-medium">92</div>
                                 </div>
                                 <div class="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex justify-between items-center">
-                                    <div>Meme 2.0 叙事驱动</div>
-                                    <div class="text-emerald-400 text-xs font-medium">79</div>
+                                    <div data-i18n="mock.signal2">Meme 2.0 narrative drive</div>
+                                    <div class="text-violet-400 text-xs font-medium">79</div>
                                 </div>
                             </div>
                         </div>
 
                         <div class="lg:col-span-7">
-                            <div class="text-xs text-zinc-500 mb-3">推荐动作</div>
+                            <div class="text-xs text-zinc-500 mb-3" data-i18n="mock.actions">Recommended actions</div>
                             <div class="grid grid-cols-2 gap-3 text-sm">
                                 <div onclick="enterApp()" class="cursor-pointer bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 transition-colors rounded-2xl px-4 py-4">
-                                    <div class="font-medium">使用 Meme Forge 生成方案</div>
-                                    <div class="text-xs text-zinc-400 mt-4">基于当前最高分叙事</div>
+                                    <div class="font-medium" data-i18n="mock.action1">Generate a plan with Meme Forge</div>
+                                    <div class="text-xs text-zinc-400 mt-4" data-i18n="mock.action1.sub">Based on the top-ranked narrative</div>
                                 </div>
                                 <div onclick="enterApp()" class="cursor-pointer bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 transition-colors rounded-2xl px-4 py-4">
-                                    <div class="font-medium">创建 Wallet Fabric</div>
-                                    <div class="text-xs text-zinc-400 mt-4">智能防 MEV 分散策略</div>
+                                    <div class="font-medium" data-i18n="mock.action2">Create Wallet Fabric</div>
+                                    <div class="text-xs text-zinc-400 mt-4" data-i18n="mock.action2.sub">Smart anti-MEV distribution strategy</div>
                                 </div>
                             </div>
                         </div>
@@ -380,13 +419,13 @@
     <!-- FINAL CTA -->
     <section class="max-w-screen-2xl mx-auto px-8 py-20 text-center">
         <div class="max-w-lg mx-auto">
-            <h2 class="font-display text-5xl tracking-[-1.5px] leading-none">准备好用专业级工具<br>完成你的链上资产发行了吗？</h2>
+            <h2 class="font-display text-5xl tracking-[-1.5px] leading-none" data-i18n="bottom.title" data-i18n-html="true">Ready for professional-grade tools<br>to finish your on-chain asset launch?</h2>
 
             <button onclick="enterApp()" class="mt-9 px-10 py-4 bg-white text-black font-semibold text-lg rounded-3xl inline-flex items-center gap-x-3 active:scale-[0.985] transition-all">
-                <span>进入 NarraOps 工作台</span>
+                <span data-i18n="bottom.cta">Enter NarraOps workbench</span>
             </button>
 
-            <div class="mt-4 text-xs text-zinc-500">连接钱包即可开始 • 支持 Solana 与 BSC</div>
+            <div class="mt-4 text-xs text-zinc-500" data-i18n="bottom.note">Connect a wallet to start • Solana and BSC supported</div>
         </div>
     </section>
 
@@ -394,7 +433,7 @@
         <div class="max-w-screen-2xl mx-auto px-8 flex flex-col md:flex-row justify-between items-center gap-y-2 text-center md:text-left">
             <div>© 2026 NarraOps</div>
             <div class="flex gap-x-5">
-                <span class="cursor-pointer hover:text-white transition-colors">文档</span>
+                <span class="cursor-pointer hover:text-white transition-colors" data-i18n="footer.docs">Docs</span>
                 <span class="cursor-pointer hover:text-white transition-colors">Discord</span>
                 <span class="cursor-pointer hover:text-white transition-colors">X</span>
             </div>
@@ -402,44 +441,208 @@
     </footer>
 
     <script>
-        function toggleLanguageDropdown() {
-            const dropdown = document.getElementById('lang-dropdown');
-            dropdown.classList.toggle('hidden');
-            dropdown.classList.toggle('flex');
-
-            setTimeout(() => {
-                document.addEventListener('click', function handler(e) {
-                    if (!dropdown.contains(e.target)) {
-                        dropdown.classList.add('hidden');
-                        dropdown.classList.remove('flex');
-                        document.removeEventListener('click', handler);
-                    }
-                }, { once: true });
-            }, 50);
-        }
-
-        function selectLanguage(lang) {
-            const dropdown = document.getElementById('lang-dropdown');
-            dropdown.classList.add('hidden');
-            dropdown.classList.remove('flex');
-
-            document.querySelectorAll('.lang-option i').forEach(el => el.remove());
-
-            if (lang === 'zh') {
-                const btns = document.querySelectorAll('.lang-option');
-                if (btns[1]) {
-                    const check = document.createElement('i');
-                    check.className = 'fa-solid fa-check text-emerald-400 text-xs ml-auto';
-                    btns[1].appendChild(check);
+        const LandingI18n = (() => {
+            const STORAGE_KEY = 'narraops-language';
+            const LEGACY_STORAGE_KEY = 'narraops-landing-lang';
+            const SUPPORTED = new Set(['en', 'zh']);
+            const dictionary = {
+                en: {
+                    'meta.title': 'NarraOps • Discover narratives, launch assets',
+                    'cta.enter': 'Enter App',
+                    'hero.eyebrow': 'AI-NATIVE NARRATIVE DISCOVERY',
+                    'hero.title': 'Discover narratives, launch assets',
+                    'hero.subtitle': 'NarraOps is agent-driven. It connects narrative discovery, meme crafting, on-chain launch prep, wallet-group execution, and community ops into one workflow.',
+                    'hero.learn': 'Explore the workflow',
+                    'core.kicker': 'CORE SYSTEM',
+                    'core.title': 'From internet narratives to reviewable plans',
+                    'core.discovery.desc': 'Surface meme-ready stories, events, people, and cultural symbols from public internet content.',
+                    'core.evidence.desc': 'Compress raw sources, propagation evidence, crowding, and risk so every judgment is grounded.',
+                    'core.plans.desc': 'Turn selected narratives into editable, savable, confirmable structured plans.',
+                    'product.kicker': 'PRODUCT INTERFACE',
+                    'product.title': 'A real workbench experience',
+                    'product.open': 'Open full workbench',
+                    'mock.online': 'Agent online',
+                    'mock.engine': 'Narrative Engine • Live signals',
+                    'mock.signal1': 'AI Agent economy',
+                    'mock.signal2': 'Meme 2.0 narrative drive',
+                    'mock.actions': 'Recommended actions',
+                    'mock.action1': 'Generate a plan with Meme Forge',
+                    'mock.action1.sub': 'Based on the top-ranked narrative',
+                    'mock.action2': 'Create Wallet Fabric',
+                    'mock.action2.sub': 'Smart anti-MEV distribution strategy',
+                    'bottom.title': 'Ready for professional-grade tools<br>to finish your on-chain asset launch?',
+                    'bottom.cta': 'Enter NarraOps workbench',
+                    'bottom.note': 'Connect a wallet to start • Solana and BSC supported',
+                    'footer.docs': 'Docs'
+                },
+                zh: {
+                    'meta.title': 'NarraOps • 发现叙事，发射资产',
+                    'cta.enter': '进入应用',
+                    'hero.eyebrow': 'AI 原生叙事发现',
+                    'hero.title': '发现叙事，发射资产',
+                    'hero.subtitle': 'NarraOps 由 Agent 驱动，将叙事发现、Meme 构建、链上发射、钱包组执行和社区运营连接为一套完整工作流。',
+                    'hero.learn': '了解工作流',
+                    'core.kicker': '核心系统',
+                    'core.title': '从互联网叙事到可审阅预案',
+                    'core.discovery.desc': '从公开互联网内容中发现可 Meme 化的故事、事件、人物和文化符号。',
+                    'core.evidence.desc': '压缩原始来源、传播证据、同类拥挤度和风险，让判断有依据。',
+                    'core.plans.desc': '把选中的叙事整理为可编辑、可保存、可确认的结构化预案。',
+                    'product.kicker': '产品界面',
+                    'product.title': '真实的工作台体验',
+                    'product.open': '打开完整工作台',
+                    'mock.online': 'Agent 在线',
+                    'mock.engine': 'Narrative Engine • 实时信号',
+                    'mock.signal1': 'AI Agent 经济体',
+                    'mock.signal2': 'Meme 2.0 叙事驱动',
+                    'mock.actions': '推荐动作',
+                    'mock.action1': '使用 Meme Forge 生成方案',
+                    'mock.action1.sub': '基于当前最高分叙事',
+                    'mock.action2': '创建 Wallet Fabric',
+                    'mock.action2.sub': '智能防 MEV 分散策略',
+                    'bottom.title': '准备好用专业级工具<br>完成你的链上资产发行了吗？',
+                    'bottom.cta': '进入 NarraOps 工作台',
+                    'bottom.note': '连接钱包即可开始 • 支持 Solana 与 BSC',
+                    'footer.docs': '文档'
                 }
-            } else if (lang === 'en') {
-                alert('English version coming soon.');
-            } else if (lang === 'zh-tw') {
-                alert('繁体中文版本即将上线。');
+            };
+
+            let currentLang = 'en';
+            let menuOpen = false;
+            let root;
+            let toggleBtn;
+            let dropdown;
+            let optionButtons = [];
+
+            function normalize(lang) {
+                if (!lang) return 'en';
+                const value = String(lang).toLowerCase();
+                if (value === 'zh' || value === 'zh-cn' || value === 'zh_hans') return 'zh';
+                return 'en';
             }
-        }
+
+            function readStoredLanguage() {
+                try {
+                    const primary = localStorage.getItem(STORAGE_KEY);
+                    if (primary) return normalize(primary);
+                    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+                    if (legacy) return normalize(legacy);
+                } catch (_) {
+                    /* ignore */
+                }
+                return 'en';
+            }
+
+            function writeStoredLanguage(lang) {
+                try {
+                    localStorage.setItem(STORAGE_KEY, lang);
+                } catch (_) {
+                    /* ignore quota / private mode */
+                }
+            }
+
+            function setMenuOpen(open) {
+                menuOpen = Boolean(open);
+                if (!dropdown || !toggleBtn) return;
+                dropdown.classList.toggle('is-open', menuOpen);
+                toggleBtn.setAttribute('aria-expanded', menuOpen ? 'true' : 'false');
+            }
+
+            function closeMenu() {
+                setMenuOpen(false);
+            }
+
+            function toggleMenu() {
+                setMenuOpen(!menuOpen);
+            }
+
+            function syncOptionState(lang) {
+                optionButtons.forEach((button) => {
+                    const active = button.dataset.lang === lang;
+                    button.classList.toggle('is-active', active);
+                    button.setAttribute('aria-selected', active ? 'true' : 'false');
+                });
+            }
+
+            function applyLanguage(lang, { persist = true } = {}) {
+                const next = normalize(lang);
+                if (!SUPPORTED.has(next)) return;
+                currentLang = next;
+                const pack = dictionary[next];
+
+                document.documentElement.lang = next === 'zh' ? 'zh-CN' : 'en';
+                document.title = pack['meta.title'];
+
+                document.querySelectorAll('[data-i18n]').forEach((node) => {
+                    const key = node.getAttribute('data-i18n');
+                    if (!key || pack[key] == null) return;
+                    if (node.getAttribute('data-i18n-html') === 'true') {
+                        node.innerHTML = pack[key];
+                    } else {
+                        node.textContent = pack[key];
+                    }
+                });
+
+                syncOptionState(next);
+                if (persist) writeStoredLanguage(next);
+            }
+
+            function onDocumentPointerDown(event) {
+                if (!menuOpen || !root) return;
+                if (!root.contains(event.target)) closeMenu();
+            }
+
+            function onDocumentKeyDown(event) {
+                if (event.key === 'Escape') closeMenu();
+            }
+
+            function bind() {
+                root = document.querySelector('[data-language-root]');
+                toggleBtn = document.getElementById('languageToggle');
+                dropdown = document.getElementById('lang-dropdown');
+                optionButtons = Array.from(document.querySelectorAll('.lang-option[data-lang]'));
+
+                if (!root || !toggleBtn || !dropdown) return;
+
+                toggleBtn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleMenu();
+                });
+
+                optionButtons.forEach((button) => {
+                    button.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        applyLanguage(button.dataset.lang, { persist: true });
+                        closeMenu();
+                    });
+                });
+
+                document.addEventListener('pointerdown', onDocumentPointerDown, true);
+                document.addEventListener('keydown', onDocumentKeyDown);
+            }
+
+            function init() {
+                bind();
+                applyLanguage(readStoredLanguage(), { persist: false });
+            }
+
+            function getLanguage() {
+                return currentLang;
+            }
+
+            return { init, applyLanguage, closeMenu, getLanguage };
+        })();
 
         function enterApp() {
+            try {
+                const lang = typeof LandingI18n !== 'undefined' && LandingI18n.getLanguage
+                    ? LandingI18n.getLanguage()
+                    : 'en';
+                localStorage.setItem('narraops-language', lang === 'zh' ? 'zh' : 'en');
+            } catch (_) {
+                /* ignore */
+            }
             window.location.href = 'app.html';
         }
 
@@ -611,16 +814,7 @@
 
         function init() {
             initHeroMotion();
-            setTimeout(() => {
-                const zhBtn = document.querySelectorAll('.lang-option')[1];
-                if (zhBtn && !zhBtn.querySelector('i')) {
-                    const check = document.createElement('i');
-                    check.className = 'fa-solid fa-check text-emerald-400 text-xs ml-auto';
-                    zhBtn.appendChild(check);
-                }
-            }, 300);
-
-            console.log('%c[NarraOps Landing v3] Updated with new HertzFlow-style hero.', 'color:#555');
+            LandingI18n.init();
         }
 
         window.onload = init;

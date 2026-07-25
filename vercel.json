@@ -1,0 +1,54 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist/vercel"
+      }
+    },
+    {
+      "src": "api/v1/**/*.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "cleanUrls": true,
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/v1/wallet-groups/([^/]+)/wallets",
+      "dest": "/api/v1/wallet-groups/[groupId]/wallets.ts"
+    },
+    {
+      "src": "/api/v1/(.*)",
+      "dest": "/api/v1/$1.ts"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/app",
+      "dest": "/app.html"
+    }
+  ]
+}
