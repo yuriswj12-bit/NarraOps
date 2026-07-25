@@ -3,11 +3,50 @@ import test from "node:test";
 import handlerModule, {
   handleAssetsRoute,
 } from "../../../api/v1/[...path].ts";
+import { buildPulseMarketResponse } from "../../../api/v1/pulse-market.ts";
 
 const handler =
   typeof handlerModule === "function"
     ? handlerModule
     : (handlerModule as { default: typeof handlerModule }).default;
+
+test("Pulse market response keeps decimal values as strings", () => {
+  const response = buildPulseMarketResponse([
+    {
+      observed_at: "2026-07-26T00:00:00.000Z",
+      long_term_dev_count: 120,
+      recent_dev_count: 80,
+      daily_launch_count: 4000,
+      graduated_count: 25,
+      dex_volume_usd: "123456789.12",
+      long_term_dev_score: "70.00",
+      recent_dev_score: "65.00",
+      daily_launch_score: "75.00",
+      graduated_score: "80.00",
+      dex_volume_score: "60.00",
+      market_activity_index: "71.75",
+      calculation_status: "ready",
+    },
+    {
+      observed_at: "2026-07-25T00:00:00.000Z",
+      market_activity_index: "70.25",
+      calculation_status: "ready",
+    },
+  ]);
+  assert.equal(response.data_status, "ready");
+  assert.equal(response.index.value, "71.75");
+  assert.equal(response.index.change_24h, "1.50");
+  assert.equal(response.index.components.dex_volume.raw_value, "123456789.12");
+  assert.equal(response.sparkline.length, 2);
+});
+
+test("Pulse market response never fabricates an index without observations", () => {
+  const response = buildPulseMarketResponse([]);
+  assert.equal(response.data_status, "awaiting_market_observation");
+  assert.equal(response.index.value, null);
+  assert.equal(response.index.change_24h, null);
+  assert.deepEqual(response.sparkline, []);
+});
 
 function responseRecorder() {
   const headers = new Map<string, unknown>();
