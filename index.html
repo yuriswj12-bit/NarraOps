@@ -293,7 +293,7 @@
                 <div class="hero-copy">
                     <div class="inline-flex items-center gap-x-2 px-4 py-1.5 rounded-full bg-black/35 border border-white/15 mb-6 backdrop-blur-md">
                         <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
-                        <span class="font-medium tracking-[1.5px] text-sm text-emerald-300"> data-i18n="hero.eyebrow">AI-NATIVE NARRATIVE DISCOVERY</span>
+                        <span class="font-medium tracking-[1.5px] text-sm text-emerald-300" data-i18n="hero.eyebrow">AI-NATIVE NARRATIVE DISCOVERY</span>
                     </div>
 
                     <h1 class="font-display text-[64px] max-sm:text-[38px] leading-[1.08] tracking-normal font-semibold text-white">
@@ -442,7 +442,8 @@
 
     <script>
         const LandingI18n = (() => {
-            const STORAGE_KEY = 'narraops-landing-lang';
+            const STORAGE_KEY = 'narraops-language';
+            const LEGACY_STORAGE_KEY = 'narraops-landing-lang';
             const SUPPORTED = new Set(['en', 'zh']);
             const dictionary = {
                 en: {
@@ -521,15 +522,21 @@
 
             function readStoredLanguage() {
                 try {
-                    return normalize(localStorage.getItem(STORAGE_KEY));
+                    const primary = localStorage.getItem(STORAGE_KEY);
+                    if (primary) return normalize(primary);
+                    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+                    if (legacy) return normalize(legacy);
                 } catch (_) {
-                    return 'en';
+                    /* ignore */
                 }
+                return 'en';
             }
 
             function writeStoredLanguage(lang) {
                 try {
                     localStorage.setItem(STORAGE_KEY, lang);
+                    // Keep legacy key in sync during transition, then prefer shared key.
+                    localStorage.setItem(LEGACY_STORAGE_KEY, lang);
                 } catch (_) {
                     /* ignore quota / private mode */
                 }
@@ -622,10 +629,24 @@
                 applyLanguage(readStoredLanguage(), { persist: false });
             }
 
-            return { init, applyLanguage, closeMenu };
+            function getLanguage() {
+                return currentLang;
+            }
+
+            return { init, applyLanguage, closeMenu, getLanguage };
         })();
 
         function enterApp() {
+            try {
+                const lang = typeof LandingI18n !== 'undefined' && LandingI18n.getLanguage
+                    ? LandingI18n.getLanguage()
+                    : 'en';
+                const normalized = lang === 'zh' ? 'zh' : 'en';
+                localStorage.setItem('narraops-language', normalized);
+                localStorage.setItem('narraops-landing-lang', normalized);
+            } catch (_) {
+                /* ignore */
+            }
             window.location.href = 'app.html';
         }
 
