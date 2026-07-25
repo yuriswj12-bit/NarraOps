@@ -45,7 +45,7 @@
             position: absolute;
             inset: 0;
             z-index: -2;
-            background-image: url('./assets/narraops-hero-signals.png');
+            background-image: radial-gradient(ellipse 70% 55% at 78% 20%, rgba(139, 124, 255, 0.10), transparent 60%), radial-gradient(ellipse 55% 45% at 15% 80%, rgba(111, 92, 255, 0.06), transparent 58%), linear-gradient(180deg, #07070c 0%, #050507 100%);
             background-repeat: no-repeat;
             background-position: center center;
             background-size: cover;
@@ -292,8 +292,8 @@
             <div class="hero-content">
                 <div class="hero-copy">
                     <div class="inline-flex items-center gap-x-2 px-4 py-1.5 rounded-full bg-black/35 border border-white/15 mb-6 backdrop-blur-md">
-                        <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
-                        <span class="font-medium tracking-[1.5px] text-sm text-emerald-300" data-i18n="hero.eyebrow">AI-NATIVE NARRATIVE DISCOVERY</span>
+                        <span class="w-1.5 h-1.5 bg-violet-400 rounded-full animate-pulse"></span>
+                        <span class="font-medium tracking-[1.5px] text-sm text-violet-300" data-i18n="hero.eyebrow">AI-NATIVE NARRATIVE DISCOVERY</span>
                     </div>
 
                     <h1 class="font-display text-[64px] max-sm:text-[38px] leading-[1.08] tracking-normal font-semibold text-white">
@@ -308,7 +308,7 @@
 
                     <div class="grid grid-cols-2 max-sm:grid-cols-1 gap-4 mt-6">
                         <button onclick="enterApp()"
-                                class="h-12 px-7 bg-emerald-400 hover:bg-emerald-300 active:bg-emerald-500 text-black font-semibold text-base rounded-2xl flex items-center justify-center gap-x-3 transition-all shadow-xl shadow-emerald-400/20">
+                                class="h-12 px-7 bg-violet-500 hover:bg-violet-400 active:bg-violet-600 text-white font-semibold text-base rounded-2xl flex items-center justify-center gap-x-3 transition-all shadow-xl shadow-violet-400/20">
                             <span data-i18n="cta.enter">Enter App</span>
                             <i class="fa-solid fa-arrow-right text-sm"></i>
                         </button>
@@ -333,8 +333,8 @@
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 
             <div class="feature-card glass rounded-3xl p-6 border border-zinc-800">
-                <div class="w-10 h-10 rounded-2xl bg-emerald-400/10 flex items-center justify-center mb-5">
-                    <i class="fa-solid fa-search text-emerald-400 text-xl"></i>
+                <div class="w-10 h-10 rounded-2xl bg-violet-400/10 flex items-center justify-center mb-5">
+                    <i class="fa-solid fa-search text-violet-400 text-xl"></i>
                 </div>
                 <div class="font-semibold text-xl tracking-tight">Narrative Discovery</div>
                 <div class="text-sm text-zinc-400 mt-3 leading-snug" data-i18n="core.discovery.desc">Surface meme-ready stories, events, people, and cultural symbols from public internet content.</div>
@@ -377,9 +377,9 @@
                     <div class="px-6 py-3 border-b border-zinc-800 flex items-center justify-between text-xs">
                         <div class="flex items-center gap-x-4 text-zinc-400">
                             <span class="font-mono">NarraOps</span>
-                            <span class="text-emerald-400" data-i18n="mock.online">Agent online</span>
+                            <span class="text-violet-400" data-i18n="mock.online">Agent online</span>
                         </div>
-                        <div class="font-mono text-emerald-400 text-[10px]">v0.9.2</div>
+                        <div class="font-mono text-violet-400 text-[10px]">v0.9.2</div>
                     </div>
 
                     <div class="p-7 grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -388,11 +388,11 @@
                             <div class="space-y-2 text-sm">
                                 <div class="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex justify-between items-center">
                                     <div data-i18n="mock.signal1">AI Agent economy</div>
-                                    <div class="text-emerald-400 text-xs font-medium">92</div>
+                                    <div class="text-violet-400 text-xs font-medium">92</div>
                                 </div>
                                 <div class="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex justify-between items-center">
                                     <div data-i18n="mock.signal2">Meme 2.0 narrative drive</div>
-                                    <div class="text-emerald-400 text-xs font-medium">79</div>
+                                    <div class="text-violet-400 text-xs font-medium">79</div>
                                 </div>
                             </div>
                         </div>
@@ -535,8 +535,6 @@
             function writeStoredLanguage(lang) {
                 try {
                     localStorage.setItem(STORAGE_KEY, lang);
-                    // Keep legacy key in sync during transition, then prefer shared key.
-                    localStorage.setItem(LEGACY_STORAGE_KEY, lang);
                 } catch (_) {
                     /* ignore quota / private mode */
                 }
@@ -641,9 +639,7 @@
                 const lang = typeof LandingI18n !== 'undefined' && LandingI18n.getLanguage
                     ? LandingI18n.getLanguage()
                     : 'en';
-                const normalized = lang === 'zh' ? 'zh' : 'en';
-                localStorage.setItem('narraops-language', normalized);
-                localStorage.setItem('narraops-landing-lang', normalized);
+                localStorage.setItem('narraops-language', lang === 'zh' ? 'zh' : 'en');
             } catch (_) {
                 /* ignore */
             }

@@ -57,3 +57,9 @@ At handoff, update only the matching handoff file and report the commit hash, te
 - Do not rewrite or reset another role's branch.
 - Do not push unless the user explicitly requests it.
 
+## Workspace boundary
+
+- Active product path: `narraops-product` (this repo / GitHub `yuriswj12-bit/NarraOps`).
+- Local historical trees under `../_archive/` are reference-only and must not receive new product work.
+- First-level product navigation remains Go / Pulse / Assets. Launch adapters stay internal workbench/backend capability, not primary nav.
+
