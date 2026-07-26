@@ -19,11 +19,28 @@ QUERY_IDS = {
     "daily_revenue_usd": 3759856,
 }
 FIELD_ALIASES = {
-    "daily_tokens_created": ("daily_tokens_created", "tokens_created", "tokens", "count"),
+    "daily_tokens_created": (
+        "daily_tokens_created",
+        "daily_token_count",
+        "tokens_created",
+        "tokens",
+        "count",
+    ),
     "tokens_launched_24h": ("tokens_launched", "tokens_launched_24h", "count"),
-    "graduated_tokens_24h": ("graduated_tokens", "graduated_tokens_24h", "count"),
+    "graduated_tokens_24h": (
+        "graduated_tokens",
+        "graduated_tokens_24h",
+        "withdraw_token_last_24h",
+        "count",
+    ),
     "daily_active_wallets": ("daily_active_wallets", "active_wallets", "wallets", "count"),
-    "daily_revenue_usd": ("daily_revenue", "revenue", "revenue_usd", "amount_usd"),
+    "daily_revenue_usd": (
+        "daily_revenue",
+        "revenue",
+        "revenue_usd",
+        "fee_usd",
+        "amount_usd",
+    ),
 }
 
 
@@ -54,6 +71,26 @@ def _result_rows(payload: dict) -> list[dict]:
 
 def extract_metric(metric_name: str, payload: dict) -> DuneMetric:
     rows = _result_rows(payload)
+    rows = sorted(
+        rows,
+        key=lambda row: str(
+            row.get("date_time")
+            or row.get("day")
+            or row.get("date")
+            or ""
+        ),
+        reverse=True,
+    )
+    if metric_name == "daily_active_wallets":
+        for row in rows:
+            new_users = _decimal(row.get("new_users"))
+            recurring_users = _decimal(row.get("recurring_users"))
+            if new_users is not None and recurring_users is not None:
+                return DuneMetric(
+                    new_users + recurring_users,
+                    tuple(rows),
+                    QUERY_IDS[metric_name],
+                )
     aliases = FIELD_ALIASES[metric_name]
     for row in rows:
         lowered = {

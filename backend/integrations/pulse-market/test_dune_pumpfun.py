@@ -14,6 +14,18 @@ class DunePumpfunTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "columns="):
             extract_metric("graduated_tokens_24h", {"result": {"rows": [{"x": 1}]}})
 
+    def test_active_wallets_adds_new_and_recurring_users(self):
+        payload = {
+            "result": {
+                "rows": [
+                    {"day": "2026-07-25", "new_users": 10, "recurring_users": 20},
+                    {"day": "2026-07-26", "new_users": 30, "recurring_users": 40},
+                ]
+            }
+        }
+        metric = extract_metric("daily_active_wallets", payload)
+        self.assertEqual(str(metric.value), "70")
+
 
 if __name__ == "__main__":
     unittest.main()
