@@ -27,7 +27,12 @@ FIELD_ALIASES = {
         "count",
     ),
     "tokens_launched_24h": ("tokens_launched", "tokens_launched_24h", "count"),
-    "graduated_tokens_24h": ("graduated_tokens", "graduated_tokens_24h", "count"),
+    "graduated_tokens_24h": (
+        "graduated_tokens",
+        "graduated_tokens_24h",
+        "withdraw_token_last_24h",
+        "count",
+    ),
     "daily_active_wallets": ("daily_active_wallets", "active_wallets", "wallets", "count"),
     "daily_revenue_usd": ("daily_revenue", "revenue", "revenue_usd", "amount_usd"),
 }
