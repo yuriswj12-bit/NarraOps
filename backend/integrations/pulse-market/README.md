@@ -39,6 +39,25 @@ interval: every minute. A slower interval can exceed GMGN's 80-row cap on
 high-volume launchpads and will be marked incomplete instead of published as a
 full-market total.
 
+## Deployable worker
+
+The included container runs the collector continuously and keeps each cycle on
+a one-minute cadence:
+
+```bash
+docker build -t narraops-pulse-market backend/integrations/pulse-market
+docker run --env-file .env narraops-pulse-market
+```
+
+Required server-only variables:
+
+- `GMGN_API_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
+
+Apply database migrations `011` and `012` before starting the worker. Never
+place the Supabase secret key in browser code or a public deployment variable.
+
 Run the deterministic tests:
 
 ```powershell
