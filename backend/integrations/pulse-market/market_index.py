@@ -1,8 +1,4 @@
-"""Pulse Meme Market Activity Index calculation.
-
-Raw metrics are never treated as scores. Each component is percentile-ranked
-against a 30-90 day baseline before the configured weights are applied.
-"""
+"""Pulse Pump.fun Meme Market Activity Index calculation."""
 
 from __future__ import annotations
 
@@ -12,15 +8,15 @@ from typing import Iterable, Mapping
 
 
 WEIGHTS = {
-    "long_term_dev_count": Decimal("0.25"),
-    "recent_dev_count": Decimal("0.20"),
-    "daily_launch_count": Decimal("0.10"),
-    "graduated_count": Decimal("0.30"),
-    "dex_volume_usd": Decimal("0.15"),
+    "daily_tokens_created": Decimal("0.15"),
+    "tokens_launched_24h": Decimal("0.20"),
+    "graduated_tokens_24h": Decimal("0.30"),
+    "daily_active_wallets": Decimal("0.20"),
+    "daily_revenue_usd": Decimal("0.15"),
 }
 
-MIN_BASELINE_DAYS = 30
 MAX_BASELINE_DAYS = 90
+NEUTRAL_BETA_SCORE = Decimal("50")
 
 
 @dataclass(frozen=True)
@@ -71,14 +67,16 @@ def calculate_index(
         if raw is None:
             complete = False
             result = ComponentResult(None, None, str(weight), None, "missing")
-        elif len(baseline) < MIN_BASELINE_DAYS:
-            complete = False
+        elif not baseline:
+            score = NEUTRAL_BETA_SCORE
+            contribution = (score * weight).quantize(Decimal("0.01"))
+            total += contribution
             result = ComponentResult(
                 str(raw),
-                None,
+                str(score),
                 str(weight),
-                None,
-                "insufficient_history",
+                str(contribution),
+                "beta_neutral",
             )
         else:
             score = percentile_score(raw, baseline)
@@ -93,11 +91,10 @@ def calculate_index(
             )
         components[name] = result
 
-    status = "ready" if complete else (
-        "partial_data"
-        if any(item.status == "missing" for item in components.values())
-        else "insufficient_history"
+    has_beta_component = any(
+        item.status == "beta_neutral" for item in components.values()
     )
+    status = "partial_data" if not complete else ("beta" if has_beta_component else "ready")
     return {
         "status": status,
         "value": str(total.quantize(Decimal("0.01"))) if complete else None,
@@ -113,4 +110,3 @@ def calculate_index(
         },
         "baseline_days": min(len(baseline_rows), MAX_BASELINE_DAYS),
     }
-

@@ -454,7 +454,7 @@ function renderPulseConnected() {
           class="market-help"
           type="button"
           aria-label="${t("指数说明", "Index methodology")}"
-          data-tooltip="${t("综合长期与近期 Dev 活跃度、每日 Meme 发射量、毕业数量及 Solana DEX 成交量计算。各项先与 30–90 天历史基准比较，再按权重合成。", "Combines long-term and recent Dev activity, daily Meme launches, graduations, and Solana DEX volume. Components are normalized against a 30–90 day baseline before weighting.")}"
+          data-tooltip="${t("综合 Pump.fun 每日代币创建量、24 小时发射量、24 小时毕业量、日活跃钱包和每日收入。", "Combines Pump.fun daily token creation, 24h launches, 24h graduations, daily active wallets, and daily revenue.")}"
         ><i class="fa-regular fa-circle-question" aria-hidden="true"></i></button>
       </div>
       <div class="market-index-row">
@@ -472,7 +472,7 @@ function renderPulseConnected() {
         <span class="market-level">${escapeHtml(marketTone)}</span>
         ${marketSeries.length >= 2
           ? `<canvas class="sparkline market-sparkline" data-market-series="${escapeHtml(JSON.stringify(marketSeries))}" role="img" aria-label="${t("市场指数 30 日趋势", "30-day market index trend")}"></canvas>`
-          : `<div class="market-chart-empty">${t("等待形成 30 天历史基准", "Building the 30-day baseline")}</div>`}
+          : `<div class="market-chart-empty">${t("正在积累趋势快照", "Building the trend history")}</div>`}
       </div>
       <div class="market-supporting-metrics">
         <span><strong>${escapeHtml(marketStatus.replaceAll("_", " "))}</strong><small>${t("数据状态", "Data status")}</small></span>
