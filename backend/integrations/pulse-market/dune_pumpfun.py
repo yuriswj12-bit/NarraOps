@@ -65,6 +65,26 @@ def _result_rows(payload: dict) -> list[dict]:
 
 def extract_metric(metric_name: str, payload: dict) -> DuneMetric:
     rows = _result_rows(payload)
+    rows = sorted(
+        rows,
+        key=lambda row: str(
+            row.get("date_time")
+            or row.get("day")
+            or row.get("date")
+            or ""
+        ),
+        reverse=True,
+    )
+    if metric_name == "daily_active_wallets":
+        for row in rows:
+            new_users = _decimal(row.get("new_users"))
+            recurring_users = _decimal(row.get("recurring_users"))
+            if new_users is not None and recurring_users is not None:
+                return DuneMetric(
+                    new_users + recurring_users,
+                    tuple(rows),
+                    QUERY_IDS[metric_name],
+                )
     aliases = FIELD_ALIASES[metric_name]
     for row in rows:
         lowered = {
