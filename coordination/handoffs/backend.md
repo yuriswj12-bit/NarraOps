@@ -205,6 +205,33 @@ Remaining integration work:
 - It exposes the v0 gate/state vocabulary and explicit limitations. Historical evaluation rows and old mock opportunities are not presented as live evidence.
 - The endpoint uses a short CDN cache while the first reviewed evidence snapshot and refresh worker are still pending.
 
+## 2026-07-26 Pulse market activity foundation
+
+- Added migration `011_pulse_market_activity.sql` for Dev wallets, launch
+  events, and daily market observations. Browser access remains closed by RLS;
+  the cloud worker writes with the server role and the public API exposes a
+  bounded read model.
+- Added the dynamic Dev lifecycle:
+  - `recent`: first launch within 10 days and not idle for 10 days.
+  - `long_term`: first launch at least 60 days ago and the configurable
+    15-day launch window averages at least 20 launches/day.
+  - `inactive`: no launch for 10 days.
+- Added deterministic percentile normalization against 30-90 daily
+  observations and the agreed weights: long-term Dev 25%, recent Dev 20%,
+  daily launches 10%, graduations 30%, DEX volume 15%.
+- Added `GET /api/v1/pulse/market`. It returns decimal values as strings,
+  24-hour change, component readiness, and a 30-point sparkline.
+- Added a one-shot Python worker suitable for cloud cron. It calls
+  `gmgn-cli market trenches`, stores bounded creator/launch/graduation evidence,
+  refreshes Dev lifecycle state, and records an honest `partial_data`
+  observation.
+- GMGN Trenches is capped at 80 results per request. The worker does not treat
+  that page as complete daily launch/graduation totals and does not fabricate
+  Solana DEX volume. A complete-coverage provider remains required for those
+  three components before the public index can become `ready`.
+- Verification: Python 6/6, backend API 58/58, repository TypeScript typecheck,
+  and `git diff --check` pass.
+
 ## 2026-07-24 First reviewed Pulse snapshot
 
 - A live bounded RSS run completed with 3/3 healthy sources, 90 candidates, 70 clusters, and 39 automatically active candidates.

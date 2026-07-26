@@ -33,6 +33,7 @@ import { createMockHandlers } from "../../agents/mock-handlers.ts";
 import { createIntegrationRegistry } from "../../integrations/registry.ts";
 import { mockInviteSummary, mockPulse, mockSettings } from "../../integrations/mock-product-data.ts";
 import { GO_CATEGORIES, GO_COMMANDS, policyForType } from "../../agents/go-command-catalog.ts";
+import { buildPulseMarketResponse } from "../../../api/v1/pulse-market.ts";
 import { EXECUTION_SIMULATION_STATUSES, EXECUTION_SIMULATION_TYPES } from "../../agents/execution-simulator.ts";
 import { listLaunchPlatforms, resolveLaunchPlatform } from "../../integrations/launch-platform-registry.ts";
 import { buildDraftMetadata, prepareNarrativeLink } from "../../integrations/narrative-link-adapter.ts";
@@ -279,6 +280,11 @@ export function createApplication({ config, logger, repository, conversationRepo
 
       if (req.method === "GET" && url.pathname === "/api/v1/pulse") {
         sendJson(res, 200, mockPulse(), requestId);
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/v1/pulse/market") {
+        sendJson(res, 200, buildPulseMarketResponse([]), requestId);
         return;
       }
 
