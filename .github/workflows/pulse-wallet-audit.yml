@@ -1,0 +1,53 @@
+name: Pulse Wallet Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      sample_size:
+        description: Number of high-activity Dev wallets to cross-check
+        required: false
+        default: "20"
+  schedule:
+    - cron: "35 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pulse-wallet-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install GMGN CLI
+        run: npm install --global gmgn-cli@1.4.9
+
+      - name: Cross-check Dev wallets
+        working-directory: backend/integrations/pulse-market
+        env:
+          GMGN_API_KEY: ${{ secrets.GMGN_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          PULSE_AUDIT_SAMPLE_SIZE: ${{ inputs.sample_size || '20' }}
+        run: python3 audit_dev_wallets.py
+
+      - name: Upload audit CSV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulse-wallet-audit-${{ github.run_id }}
+          path: backend/integrations/pulse-market/pulse-wallet-audit.csv
+          if-no-files-found: warn
+          retention-days: 14
