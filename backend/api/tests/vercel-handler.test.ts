@@ -49,6 +49,21 @@ test("Pulse market response never fabricates an index without observations", () 
   assert.deepEqual(response.sparkline, []);
 });
 
+test("Pulse market response preserves every available aggregate observation", () => {
+  const rows = Array.from({ length: 96 }, (_, index) => ({
+    observed_at: new Date(Date.UTC(2026, 6, 1, index * 3)).toISOString(),
+    market_activity_index: String(40 + (index % 20)),
+    calculation_status: "ready",
+  }));
+  const response = buildPulseMarketResponse(rows);
+  assert.equal(response.sparkline.length, 96);
+  assert.equal(response.sparkline[0].observed_at, rows[0].observed_at);
+  assert.equal(
+    response.sparkline.at(-1).observed_at,
+    rows.at(-1).observed_at,
+  );
+});
+
 function responseRecorder() {
   const headers = new Map<string, unknown>();
   let body = "";
