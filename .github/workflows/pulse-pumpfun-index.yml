@@ -1,0 +1,29 @@
+name: Pulse Pump.fun Index
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pulse-pumpfun-index
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Collect Pump.fun aggregates and calculate index
+        working-directory: backend/integrations/pulse-market
+        env:
+          DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python3 pumpfun_index_worker.py

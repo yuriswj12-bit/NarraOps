@@ -247,3 +247,18 @@ GitHub sync:
 - Validation before publish: Pulse Python tests 10/10; backend API tests 40/40; credential-pattern scan clean.
 - Published branch: `feat/backend-agent`; Draft PR targets `main`.
 
+## 2026-07-26 Pump.fun market index revision
+
+- The first Pulse card now uses five Pump.fun aggregates from Dune:
+  Daily Tokens Created (`4861426`, 15%), Tokens Launched 24h (`3979030`,
+  20%), Graduated Tokens 24h (`3979025`, 30%), Daily Active Wallets
+  (`4903519`, 20%), and Daily Revenue (`3759856`, 15%).
+- Migration `013` adds `pulse_pumpfun_market_observations`. It stores aggregate
+  snapshots and component scores only, not the full token dataset.
+- A three-hour GitHub Actions collector reads `DUNE_API_KEY` and writes through
+  server-only Supabase credentials.
+- The first complete observation uses neutral Beta component scores. Later
+  observations use percentile ranks against up to 90 stored snapshots.
+- `GET /api/v1/pulse/market` now returns `pulse.market.v2` from the new table.
+  Migration `013` must run before the workflow or public API is enabled.
+

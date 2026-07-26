@@ -8,33 +8,33 @@ from market_index import calculate_index
 class MarketIndexTests(unittest.TestCase):
     def test_requires_complete_thirty_day_baseline(self):
         current = {
-            "long_term_dev_count": 100,
-            "recent_dev_count": 50,
-            "daily_launch_count": 5000,
-            "graduated_count": 20,
-            "dex_volume_usd": "100000000",
+            "daily_tokens_created": 100,
+            "tokens_launched_24h": 50,
+            "graduated_tokens_24h": 20,
+            "daily_active_wallets": 5000,
+            "daily_revenue_usd": "100000000",
         }
-        result = calculate_index(current, [current] * 29)
-        self.assertEqual(result["status"], "insufficient_history")
-        self.assertIsNone(result["value"])
+        result = calculate_index(current, [])
+        self.assertEqual(result["status"], "beta")
+        self.assertEqual(result["value"], "50.00")
 
     def test_weighted_percentiles_total_one_hundred(self):
         history = [
             {
-                "long_term_dev_count": index,
-                "recent_dev_count": index,
-                "daily_launch_count": index,
-                "graduated_count": index,
-                "dex_volume_usd": index,
+                "daily_tokens_created": index,
+                "tokens_launched_24h": index,
+                "graduated_tokens_24h": index,
+                "daily_active_wallets": index,
+                "daily_revenue_usd": index,
             }
             for index in range(30)
         ]
         current = {
-            "long_term_dev_count": 100,
-            "recent_dev_count": 100,
-            "daily_launch_count": 100,
-            "graduated_count": 100,
-            "dex_volume_usd": 100,
+            "daily_tokens_created": 100,
+            "tokens_launched_24h": 100,
+            "graduated_tokens_24h": 100,
+            "daily_active_wallets": 100,
+            "daily_revenue_usd": 100,
         }
         result = calculate_index(current, history)
         self.assertEqual(result["status"], "ready")
@@ -43,16 +43,16 @@ class MarketIndexTests(unittest.TestCase):
     def test_missing_component_prevents_public_index(self):
         history = [
             {
-                "long_term_dev_count": index,
-                "recent_dev_count": index,
-                "daily_launch_count": index,
-                "graduated_count": index,
-                "dex_volume_usd": index,
+                "daily_tokens_created": index,
+                "tokens_launched_24h": index,
+                "graduated_tokens_24h": index,
+                "daily_active_wallets": index,
+                "daily_revenue_usd": index,
             }
             for index in range(30)
         ]
         current = dict(history[-1])
-        current["dex_volume_usd"] = None
+        current["daily_revenue_usd"] = None
         result = calculate_index(current, history)
         self.assertEqual(result["status"], "partial_data")
         self.assertIsNone(result["value"])
@@ -96,4 +96,3 @@ class DevLifecycleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

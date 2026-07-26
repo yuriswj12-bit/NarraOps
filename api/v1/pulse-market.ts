@@ -1,11 +1,11 @@
 // @ts-nocheck
 
 const COMPONENTS = Object.freeze([
-  ["long_term_dev", "0.25"],
-  ["recent_dev", "0.20"],
-  ["daily_launch", "0.10"],
-  ["graduated", "0.30"],
-  ["dex_volume", "0.15"],
+  ["daily_tokens_created", "0.15"],
+  ["tokens_launched_24h", "0.20"],
+  ["graduated_tokens_24h", "0.30"],
+  ["daily_active_wallets", "0.20"],
+  ["daily_revenue_usd", "0.15"],
 ]);
 
 function decimalOrNull(value) {
@@ -14,8 +14,7 @@ function decimalOrNull(value) {
 
 function component(row, name, weight) {
   const score = decimalOrNull(row?.[`${name}_score`]);
-  const rawField = name === "dex_volume" ? "dex_volume_usd" : `${name}_count`;
-  const rawValue = decimalOrNull(row?.[rawField]);
+  const rawValue = decimalOrNull(row?.[name]);
   return {
     raw_value: rawValue,
     score,
@@ -47,7 +46,7 @@ export function buildPulseMarketResponse(rows = []) {
       : null;
 
   return {
-    schema_version: "pulse.market.v1",
+    schema_version: "pulse.market.v2",
     data_status: current?.calculation_status || "awaiting_market_observation",
     observed_at: current?.observed_at || null,
     index: {
@@ -56,7 +55,7 @@ export function buildPulseMarketResponse(rows = []) {
       change_24h: change24h,
       unit: "points",
       methodology:
-        "Percentile-normalized against 30-90 daily observations, then weighted.",
+        "Pump.fun aggregates are percentile-normalized against up to 90 prior snapshots, then weighted. New components start at a neutral Beta score until a prior snapshot exists.",
       components: Object.fromEntries(
         COMPONENTS.map(([name, weight]) => [
           name,
@@ -73,16 +72,16 @@ export function buildPulseMarketResponse(rows = []) {
         value: String(row.market_activity_index),
       })),
     explanation:
-      "Measures Solana Meme market production activity and capital participation. It is not a price prediction or trading signal.",
+      "Measures Pump.fun Meme market creation, graduation, wallet participation, and revenue activity. It is not a price prediction or trading signal.",
   };
 }
 
 export async function loadPulseMarketResponse(supabase) {
   if (!supabase) return buildPulseMarketResponse([]);
   const { data, error } = await supabase
-    .from("pulse_market_observations")
+    .from("pulse_pumpfun_market_observations")
     .select(
-      "observed_on,observed_at,long_term_dev_count,recent_dev_count,daily_launch_count,graduated_count,dex_volume_usd,long_term_dev_score,recent_dev_score,daily_launch_score,graduated_score,dex_volume_score,market_activity_index,calculation_status,component_status,source_status",
+      "observation_bucket,observed_at,daily_tokens_created,tokens_launched_24h,graduated_tokens_24h,daily_active_wallets,daily_revenue_usd,daily_tokens_created_score,tokens_launched_24h_score,graduated_tokens_24h_score,daily_active_wallets_score,daily_revenue_usd_score,market_activity_index,calculation_status,component_status,source_status",
     )
     .order("observed_at", { ascending: false })
     .limit(91);
