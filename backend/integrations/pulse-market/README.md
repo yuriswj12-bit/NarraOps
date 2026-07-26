@@ -49,6 +49,24 @@ docker build -t narraops-pulse-market backend/integrations/pulse-market
 docker run --env-file .env narraops-pulse-market
 ```
 
+## GitHub Actions free-tier collector
+
+The repository workflow `.github/workflows/pulse-market-collector.yml` starts
+once per hour and keeps the collector running on a one-minute cadence for 55
+minutes. This avoids widening the GMGN query window beyond the 80-row cap while
+still using an hourly scheduled job.
+
+Configure these GitHub Actions repository secrets before enabling the schedule:
+
+- `GMGN_API_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
+
+The workflow can also be started manually with `workflow_dispatch`. Its
+concurrency lock prevents two collection jobs from writing at the same time.
+The daily observation remains an upsert keyed by `observed_on`, so hourly runs
+refresh the current day's snapshot instead of producing duplicate daily rows.
+
 Required server-only variables:
 
 - `GMGN_API_KEY`

@@ -15,6 +15,11 @@ def run_forever() -> None:
         60,
         int(os.getenv("PULSE_POLL_INTERVAL_SECONDS", "60")),
     )
+    max_runtime_seconds = max(
+        0,
+        int(os.getenv("PULSE_WORKER_MAX_RUNTIME_SECONDS", "0")),
+    )
+    worker_started = time.monotonic()
     while True:
         started = time.monotonic()
         try:
@@ -34,7 +39,23 @@ def run_forever() -> None:
                 flush=True,
             )
         elapsed = time.monotonic() - started
-        time.sleep(max(0, interval_seconds - elapsed))
+        sleep_seconds = max(0, interval_seconds - elapsed)
+        if max_runtime_seconds:
+            remaining = max_runtime_seconds - (time.monotonic() - worker_started)
+            if remaining <= 0 or remaining < sleep_seconds:
+                print(
+                    json.dumps(
+                        {
+                            "status": "completed",
+                            "reason": "max_runtime_reached",
+                            "observed_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    ),
+                    flush=True,
+                )
+                return
+            sleep_seconds = min(sleep_seconds, remaining)
+        time.sleep(sleep_seconds)
 
 
 if __name__ == "__main__":
