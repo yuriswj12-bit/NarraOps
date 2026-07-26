@@ -94,6 +94,8 @@ const state = {
     observedAt: null,
     collector: null,
     limitations: [],
+    market: null,
+    marketError: null,
   },
   go: {
     pendingOpportunityId: null,
@@ -375,7 +377,12 @@ async function loadPulse() {
   state.pulse.error = null;
   if (state.view === "pulse") renderPulseConnected();
   try {
-    const payload = await apiRequest("/api/v1/pulse");
+    const [pulseResult, marketResult] = await Promise.allSettled([
+      apiRequest("/api/v1/pulse"),
+      apiRequest("/api/v1/pulse/market"),
+    ]);
+    if (pulseResult.status === "rejected") throw pulseResult.reason;
+    const payload = pulseResult.value;
     opportunities = Array.isArray(payload.opportunities)
       ? payload.opportunities.map(pulseViewModel)
       : [];
@@ -383,12 +390,23 @@ async function loadPulse() {
     state.pulse.observedAt = payload.observed_at || null;
     state.pulse.collector = payload.collector || null;
     state.pulse.limitations = Array.isArray(payload.limitations) ? payload.limitations : [];
+    if (marketResult.status === "fulfilled") {
+      state.pulse.market = marketResult.value;
+      state.pulse.marketError = null;
+    } else {
+      state.pulse.market = null;
+      state.pulse.marketError = marketResult.reason instanceof Error
+        ? marketResult.reason.message
+        : String(marketResult.reason || "Unavailable");
+    }
   } catch (error) {
     opportunities = [];
     state.pulse.dataStatus = "unavailable";
     state.pulse.error = error instanceof Error ? error.message : String(error);
     state.pulse.collector = null;
     state.pulse.limitations = [];
+    state.pulse.market = null;
+    state.pulse.marketError = null;
   } finally {
     state.pulse.loading = false;
     if (state.view === "pulse") renderPulseConnected();
@@ -403,6 +421,23 @@ function renderPulseConnected() {
   const clusterCount = Number(collector.clusterCount || 0);
   const activeCandidateCount = Number(collector.activeCandidateCount || 0);
   const statusLabel = String(state.pulse.dataStatus || "loading").replaceAll("_", " ");
+  const market = state.pulse.market || {};
+  const marketIndex = market.index || {};
+  const indexValue = marketIndex.value == null ? "—" : Number(marketIndex.value).toFixed(0);
+  const indexChange = marketIndex.change_24h == null
+    ? "—"
+    : `${Number(marketIndex.change_24h) >= 0 ? "+" : ""}${Number(marketIndex.change_24h).toFixed(2)}`;
+  const marketStatus = String(market.data_status || (state.pulse.marketError ? "unavailable" : "loading"));
+  const marketSeries = Array.isArray(market.sparkline)
+    ? market.sparkline.map((point) => Number(point.value)).filter(Number.isFinite)
+    : [];
+  const marketTone = marketIndex.value == null
+    ? t("采集中", "Collecting")
+    : Number(marketIndex.value) >= 80
+      ? t("高热度", "High")
+      : Number(marketIndex.value) >= 50
+        ? t("活跃", "Active")
+        : t("低热度", "Low");
   const actions = `
     <span class="simulation-pill"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>${escapeHtml(statusLabel)}</span>
     <button class="secondary-button" type="button" data-action="scan" ${state.pulse.loading ? "disabled" : ""}>
@@ -410,11 +445,47 @@ function renderPulseConnected() {
       ${state.pulse.loading ? t("正在读取", "Loading") : t("刷新证据", "Refresh evidence")}
     </button>
   `;
-  const metrics = [
+  const marketCard = `
+    <article class="signal-card market-index-card">
+      <div class="market-card-title">
+        <span class="market-card-icon"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span>
+        <strong>Meme Market Activity Index</strong>
+        <button
+          class="market-help"
+          type="button"
+          aria-label="${t("指数说明", "Index methodology")}"
+          data-tooltip="${t("综合长期与近期 Dev 活跃度、每日 Meme 发射量、毕业数量及 Solana DEX 成交量计算。各项先与 30–90 天历史基准比较，再按权重合成。", "Combines long-term and recent Dev activity, daily Meme launches, graduations, and Solana DEX volume. Components are normalized against a 30–90 day baseline before weighting.")}"
+        ><i class="fa-regular fa-circle-question" aria-hidden="true"></i></button>
+      </div>
+      <div class="market-index-row">
+        <div>
+          <span class="market-index-value">${escapeHtml(indexValue)}</span>
+          <span class="market-index-unit">/100</span>
+          <p>${t("市场活跃度", "Market activity")}</p>
+        </div>
+        <div class="market-index-change">
+          <strong>${escapeHtml(indexChange)}</strong>
+          <span>${t("24 小时变化", "24h change")}</span>
+        </div>
+      </div>
+      <div class="market-chart-shell ${marketSeries.length < 2 ? "empty" : ""}">
+        <span class="market-level">${escapeHtml(marketTone)}</span>
+        ${marketSeries.length >= 2
+          ? `<canvas class="sparkline market-sparkline" data-market-series="${escapeHtml(JSON.stringify(marketSeries))}" role="img" aria-label="${t("市场指数 30 日趋势", "30-day market index trend")}"></canvas>`
+          : `<div class="market-chart-empty">${t("等待形成 30 天历史基准", "Building the 30-day baseline")}</div>`}
+      </div>
+      <div class="market-supporting-metrics">
+        <span><strong>${escapeHtml(marketStatus.replaceAll("_", " "))}</strong><small>${t("数据状态", "Data status")}</small></span>
+        <span><strong>${escapeHtml(String(marketSeries.length))}</strong><small>${t("趋势数据点", "Trend points")}</small></span>
+        <span><strong>${escapeHtml(formatPulseObservedAt(market.observed_at))}</strong><small>${t("最近更新", "Last update")}</small></span>
+      </div>
+    </article>
+  `;
+  const metrics = marketCard + [
     ["fa-solid fa-satellite-dish", t("来源健康度", "Source health"), `${healthySourceCount}/${sourceCount}`, t("公开来源可用", "public sources available")],
     ["fa-solid fa-filter-circle-dollar", t("候选池", "Candidate pool"), String(candidateCount), `${clusterCount} ${t("个聚类", "clusters")}`],
     ["fa-solid fa-clipboard-check", t("审核发布", "Reviewed output"), String(opportunities.length), `${activeCandidateCount} ${t("条待审核", "queued")}`],
-  ].map((card) => `
+  ].slice(0, 2).map((card) => `
     <article class="signal-card">
       <div class="signal-topline">
         <span class="signal-name">${card[1]}</span>
@@ -470,6 +541,7 @@ function renderPulseConnected() {
       <div class="intel-grid">${limitationCards}</div>
     </section>
   `;
+  requestAnimationFrame(drawVisibleCharts);
 }
 
 function getMessageTime() {
@@ -1066,6 +1138,16 @@ function drawVisibleCharts() {
     const index = Number(indexString);
     const series = type === "signal" ? signalSeries[index] : intelSeries[index];
     drawSparkline(canvas, series, type === "signal" ? "#8b7cff" : "#a78bfa");
+  });
+  document.querySelectorAll("[data-market-series]").forEach((canvas) => {
+    try {
+      const values = JSON.parse(canvas.dataset.marketSeries || "[]");
+      if (Array.isArray(values) && values.length > 1) {
+        drawSparkline(canvas, values, "#f02aa6");
+      }
+    } catch {
+      /* malformed external chart data stays undisplayed */
+    }
   });
 }
 
