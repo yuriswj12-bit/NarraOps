@@ -11,11 +11,15 @@ at least 30 daily baseline observations:
 - Meme graduations: 30%
 - Solana DEX volume: 15%
 
-GMGN Trenches is a bounded discovery feed (maximum 80 rows per request). It is
-valid for discovering token/creator events and graduation evidence, but a
-single response is not a complete daily market count. The worker must not
-present a bounded page as the total number of launches, graduations, or total
-Solana DEX volume.
+GMGN Trenches is capped at 80 rows per request. The worker queries every
+supported Solana Meme launchpad separately for `new_creation` and `completed`
+events, persists a deduplicated event stream, and records failed or saturated
+queries. A daily launch/graduation total is published only after 24 hours of
+continuous collection with no failed or saturated calls.
+
+Solana-wide DEX volume comes from DefiLlama's chain-level DEX overview rather
+than summing bounded token pages. This is total Solana spot DEX volume, not a
+Meme-only volume estimate.
 
 Dev thresholds are configuration, not product constants:
 
@@ -23,9 +27,20 @@ Dev thresholds are configuration, not product constants:
 - long-term: first launch at least 60 days ago and an average of at least 20
   launches/day during the configured 15-day activity window
 
+Cold-start rules:
+
+- launch and graduation totals warm up for 24 hours
+- recent Dev classification warms up for 10 days
+- long-term Dev classification needs 60 days of observed history unless a
+  separate historical backfill provider is added
+
+The worker is one-shot and must run from a cloud scheduler. Recommended
+interval: every minute. A slower interval can exceed GMGN's 80-row cap on
+high-volume launchpads and will be marked incomplete instead of published as a
+full-market total.
+
 Run the deterministic tests:
 
 ```powershell
 python -m unittest test_market_index.py -v
 ```
-
