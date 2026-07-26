@@ -19,7 +19,13 @@ QUERY_IDS = {
     "daily_revenue_usd": 3759856,
 }
 FIELD_ALIASES = {
-    "daily_tokens_created": ("daily_tokens_created", "tokens_created", "tokens", "count"),
+    "daily_tokens_created": (
+        "daily_tokens_created",
+        "daily_token_count",
+        "tokens_created",
+        "tokens",
+        "count",
+    ),
     "tokens_launched_24h": ("tokens_launched", "tokens_launched_24h", "count"),
     "graduated_tokens_24h": ("graduated_tokens", "graduated_tokens_24h", "count"),
     "daily_active_wallets": ("daily_active_wallets", "active_wallets", "wallets", "count"),
