@@ -34,7 +34,13 @@ FIELD_ALIASES = {
         "count",
     ),
     "daily_active_wallets": ("daily_active_wallets", "active_wallets", "wallets", "count"),
-    "daily_revenue_usd": ("daily_revenue", "revenue", "revenue_usd", "amount_usd"),
+    "daily_revenue_usd": (
+        "daily_revenue",
+        "revenue",
+        "revenue_usd",
+        "fee_usd",
+        "amount_usd",
+    ),
 }
 
 
