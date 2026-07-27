@@ -96,6 +96,7 @@ const state = {
     limitations: [],
     market: null,
     marketError: null,
+    marketRange: "24h",
   },
   go: {
     pendingOpportunityId: null,
@@ -413,6 +414,32 @@ async function loadPulse() {
   }
 }
 
+const marketRangeDuration = Object.freeze({
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+  "30d": 30 * 24 * 60 * 60 * 1000,
+  "1y": 365 * 24 * 60 * 60 * 1000,
+});
+
+function getMarketSeries(market, range) {
+  const duration = marketRangeDuration[range] || marketRangeDuration["24h"];
+  const now = Date.now();
+  return (Array.isArray(market?.sparkline) ? market.sparkline : [])
+    .map((point) => ({
+      observedAt: String(point?.observed_at || ""),
+      timestamp: Date.parse(point?.observed_at),
+      value: Number(point?.value),
+    }))
+    .filter(
+      (point) =>
+        Number.isFinite(point.timestamp) &&
+        Number.isFinite(point.value) &&
+        point.timestamp >= now - duration &&
+        point.timestamp <= now,
+    )
+    .sort((left, right) => left.timestamp - right.timestamp);
+}
+
 function renderPulseConnected() {
   const collector = state.pulse.collector || {};
   const sourceCount = Number(collector.sourceCount || 0);
@@ -424,20 +451,21 @@ function renderPulseConnected() {
   const market = state.pulse.market || {};
   const marketIndex = market.index || {};
   const indexValue = marketIndex.value == null ? "—" : Number(marketIndex.value).toFixed(0);
-  const indexChange = marketIndex.change_24h == null
-    ? "—"
-    : `${Number(marketIndex.change_24h) >= 0 ? "+" : ""}${Number(marketIndex.change_24h).toFixed(2)}`;
-  const marketStatus = String(market.data_status || (state.pulse.marketError ? "unavailable" : "loading"));
-  const marketSeries = Array.isArray(market.sparkline)
-    ? market.sparkline.map((point) => Number(point.value)).filter(Number.isFinite)
-    : [];
-  const marketTone = marketIndex.value == null
-    ? t("采集中", "Collecting")
-    : Number(marketIndex.value) >= 80
-      ? t("高热度", "High")
-      : Number(marketIndex.value) >= 50
-        ? t("活跃", "Active")
-        : t("低热度", "Low");
+  const marketRange = state.pulse.marketRange || "24h";
+  const marketSeries = getMarketSeries(market, marketRange);
+  const marketRangeTabs = [
+    ["24h", "24H"],
+    ["7d", "7D"],
+    ["30d", "30D"],
+    ["1y", "1Y"],
+  ].map(([range, label]) => `
+    <button
+      type="button"
+      class="${marketRange === range ? "active" : ""}"
+      data-market-range="${range}"
+      aria-pressed="${marketRange === range}"
+    >${label}</button>
+  `).join("");
   const actions = `
     <span class="simulation-pill"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>${escapeHtml(statusLabel)}</span>
     <button class="secondary-button" type="button" data-action="scan" ${state.pulse.loading ? "disabled" : ""}>
@@ -447,37 +475,28 @@ function renderPulseConnected() {
   `;
   const marketCard = `
     <article class="signal-card market-index-card">
-      <div class="market-card-title">
-        <span class="market-card-icon"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span>
-        <strong>Meme Market Activity Index</strong>
-        <button
-          class="market-help"
-          type="button"
-          aria-label="${t("指数说明", "Index methodology")}"
-          data-tooltip="${t("综合 Pump.fun 每日代币创建量、24 小时发射量、24 小时毕业量、日活跃钱包和每日收入。", "Combines Pump.fun daily token creation, 24h launches, 24h graduations, daily active wallets, and daily revenue.")}"
-        ><i class="fa-regular fa-circle-question" aria-hidden="true"></i></button>
+      <div class="market-card-header">
+        <div class="market-card-title">
+          <strong>Market Activity</strong>
+          <button
+            class="market-help"
+            type="button"
+            aria-label="${t("指数说明", "Index methodology")}"
+            data-tooltip="${t("综合 Pump.fun 每日代币创建量、24 小时发射量、24 小时毕业量、日活跃钱包和每日收入。", "Combines Pump.fun daily token creation, 24h launches, 24h graduations, daily active wallets, and daily revenue.")}"
+          ><i class="fa-regular fa-circle-question" aria-hidden="true"></i></button>
+        </div>
+        <div class="market-range-tabs" role="group" aria-label="${t("趋势时间范围", "Trend time range")}">
+          ${marketRangeTabs}
+        </div>
       </div>
       <div class="market-index-row">
-        <div>
-          <span class="market-index-value">${escapeHtml(indexValue)}</span>
-          <span class="market-index-unit">/100</span>
-          <p>${t("市场活跃度", "Market activity")}</p>
-        </div>
-        <div class="market-index-change">
-          <strong>${escapeHtml(indexChange)}</strong>
-          <span>${t("24 小时变化", "24h change")}</span>
-        </div>
+        <span class="market-index-value">${escapeHtml(indexValue)}</span>
+        <span class="market-index-unit">/100</span>
       </div>
       <div class="market-chart-shell ${marketSeries.length < 2 ? "empty" : ""}">
-        <span class="market-level">${escapeHtml(marketTone)}</span>
         ${marketSeries.length >= 2
-          ? `<canvas class="sparkline market-sparkline" data-market-series="${escapeHtml(JSON.stringify(marketSeries))}" role="img" aria-label="${t("市场指数 30 日趋势", "30-day market index trend")}"></canvas>`
-          : `<div class="market-chart-empty">${t("正在积累趋势快照", "Building the trend history")}</div>`}
-      </div>
-      <div class="market-supporting-metrics">
-        <span><strong>${escapeHtml(marketStatus.replaceAll("_", " "))}</strong><small>${t("数据状态", "Data status")}</small></span>
-        <span><strong>${escapeHtml(String(marketSeries.length))}</strong><small>${t("趋势数据点", "Trend points")}</small></span>
-        <span><strong>${escapeHtml(formatPulseObservedAt(market.observed_at))}</strong><small>${t("最近更新", "Last update")}</small></span>
+          ? `<canvas class="market-activity-chart" data-market-points="${escapeHtml(JSON.stringify(marketSeries))}" data-market-chart-range="${marketRange}" role="img" aria-label="${t("市场活跃度趋势", "Market activity trend")}"></canvas>`
+          : ""}
       </div>
     </article>
   `;
@@ -1132,6 +1151,106 @@ function drawSparkline(canvas, values, color) {
   context.fill();
 }
 
+function formatMarketAxisTime(timestamp, range) {
+  const date = new Date(timestamp);
+  if (range === "24h") {
+    return new Intl.DateTimeFormat("en", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+  if (range === "1y") {
+    return new Intl.DateTimeFormat("en", {
+      month: "short",
+      year: "2-digit",
+    }).format(date);
+  }
+  return new Intl.DateTimeFormat("en", {
+    day: "2-digit",
+    month: "short",
+  }).format(date);
+}
+
+function drawMarketActivityChart(canvas, points, range) {
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (!width || !height || points.length < 2) return;
+
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  const context = canvas.getContext("2d");
+  context.scale(ratio, ratio);
+  context.clearRect(0, 0, width, height);
+
+  const plot = {
+    left: width < 560 ? 36 : 48,
+    right: width < 560 ? 8 : 16,
+    top: 12,
+    bottom: width < 560 ? 30 : 38,
+  };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const endTime = Date.now();
+  const startTime = endTime - (marketRangeDuration[range] || marketRangeDuration["24h"]);
+
+  context.font = `${width < 560 ? 10 : 12}px Inter, ui-sans-serif, system-ui, sans-serif`;
+  context.textBaseline = "middle";
+  context.strokeStyle = "rgba(148, 148, 166, 0.18)";
+  context.fillStyle = "rgba(165, 164, 183, 0.72)";
+  context.lineWidth = 1;
+  context.setLineDash([3, 4]);
+
+  [100, 75, 50, 25, 0].forEach((value) => {
+    const y = plot.top + ((100 - value) / 100) * plotHeight;
+    context.beginPath();
+    context.moveTo(plot.left, y);
+    context.lineTo(width - plot.right, y);
+    context.stroke();
+    context.textAlign = "right";
+    context.fillText(String(value), plot.left - 12, y);
+  });
+
+  const tickCount = width < 560 ? 4 : range === "24h" ? 8 : range === "7d" ? 7 : 6;
+  context.setLineDash([]);
+  context.textAlign = "center";
+  context.textBaseline = "bottom";
+  for (let index = 0; index < tickCount; index += 1) {
+    const ratioAlong = index / (tickCount - 1);
+    const timestamp = startTime + ratioAlong * (endTime - startTime);
+    const x = plot.left + ratioAlong * plotWidth;
+    context.fillText(formatMarketAxisTime(timestamp, range), x, height - 2);
+  }
+
+  const chartPoints = points
+    .filter((point) => point.timestamp >= startTime && point.timestamp <= endTime)
+    .map((point) => ({
+      x: plot.left + ((point.timestamp - startTime) / (endTime - startTime)) * plotWidth,
+      y: plot.top + ((100 - Math.max(0, Math.min(100, point.value))) / 100) * plotHeight,
+    }));
+  if (chartPoints.length < 2) return;
+
+  context.beginPath();
+  context.moveTo(chartPoints[0].x, plot.top + plotHeight);
+  chartPoints.forEach((point) => context.lineTo(point.x, point.y));
+  context.lineTo(chartPoints[chartPoints.length - 1].x, plot.top + plotHeight);
+  context.closePath();
+  context.fillStyle = "rgba(112, 86, 255, 0.08)";
+  context.fill();
+
+  context.beginPath();
+  chartPoints.forEach((point, index) => {
+    if (index === 0) context.moveTo(point.x, point.y);
+    else context.lineTo(point.x, point.y);
+  });
+  context.lineWidth = 2;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = "#7d68ff";
+  context.stroke();
+}
+
 function drawVisibleCharts() {
   document.querySelectorAll("[data-chart]").forEach((canvas) => {
     const [type, indexString] = canvas.dataset.chart.split("-");
@@ -1139,11 +1258,15 @@ function drawVisibleCharts() {
     const series = type === "signal" ? signalSeries[index] : intelSeries[index];
     drawSparkline(canvas, series, type === "signal" ? "#8b7cff" : "#a78bfa");
   });
-  document.querySelectorAll("[data-market-series]").forEach((canvas) => {
+  document.querySelectorAll("[data-market-points]").forEach((canvas) => {
     try {
-      const values = JSON.parse(canvas.dataset.marketSeries || "[]");
-      if (Array.isArray(values) && values.length > 1) {
-        drawSparkline(canvas, values, "#f02aa6");
+      const points = JSON.parse(canvas.dataset.marketPoints || "[]");
+      if (Array.isArray(points) && points.length > 1) {
+        drawMarketActivityChart(
+          canvas,
+          points,
+          canvas.dataset.marketChartRange || "24h",
+        );
       }
     } catch {
       /* malformed external chart data stays undisplayed */
@@ -1668,6 +1791,12 @@ viewRoot.addEventListener("click", async (event) => {
     return;
   }
 
+  const marketRange = event.target.closest("[data-market-range]")?.dataset.marketRange;
+  if (marketRange && marketRangeDuration[marketRange]) {
+    state.pulse.marketRange = marketRange;
+    renderPulseConnected();
+    return;
+  }
 
   const period = event.target.closest("[data-asset-period]")?.dataset.assetPeriod;
   if (period) {

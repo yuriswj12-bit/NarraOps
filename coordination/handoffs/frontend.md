@@ -49,3 +49,18 @@
 - The final launch control remains disabled; no wallet connection, signing, launchpad request, or chain execution is performed.
 - Browser QA: all three cards render at 201 px, the selected form contains seven controls, no horizontal overflow was detected, and obsolete draft text is absent.
 
+## 2026-07-26 Pulse Market Activity card
+
+- Rebuilt the first Pulse KPI as a full-width `Market Activity` chart card.
+- The surface now contains only the title, methodology help, 0-100 score,
+  `24H / 7D / 30D / 1Y` controls, and the selected real observation curve.
+- Removed the decorative chart icon, duplicate market label, change/status copy,
+  trend-count copy, last-updated copy, and textual loading placeholder.
+- Fewer than two valid observations leave the chart region empty. No synthetic
+  points or fallback curve are rendered.
+- The chart uses fixed 0-100 Y-axis ticks and range-aware X-axis time labels.
+- Narrow-screen QA found and fixed a horizontal overflow caused by the
+  three-column signal grid; Pulse KPI cards now stack below 820 px.
+- Verification: repository typecheck, frontend build, desktop and 390 px browser
+  QA, range-tab interaction, one-point empty state, and console error check pass.
+
