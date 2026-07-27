@@ -420,7 +420,6 @@ const marketRangeDuration = Object.freeze({
   "24h": 24 * 60 * 60 * 1000,
   "7d": 7 * 24 * 60 * 60 * 1000,
   "30d": 30 * 24 * 60 * 60 * 1000,
-  "1y": 365 * 24 * 60 * 60 * 1000,
 });
 
 function getMarketSeries(market, range) {
@@ -466,7 +465,6 @@ function renderPulseConnected() {
     ["24h", "24H"],
     ["7d", "7D"],
     ["30d", "30D"],
-    ["1y", "1Y"],
   ].map(([range, label]) => `
     <button
       type="button"
@@ -481,7 +479,6 @@ function renderPulseConnected() {
     ["24h", "24H"],
     ["7d", "7D"],
     ["30d", "30D"],
-    ["1y", "1Y"],
   ].map(([range, label]) => `
     <button
       type="button"
@@ -1184,20 +1181,14 @@ function drawSparkline(canvas, values, color) {
 function formatMarketAxisTime(timestamp, range) {
   const date = new Date(timestamp);
   if (range === "24h") {
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat("en-GB", {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
     }).format(date);
   }
-  if (range === "1y") {
-    return new Intl.DateTimeFormat(undefined, {
-      month: "short",
-    }).format(date);
-  }
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     day: "2-digit",
-    month: "short",
   }).format(date);
 }
 
@@ -1228,7 +1219,7 @@ function getMarketChartDomain(range, now = new Date()) {
       tick.setDate(tick.getDate() + index);
       return tick.getTime();
     });
-  } else if (range === "30d") {
+  } else {
     local.setHours(0, 0, 0, 0);
     local.setDate(local.getDate() + 1);
     end = local.getTime();
@@ -1240,14 +1231,6 @@ function getMarketChartDomain(range, now = new Date()) {
       tick.setDate(tick.getDate() + index * 5);
       return tick.getTime();
     });
-  } else {
-    const startDate = new Date(local.getFullYear(), local.getMonth() - 11, 1);
-    const endDate = new Date(local.getFullYear(), local.getMonth() + 1, 1);
-    start = startDate.getTime();
-    end = endDate.getTime();
-    ticks = Array.from({ length: 12 }, (_, index) => (
-      new Date(startDate.getFullYear(), startDate.getMonth() + index, 1).getTime()
-    ));
   }
 
   return { start, end, ticks };
@@ -1340,13 +1323,36 @@ function drawMarketActivityChart(canvas, points, range) {
 function formatChartTooltipTime(timestamp) {
   const date = new Date(timestamp);
   date.setMinutes(0, 0, 0);
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     year: "numeric",
     month: "short",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function interpolateMarketPoint(chartPoints, timestamp, geometry) {
+  if (!chartPoints.length) return null;
+  const first = chartPoints[0];
+  const last = chartPoints[chartPoints.length - 1];
+  const clampedTimestamp = Math.max(first.timestamp, Math.min(last.timestamp, timestamp));
+  const rightIndex = chartPoints.findIndex((point) => point.timestamp >= clampedTimestamp);
+  if (rightIndex <= 0) return first;
+  const right = chartPoints[rightIndex];
+  const left = chartPoints[rightIndex - 1];
+  const segmentDuration = right.timestamp - left.timestamp;
+  const ratio = segmentDuration > 0
+    ? (clampedTimestamp - left.timestamp) / segmentDuration
+    : 0;
+  const value = left.value + (right.value - left.value) * ratio;
+  const { plot, plotWidth, plotHeight, domain } = geometry;
+  return {
+    timestamp: clampedTimestamp,
+    value,
+    x: plot.left + ((clampedTimestamp - domain.start) / (domain.end - domain.start)) * plotWidth,
+    y: plot.top + ((100 - Math.max(0, Math.min(100, value))) / 100) * plotHeight,
+  };
 }
 
 function bindMarketChartInteraction(canvas, points, range) {
@@ -1367,7 +1373,7 @@ function bindMarketChartInteraction(canvas, points, range) {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const geometry = getMarketChartGeometry(canvas.clientWidth, canvas.clientHeight, points, range);
-    const { plot, plotWidth, plotHeight, chartPoints } = geometry;
+    const { plot, plotWidth, plotHeight, chartPoints, domain } = geometry;
     if (
       chartPoints.length < 1 ||
       x < plot.left ||
@@ -1379,18 +1385,26 @@ function bindMarketChartInteraction(canvas, points, range) {
       return;
     }
 
-    const nearest = chartPoints.reduce((current, candidate) => (
-      Math.abs(candidate.x - x) < Math.abs(current.x - x) ? candidate : current
-    ));
-    cursor.style.left = `${nearest.x}px`;
+    const pointerTimestamp = domain.start
+      + ((x - plot.left) / plotWidth) * (domain.end - domain.start);
+    const roundedHour = new Date(pointerTimestamp);
+    if (roundedHour.getMinutes() >= 30) roundedHour.setHours(roundedHour.getHours() + 1);
+    roundedHour.setMinutes(0, 0, 0);
+    const hovered = interpolateMarketPoint(chartPoints, roundedHour.getTime(), geometry);
+    if (!hovered) {
+      hideHover();
+      return;
+    }
+
+    cursor.style.left = `${hovered.x}px`;
     cursor.style.top = `${plot.top}px`;
     cursor.style.height = `${plotHeight}px`;
-    pointMarker.style.left = `${nearest.x}px`;
-    pointMarker.style.top = `${nearest.y}px`;
+    pointMarker.style.left = `${hovered.x}px`;
+    pointMarker.style.top = `${hovered.y}px`;
     tooltip.innerHTML = `
-      <time>${escapeHtml(formatChartTooltipTime(nearest.timestamp))}</time>
+      <time>${escapeHtml(formatChartTooltipTime(hovered.timestamp))}</time>
       <span>Market Activity</span>
-      <strong>${escapeHtml(Number(nearest.value).toFixed(0))}</strong>
+      <strong>${escapeHtml(Number(hovered.value).toFixed(0))}</strong>
     `;
     const tooltipWidth = 176;
     const preferredLeft = x + 14;
