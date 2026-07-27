@@ -261,9 +261,9 @@ function pageHeading(kicker, title, subtitle, actions = "") {
       <div>
         <span class="section-kicker">${kicker}</span>
         <h1>${title}</h1>
-        <p>${subtitle}</p>
+        ${subtitle ? `<p>${subtitle}</p>` : ""}
       </div>
-      <div class="heading-actions">${actions}</div>
+      ${actions ? `<div class="heading-actions">${actions}</div>` : ""}
     </div>
   `;
 }
@@ -490,13 +490,6 @@ function renderPulseConnected() {
       aria-pressed="${devPnlRange === range}"
     >${label}</button>
   `).join("");
-  const actions = `
-    <span class="pulse-freshness"><span class="pulse-freshness-dot" aria-hidden="true"></span>${escapeHtml(formatPulseObservedAt(state.pulse.observedAt))}</span>
-    <button class="secondary-button" type="button" data-action="scan" ${state.pulse.loading ? "disabled" : ""}>
-      <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i>
-      ${state.pulse.loading ? t("正在读取", "Loading") : t("刷新证据", "Refresh evidence")}
-    </button>
-  `;
   const marketCard = `
     <article class="signal-card market-index-card">
       <div class="market-card-header">
@@ -519,7 +512,12 @@ function renderPulseConnected() {
       </div>
       <div class="market-chart-shell ${marketSeries.length < 2 ? "empty" : ""}">
         ${marketSeries.length >= 2
-          ? `<canvas class="market-activity-chart" data-market-points="${escapeHtml(JSON.stringify(marketSeries))}" data-market-chart-range="${marketRange}" role="img" aria-label="${t("市场活跃度趋势", "Market activity trend")}"></canvas>`
+          ? `
+            <canvas class="market-activity-chart" data-market-points="${escapeHtml(JSON.stringify(marketSeries))}" data-market-chart-range="${marketRange}" role="img" aria-label="${t("市场活跃度趋势", "Market activity trend")}"></canvas>
+            <span class="chart-hover-line" aria-hidden="true"></span>
+            <span class="chart-hover-point" aria-hidden="true"></span>
+            <div class="chart-floating-tooltip" role="status" aria-live="polite"></div>
+          `
           : ""}
       </div>
     </article>
@@ -579,9 +577,8 @@ function renderPulseConnected() {
   viewRoot.innerHTML = `
     ${pageHeading(
       "Narra Pulse",
-      t("寻找下一个爆发型 Dev", "Find the next breakout devs"),
-      t("来自公开证据的真实市场信号。", "Real market signals from public evidence."),
-      actions,
+      t("寻找下一个爆发型 Meme", "Find the next breakout meme"),
+      "",
     )}
     <section aria-label="${t("市场概览", "Market overview")}"><div class="signal-grid pulse-overview-grid">${metrics}</div></section>
     <section class="section-block">
@@ -1187,22 +1184,93 @@ function drawSparkline(canvas, values, color) {
 function formatMarketAxisTime(timestamp, range) {
   const date = new Date(timestamp);
   if (range === "24h") {
-    return new Intl.DateTimeFormat("en", {
+    return new Intl.DateTimeFormat(undefined, {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
     }).format(date);
   }
   if (range === "1y") {
-    return new Intl.DateTimeFormat("en", {
+    return new Intl.DateTimeFormat(undefined, {
       month: "short",
-      year: "2-digit",
     }).format(date);
   }
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat(undefined, {
     day: "2-digit",
     month: "short",
   }).format(date);
+}
+
+function getMarketChartDomain(range, now = new Date()) {
+  const local = new Date(now);
+  let start;
+  let end;
+  let ticks = [];
+
+  if (range === "24h") {
+    local.setMinutes(0, 0, 0);
+    local.setHours(Math.ceil(now.getHours() / 3) * 3);
+    if (local.getTime() <= now.getTime()) local.setHours(local.getHours() + 3);
+    end = local.getTime();
+    start = new Date(local);
+    start.setHours(start.getHours() - 24);
+    start = start.getTime();
+    ticks = Array.from({ length: 9 }, (_, index) => start + index * 3 * 60 * 60 * 1000);
+  } else if (range === "7d") {
+    local.setHours(0, 0, 0, 0);
+    local.setDate(local.getDate() + 1);
+    end = local.getTime();
+    const startDate = new Date(local);
+    startDate.setDate(startDate.getDate() - 7);
+    start = startDate.getTime();
+    ticks = Array.from({ length: 8 }, (_, index) => {
+      const tick = new Date(startDate);
+      tick.setDate(tick.getDate() + index);
+      return tick.getTime();
+    });
+  } else if (range === "30d") {
+    local.setHours(0, 0, 0, 0);
+    local.setDate(local.getDate() + 1);
+    end = local.getTime();
+    const startDate = new Date(local);
+    startDate.setDate(startDate.getDate() - 30);
+    start = startDate.getTime();
+    ticks = Array.from({ length: 7 }, (_, index) => {
+      const tick = new Date(startDate);
+      tick.setDate(tick.getDate() + index * 5);
+      return tick.getTime();
+    });
+  } else {
+    const startDate = new Date(local.getFullYear(), local.getMonth() - 11, 1);
+    const endDate = new Date(local.getFullYear(), local.getMonth() + 1, 1);
+    start = startDate.getTime();
+    end = endDate.getTime();
+    ticks = Array.from({ length: 12 }, (_, index) => (
+      new Date(startDate.getFullYear(), startDate.getMonth() + index, 1).getTime()
+    ));
+  }
+
+  return { start, end, ticks };
+}
+
+function getMarketChartGeometry(width, height, points, range) {
+  const plot = {
+    left: width < 560 ? 36 : 48,
+    right: width < 560 ? 8 : 16,
+    top: 12,
+    bottom: width < 560 ? 30 : 38,
+  };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const domain = getMarketChartDomain(range);
+  const chartPoints = points
+    .filter((point) => point.timestamp >= domain.start && point.timestamp <= domain.end)
+    .map((point) => ({
+      ...point,
+      x: plot.left + ((point.timestamp - domain.start) / (domain.end - domain.start)) * plotWidth,
+      y: plot.top + ((100 - Math.max(0, Math.min(100, point.value))) / 100) * plotHeight,
+    }));
+  return { plot, plotWidth, plotHeight, domain, chartPoints };
 }
 
 function drawMarketActivityChart(canvas, points, range) {
@@ -1217,16 +1285,8 @@ function drawMarketActivityChart(canvas, points, range) {
   context.scale(ratio, ratio);
   context.clearRect(0, 0, width, height);
 
-  const plot = {
-    left: width < 560 ? 36 : 48,
-    right: width < 560 ? 8 : 16,
-    top: 12,
-    bottom: width < 560 ? 30 : 38,
-  };
-  const plotWidth = width - plot.left - plot.right;
-  const plotHeight = height - plot.top - plot.bottom;
-  const endTime = Date.now();
-  const startTime = endTime - (marketRangeDuration[range] || marketRangeDuration["24h"]);
+  const { plot, plotWidth, plotHeight, domain, chartPoints } =
+    getMarketChartGeometry(width, height, points, range);
 
   context.font = `${width < 560 ? 10 : 12}px Inter, ui-sans-serif, system-ui, sans-serif`;
   context.textBaseline = "middle";
@@ -1245,23 +1305,16 @@ function drawMarketActivityChart(canvas, points, range) {
     context.fillText(String(value), plot.left - 12, y);
   });
 
-  const tickCount = width < 560 ? 4 : range === "24h" ? 8 : range === "7d" ? 7 : 6;
+  const visibleTicks = width < 560
+    ? domain.ticks.filter((_, index) => index % Math.ceil(domain.ticks.length / 4) === 0)
+    : domain.ticks;
   context.setLineDash([]);
   context.textAlign = "center";
   context.textBaseline = "bottom";
-  for (let index = 0; index < tickCount; index += 1) {
-    const ratioAlong = index / (tickCount - 1);
-    const timestamp = startTime + ratioAlong * (endTime - startTime);
-    const x = plot.left + ratioAlong * plotWidth;
+  visibleTicks.forEach((timestamp) => {
+    const x = plot.left + ((timestamp - domain.start) / (domain.end - domain.start)) * plotWidth;
     context.fillText(formatMarketAxisTime(timestamp, range), x, height - 2);
-  }
-
-  const chartPoints = points
-    .filter((point) => point.timestamp >= startTime && point.timestamp <= endTime)
-    .map((point) => ({
-      x: plot.left + ((point.timestamp - startTime) / (endTime - startTime)) * plotWidth,
-      y: plot.top + ((100 - Math.max(0, Math.min(100, point.value))) / 100) * plotHeight,
-    }));
+  });
   if (chartPoints.length < 2) return;
 
   context.beginPath();
@@ -1284,6 +1337,74 @@ function drawMarketActivityChart(canvas, points, range) {
   context.stroke();
 }
 
+function formatChartTooltipTime(timestamp) {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function bindMarketChartInteraction(canvas, points, range) {
+  const shell = canvas.closest(".market-chart-shell");
+  const cursor = shell?.querySelector(".chart-hover-line");
+  const pointMarker = shell?.querySelector(".chart-hover-point");
+  const tooltip = shell?.querySelector(".chart-floating-tooltip");
+  if (!shell || !cursor || !pointMarker || !tooltip) return;
+
+  const hideHover = () => {
+    cursor.classList.remove("visible");
+    pointMarker.classList.remove("visible");
+    tooltip.classList.remove("visible");
+  };
+
+  canvas.addEventListener("pointermove", (event) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const geometry = getMarketChartGeometry(canvas.clientWidth, canvas.clientHeight, points, range);
+    const { plot, plotWidth, plotHeight, chartPoints } = geometry;
+    if (
+      chartPoints.length < 1 ||
+      x < plot.left ||
+      x > plot.left + plotWidth ||
+      y < plot.top ||
+      y > plot.top + plotHeight
+    ) {
+      hideHover();
+      return;
+    }
+
+    const nearest = chartPoints.reduce((current, candidate) => (
+      Math.abs(candidate.x - x) < Math.abs(current.x - x) ? candidate : current
+    ));
+    cursor.style.left = `${nearest.x}px`;
+    cursor.style.top = `${plot.top}px`;
+    cursor.style.height = `${plotHeight}px`;
+    pointMarker.style.left = `${nearest.x}px`;
+    pointMarker.style.top = `${nearest.y}px`;
+    tooltip.innerHTML = `
+      <time>${escapeHtml(formatChartTooltipTime(nearest.timestamp))}</time>
+      <span>Market Activity</span>
+      <strong>${escapeHtml(Number(nearest.value).toFixed(0))}</strong>
+    `;
+    const tooltipWidth = 176;
+    const preferredLeft = x + 14;
+    const left = preferredLeft + tooltipWidth > canvas.clientWidth
+      ? Math.max(0, x - tooltipWidth - 14)
+      : preferredLeft;
+    const top = Math.max(6, Math.min(y - 34, canvas.clientHeight - 104));
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    cursor.classList.add("visible");
+    pointMarker.classList.add("visible");
+    tooltip.classList.add("visible");
+  });
+  canvas.addEventListener("pointerleave", hideHover);
+}
+
 function drawVisibleCharts() {
   document.querySelectorAll("[data-chart]").forEach((canvas) => {
     const [type, indexString] = canvas.dataset.chart.split("-");
@@ -1295,11 +1416,13 @@ function drawVisibleCharts() {
     try {
       const points = JSON.parse(canvas.dataset.marketPoints || "[]");
       if (Array.isArray(points) && points.length > 1) {
+        const range = canvas.dataset.marketChartRange || "24h";
         drawMarketActivityChart(
           canvas,
           points,
-          canvas.dataset.marketChartRange || "24h",
+          range,
         );
+        bindMarketChartInteraction(canvas, points, range);
       }
     } catch {
       /* malformed external chart data stays undisplayed */

@@ -64,6 +64,28 @@ No actionable P0, P1, or P2 differences remain.
 
 final result: passed
 
+## 2026-07-27 Pulse chart interaction and fixed axes
+
+- Removed the Pulse hero subtitle, freshness timestamp, and refresh action.
+- Updated the hero title to `Find the next breakout meme`.
+- Added full-plot pointer tracking to the real Market Activity canvas. Moving
+  anywhere inside the plot selects the nearest real observation and shows a
+  vertical cursor, highlighted point, local-time timestamp, label, and score.
+- Verified the tooltip changed from the 06:14 observation (`46`) to the 12:04
+  observation (`35`) as the pointer moved horizontally.
+- Replaced evenly divided timestamps with product-defined local-time ticks:
+  3-hour ticks for 24H, daily ticks for 7D, 5-day ticks for 30D, and 12 monthly
+  ticks for 1Y.
+- The PnL card remains empty because no real PnL contract exists. No amount,
+  axis, curve, or tooltip is fabricated.
+- Desktop comparison confirms the OKX-style cursor line, active point, and
+  floating tooltip fit the approved two-card layout.
+- Mobile QA at 390 px found no horizontal overflow and retained a real canvas.
+- The only console error was emitted by an installed wallet extension while
+  redefining `window.ethereum`; no product-script error was observed.
+
+final result: passed
+
 ## 2026-07-27 Pulse overview and Dev Wallet PnL UI
 
 - Reworked the first Pulse layer into two equal desktop cards: `Market Activity`
