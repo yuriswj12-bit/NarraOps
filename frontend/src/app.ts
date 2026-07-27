@@ -1338,13 +1338,15 @@ function drawMarketActivityChart(canvas, points, range) {
 }
 
 function formatChartTooltipTime(timestamp) {
+  const date = new Date(timestamp);
+  date.setMinutes(0, 0, 0);
   return new Intl.DateTimeFormat(undefined, {
     year: "numeric",
     month: "short",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(timestamp));
+  }).format(date);
 }
 
 function bindMarketChartInteraction(canvas, points, range) {
