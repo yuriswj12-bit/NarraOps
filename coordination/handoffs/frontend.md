@@ -64,3 +64,21 @@
 - Verification: repository typecheck, frontend build, desktop and 390 px browser
   QA, range-tab interaction, one-point empty state, and console error check pass.
 
+## 2026-07-27 Pulse Dev Wallet PnL UI
+
+- Converted the Pulse overview into two equal cards and added the
+  presentation-only `Dev Wallet PnL` surface beside `Market Activity`.
+- PnL currently has no backend contract and deliberately renders `$—` with an
+  empty plot. No historical PnL, percentage return, negative value, or synthetic
+  series is calculated.
+- Product intent recorded in the tooltip: the future metric covers total profit
+  for tracked Dev-wallet addresses associated with eligible same-day Meme
+  launches. Backend eligibility and accounting rules remain pending.
+- Prepared compact non-negative USD display formatting and green positive-value
+  styling without connecting a data source.
+- Removed Source Health and Candidate Pool from the first Pulse layer; refreshed
+  hero copy and data-freshness treatment to match the approved reference.
+- Verification: repository typecheck, frontend build, desktop and 390 px browser
+  QA, independent PnL range-tab interaction, empty-data rendering, and overflow
+  checks pass.
+
