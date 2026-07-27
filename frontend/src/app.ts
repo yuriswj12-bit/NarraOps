@@ -97,6 +97,8 @@ const state = {
     market: null,
     marketError: null,
     marketRange: "24h",
+    devPnlRange: "24h",
+    devPnl: null,
   },
   go: {
     pendingOpportunityId: null,
@@ -440,14 +442,21 @@ function getMarketSeries(market, range) {
     .sort((left, right) => left.timestamp - right.timestamp);
 }
 
+function formatCompactUsdAmount(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  const units = [
+    [1_000_000_000, "B"],
+    [1_000_000, "M"],
+    [1_000, "K"],
+  ];
+  const unit = units.find(([threshold]) => amount >= threshold);
+  if (!unit) return `$${Math.round(amount).toLocaleString("en-US")}`;
+  const [divisor, suffix] = unit;
+  return `$${(amount / divisor).toFixed(1).replace(/\.0$/, "")}${suffix}`;
+}
+
 function renderPulseConnected() {
-  const collector = state.pulse.collector || {};
-  const sourceCount = Number(collector.sourceCount || 0);
-  const healthySourceCount = Number(collector.healthySourceCount || 0);
-  const candidateCount = Number(collector.candidateCount || 0);
-  const clusterCount = Number(collector.clusterCount || 0);
-  const activeCandidateCount = Number(collector.activeCandidateCount || 0);
-  const statusLabel = String(state.pulse.dataStatus || "loading").replaceAll("_", " ");
   const market = state.pulse.market || {};
   const marketIndex = market.index || {};
   const indexValue = marketIndex.value == null ? "—" : Number(marketIndex.value).toFixed(0);
@@ -466,8 +475,23 @@ function renderPulseConnected() {
       aria-pressed="${marketRange === range}"
     >${label}</button>
   `).join("");
+  const devPnlRange = state.pulse.devPnlRange || "24h";
+  const devPnlDisplay = formatCompactUsdAmount(state.pulse.devPnl?.value);
+  const devPnlRangeTabs = [
+    ["24h", "24H"],
+    ["7d", "7D"],
+    ["30d", "30D"],
+    ["1y", "1Y"],
+  ].map(([range, label]) => `
+    <button
+      type="button"
+      class="${devPnlRange === range ? "active" : ""}"
+      data-dev-pnl-range="${range}"
+      aria-pressed="${devPnlRange === range}"
+    >${label}</button>
+  `).join("");
   const actions = `
-    <span class="simulation-pill"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>${escapeHtml(statusLabel)}</span>
+    <span class="pulse-freshness"><span class="pulse-freshness-dot" aria-hidden="true"></span>${escapeHtml(formatPulseObservedAt(state.pulse.observedAt))}</span>
     <button class="secondary-button" type="button" data-action="scan" ${state.pulse.loading ? "disabled" : ""}>
       <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i>
       ${state.pulse.loading ? t("正在读取", "Loading") : t("刷新证据", "Refresh evidence")}
@@ -500,20 +524,29 @@ function renderPulseConnected() {
       </div>
     </article>
   `;
-  const metrics = marketCard + [
-    ["fa-solid fa-satellite-dish", t("来源健康度", "Source health"), `${healthySourceCount}/${sourceCount}`, t("公开来源可用", "public sources available")],
-    ["fa-solid fa-filter-circle-dollar", t("候选池", "Candidate pool"), String(candidateCount), `${clusterCount} ${t("个聚类", "clusters")}`],
-    ["fa-solid fa-clipboard-check", t("审核发布", "Reviewed output"), String(opportunities.length), `${activeCandidateCount} ${t("条待审核", "queued")}`],
-  ].slice(0, 2).map((card) => `
-    <article class="signal-card">
-      <div class="signal-topline">
-        <span class="signal-name">${card[1]}</span>
-        <span class="signal-icon"><i class="${card[0]}" aria-hidden="true"></i></span>
+  const devPnlCard = `
+    <article class="signal-card market-index-card dev-pnl-card ${devPnlDisplay ? "has-data" : ""}">
+      <div class="market-card-header">
+        <div class="market-card-title">
+          <strong>Dev Wallet PnL</strong>
+          <button
+            class="market-help"
+            type="button"
+            aria-label="${t("Dev 钱包盈利口径", "Dev wallet PnL methodology")}"
+            data-tooltip="${t("统计符合条件的当日 Meme 发射中，已纳入 Dev 钱包库地址的总盈利金额。具体计算口径将在数据接口接入后确定。", "Total profit amount for tracked Dev-wallet addresses from eligible same-day Meme launches. The final calculation contract will be connected later.")}"
+          ><i class="fa-regular fa-circle-question" aria-hidden="true"></i></button>
+        </div>
+        <div class="market-range-tabs" role="group" aria-label="${t("盈利时间范围", "PnL time range")}">
+          ${devPnlRangeTabs}
+        </div>
       </div>
-      <div class="signal-value"><strong>${escapeHtml(card[2])}</strong></div>
-      <div class="card-meta"><span>${escapeHtml(card[3])}</span><span>${escapeHtml(formatPulseObservedAt(state.pulse.observedAt))}</span></div>
+      <div class="market-index-row dev-pnl-value-row" aria-label="${devPnlDisplay || t("Dev 钱包总盈利数据尚未接入", "Dev wallet total profit data is not connected yet")}">
+        <span class="dev-pnl-value">${devPnlDisplay || "$—"}</span>
+      </div>
+      <div class="market-chart-shell dev-pnl-chart-shell empty"></div>
     </article>
-  `).join("");
+  `;
+  const metrics = marketCard + devPnlCard;
   const opportunityCards = opportunities.map((item) => `
     <button class="opportunity-card" type="button" data-opportunity="${escapeHtml(item.id)}">
       <div class="opportunity-topline">
@@ -546,11 +579,11 @@ function renderPulseConnected() {
   viewRoot.innerHTML = `
     ${pageHeading(
       "Narra Pulse",
-      t("发现下一条可验证叙事", "Discover the next verifiable narrative"),
-      t("当前页面只发布已人工审核的公开证据，不展示虚构热度、评分或收益预测。", "This view publishes manually reviewed public evidence only—no fabricated heat, score, or profitability."),
+      t("寻找下一个爆发型 Dev", "Find the next breakout devs"),
+      t("来自公开证据的真实市场信号。", "Real market signals from public evidence."),
       actions,
     )}
-    <section aria-label="${t("采集状态", "Collector status")}"><div class="signal-grid">${metrics}</div></section>
+    <section aria-label="${t("市场概览", "Market overview")}"><div class="signal-grid pulse-overview-grid">${metrics}</div></section>
     <section class="section-block">
       <div class="section-header"><div><h2>${t("已审核机会", "Reviewed opportunities")}</h2><p>${t("点击卡片查看证据来源、风险和缺口。", "Open a card to inspect sources, risks, and evidence gaps.")}</p></div></div>
       <div class="opportunity-grid">${opportunityCards || emptyState}</div>
@@ -1794,6 +1827,13 @@ viewRoot.addEventListener("click", async (event) => {
   const marketRange = event.target.closest("[data-market-range]")?.dataset.marketRange;
   if (marketRange && marketRangeDuration[marketRange]) {
     state.pulse.marketRange = marketRange;
+    renderPulseConnected();
+    return;
+  }
+
+  const devPnlRange = event.target.closest("[data-dev-pnl-range]")?.dataset.devPnlRange;
+  if (devPnlRange && marketRangeDuration[devPnlRange]) {
+    state.pulse.devPnlRange = devPnlRange;
     renderPulseConnected();
     return;
   }

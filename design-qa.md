@@ -63,3 +63,25 @@ No actionable P0, P1, or P2 differences remain.
 - P3: revisit axis-label density after real 30D and 1Y datasets exist.
 
 final result: passed
+
+## 2026-07-27 Pulse overview and Dev Wallet PnL UI
+
+- Reworked the first Pulse layer into two equal desktop cards: `Market Activity`
+  and `Dev Wallet PnL`.
+- Removed the former Source Health and Candidate Pool cards from this layer.
+- Updated the hero hierarchy to `Find the next breakout devs`, public-evidence
+  supporting copy, freshness badge, and refresh action.
+- The PnL surface is presentation-only. It renders `$—` and an empty chart until
+  a real data contract is connected; no synthetic amount, percentage, curve, or
+  axis labels are present.
+- Added independent `24H / 7D / 30D / 1Y` UI state for PnL.
+- Added compact USD presentation support for future non-negative values
+  (`$7.5K`, `$7.5M`, `$15.4M`) with green positive-value styling. It does not
+  calculate or fetch PnL.
+- Desktop QA: both cards are 646 x 408 px at a 1380 px viewport.
+- Mobile QA: cards stack at 351 x 396 px in a 390 px viewport with no horizontal
+  overflow; the PnL card contains no canvas.
+- Browser extension emitted one wallet-injection error unrelated to the product
+  page; no application error was observed.
+
+final result: passed

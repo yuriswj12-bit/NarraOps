@@ -544,6 +544,32 @@ button {
   gap: 18px;
 }
 
+.pulse-overview-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pulse-freshness {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(14, 14, 19, 0.76);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pulse-freshness-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2bd67b;
+  box-shadow: 0 0 12px rgba(43, 214, 123, 0.55);
+}
+
 .signal-card,
 .opportunity-card,
 .intel-card,
@@ -563,9 +589,8 @@ button {
 }
 
 .market-index-card {
-  grid-column: 1 / -1;
-  min-height: 452px;
-  padding: 26px 30px 28px;
+  min-height: 408px;
+  padding: 24px 26px 24px;
   background: #0e0e13;
   border-color: rgba(126, 111, 181, 0.18);
   border-radius: 12px;
@@ -629,7 +654,7 @@ button {
 
 .market-range-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(58px, 1fr));
+  grid-template-columns: repeat(4, minmax(50px, 1fr));
   padding: 2px;
   border: 1px solid rgba(139, 124, 255, 0.13);
   border-radius: 8px;
@@ -637,8 +662,8 @@ button {
 }
 
 .market-range-tabs button {
-  min-height: 38px;
-  padding: 0 18px;
+  min-height: 34px;
+  padding: 0 14px;
   border: 0;
   border-radius: 6px;
   color: var(--muted-2);
@@ -670,12 +695,12 @@ button {
   display: flex;
   align-items: baseline;
   gap: 9px;
-  margin-top: 22px;
+  margin-top: 20px;
 }
 
 .market-index-value {
   color: var(--text);
-  font-size: 48px;
+  font-size: 36px;
   font-weight: 720;
   letter-spacing: -0.055em;
   line-height: 1;
@@ -683,14 +708,14 @@ button {
 
 .market-index-unit {
   color: var(--muted-2);
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 620;
 }
 
 .market-chart-shell {
   position: relative;
-  height: 260px;
-  margin-top: 18px;
+  height: 244px;
+  margin-top: 14px;
 }
 
 .market-activity-chart {
@@ -701,7 +726,27 @@ button {
 }
 
 .market-chart-shell.empty {
-  min-height: 260px;
+  min-height: 244px;
+}
+
+.dev-pnl-value-row {
+  gap: 2px;
+  color: var(--muted-2);
+}
+
+.dev-pnl-value {
+  font-size: 36px;
+  font-weight: 720;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+.dev-pnl-card.has-data .dev-pnl-value {
+  color: #2bd67b;
+}
+
+.dev-pnl-chart-shell {
+  background: transparent;
 }
 
 .signal-topline,
@@ -1839,6 +1884,10 @@ select:focus-visible {
     scrollbar-width: none;
   }
 
+  .pulse-overview-grid {
+    grid-template-columns: repeat(2, minmax(360px, 1fr));
+  }
+
   .opportunity-grid,
   .intel-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1854,6 +1903,10 @@ select:focus-visible {
   .signal-grid {
     grid-template-columns: 1fr;
     overflow-x: visible;
+  }
+
+  .pulse-overview-grid {
+    grid-template-columns: 1fr;
   }
 
   .page-heading {
@@ -1958,7 +2011,7 @@ select:focus-visible {
   }
 
   .market-index-card {
-    min-height: 390px;
+    min-height: 370px;
     padding: 20px 16px 18px;
   }
 
@@ -1983,13 +2036,17 @@ select:focus-visible {
   }
 
   .market-index-value {
-    font-size: 44px;
+    font-size: 36px;
+  }
+
+  .dev-pnl-value {
+    font-size: 36px;
   }
 
   .market-chart-shell,
   .market-chart-shell.empty {
-    height: 220px;
-    min-height: 220px;
+    height: 208px;
+    min-height: 208px;
   }
 
   .go-terminal {
