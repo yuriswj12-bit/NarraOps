@@ -65,7 +65,6 @@ export function buildPulseMarketResponse(rows = []) {
     },
     sparkline: ordered
       .filter((row) => row.market_activity_index != null)
-      .slice(0, 30)
       .reverse()
       .map((row) => ({
         observed_at: row.observed_at,
@@ -84,7 +83,7 @@ export async function loadPulseMarketResponse(supabase) {
       "observation_bucket,observed_at,daily_tokens_created,tokens_launched_24h,graduated_tokens_24h,daily_active_wallets,daily_revenue_usd,daily_tokens_created_score,tokens_launched_24h_score,graduated_tokens_24h_score,daily_active_wallets_score,daily_revenue_usd_score,market_activity_index,calculation_status,component_status,source_status",
     )
     .order("observed_at", { ascending: false })
-    .limit(91);
+    .limit(3000);
   if (error) {
     if (["42P01", "PGRST204", "PGRST205"].includes(error.code)) {
       return {

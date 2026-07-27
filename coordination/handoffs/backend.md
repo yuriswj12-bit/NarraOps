@@ -262,3 +262,13 @@ GitHub sync:
 - `GET /api/v1/pulse/market` now returns `pulse.market.v2` from the new table.
   Migration `013` must run before the workflow or public API is enabled.
 
+## 2026-07-26 Pulse market history read model
+
+- `GET /api/v1/pulse/market` preserves all fetched aggregate observations in
+  chronological `sparkline` order instead of truncating the response to 30.
+- The Supabase read limit is 3,000 aggregate snapshots. Raw Token events remain
+  excluded; this only supports honest `24H / 7D / 30D / 1Y` client filtering.
+- No interpolation or synthetic history is added. A range with fewer than two
+  observations remains an empty chart on the client.
+- Verification: backend API 59/59.
+
