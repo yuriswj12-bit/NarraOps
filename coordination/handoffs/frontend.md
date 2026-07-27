@@ -82,3 +82,21 @@
   QA, independent PnL range-tab interaction, empty-data rendering, and overflow
   checks pass.
 
+## 2026-07-27 Pulse chart interaction
+
+- Market Activity now resolves the nearest real observation from any pointer
+  position inside the plot and presents an OKX-style cursor, highlighted point,
+  and floating tooltip.
+- Tooltip timestamps use the browser's local timezone and show the observation
+  score; no UTC label is exposed.
+- X-axis generation is deterministic: local 3-hour boundaries for 24H, local
+  days for 7D, 5-day intervals for 30D, and 12 calendar-month labels for 1Y.
+- Removed the Pulse hero subtitle, freshness timestamp, and refresh action.
+- Updated the English title from `Find the next breakout devs` to
+  `Find the next breakout meme`; Chinese uses `寻找下一个爆发型 Meme`.
+- Dev Wallet PnL remains a no-data UI shell. Its absolute-USD curve and tooltip
+  must not render until the backend provides a real contract.
+- Verification: typecheck, frontend build, diff check, real production Pulse
+  data through the local proxy, four range controls, two pointer positions,
+  desktop capture, and 390 px responsive QA pass.
+

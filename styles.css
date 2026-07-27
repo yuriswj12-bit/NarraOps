@@ -548,28 +548,6 @@ button {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.pulse-freshness {
-  min-height: 38px;
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  background: rgba(14, 14, 19, 0.76);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.pulse-freshness-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #2bd67b;
-  box-shadow: 0 0 12px rgba(43, 214, 123, 0.55);
-}
-
 .signal-card,
 .opportunity-card,
 .intel-card,
@@ -723,6 +701,65 @@ button {
   width: 100%;
   height: 100%;
   margin: 0;
+  cursor: crosshair;
+  touch-action: pan-y;
+}
+
+.chart-hover-line,
+.chart-hover-point,
+.chart-floating-tooltip {
+  position: absolute;
+  z-index: 4;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 90ms ease;
+}
+
+.chart-hover-line {
+  width: 1px;
+  border-left: 1px dashed rgba(185, 177, 255, 0.58);
+  transform: translateX(-0.5px);
+}
+
+.chart-hover-point {
+  width: 10px;
+  height: 10px;
+  border: 2px solid #b3a8ff;
+  border-radius: 50%;
+  background: #7d68ff;
+  box-shadow: 0 0 0 4px rgba(125, 104, 255, 0.16);
+  transform: translate(-50%, -50%);
+}
+
+.chart-floating-tooltip {
+  width: 176px;
+  display: grid;
+  gap: 5px;
+  padding: 11px 13px;
+  border: 1px solid rgba(139, 124, 255, 0.24);
+  border-radius: 8px;
+  background: rgba(17, 17, 23, 0.96);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+}
+
+.chart-floating-tooltip time,
+.chart-floating-tooltip span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.chart-floating-tooltip strong {
+  color: #a99dff;
+  font-size: 15px;
+  font-weight: 720;
+}
+
+.chart-hover-line.visible,
+.chart-hover-point.visible,
+.chart-floating-tooltip.visible {
+  opacity: 1;
 }
 
 .market-chart-shell.empty {
