@@ -39,6 +39,12 @@ def refresh_wallet_panel(
     cutoff = now - timedelta(days=inactive_days)
     current_by_address = {item.address: item for item in current}
     candidate_by_address = {item.address: item for item in candidates}
+    # A wallet already in the panel may have been seen again in this run.
+    # Refresh its activity timestamp before applying the inactivity rule.
+    for address, candidate in candidate_by_address.items():
+        existing = current_by_address.get(address)
+        if existing and candidate.last_seen_at > existing.last_seen_at:
+            current_by_address[address] = candidate
     inactive = sorted(
         (item for item in current_by_address.values() if item.last_seen_at < cutoff),
         key=lambda item: (item.last_seen_at, stable_score(item.address)),

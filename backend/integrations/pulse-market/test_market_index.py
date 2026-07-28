@@ -71,6 +71,19 @@ class WalletSampleTests(unittest.TestCase):
         self.assertEqual(audit["removed_count"], 5)
         self.assertEqual(audit["added_count"], 5)
 
+    def test_existing_wallet_activity_refreshes_before_inactivity_filter(self):
+        now = datetime(2026, 7, 29, tzinfo=timezone.utc)
+        address = "returning-wallet"
+        panel, audit = refresh_wallet_panel(
+            [WalletCandidate(address, now - timedelta(days=30))],
+            [WalletCandidate(address, now - timedelta(minutes=5))],
+            now=now,
+            target_size=1,
+            inactive_days=14,
+        )
+        self.assertEqual(panel, [WalletCandidate(address, now - timedelta(minutes=5))])
+        self.assertEqual(audit["removed_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

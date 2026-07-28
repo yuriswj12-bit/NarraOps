@@ -294,3 +294,34 @@ GitHub sync:
   observations remains an empty chart on the client.
 - Verification: backend API 59/59.
 
+## 2026-07-29 Direct Solana Pulse index
+
+- The Dune collector is retired. The replacement reads Pump.fun transactions
+  through the standard Solana RPC surface configured only by
+  `SOLANA_RPC_URL`; credentials are never committed or logged.
+- Pump.fun instructions are parsed from the official public IDL
+  discriminators. Successful `create` and `migrate` events provide the rolling
+  24-hour launch and graduation metrics. Buy/sell activity uses deterministic
+  signature sampling and a dynamic wallet panel.
+- The wallet panel targets 5,000 addresses, refreshes last-seen timestamps,
+  retires wallets inactive for 14 days, admits accumulated candidate wallets,
+  and caps daily replacement at 5%. Selection is deterministic pseudo-random,
+  not a ranking of the most active wallets.
+- The index uses only three raw rolling metrics:
+  launches 15%, graduations 55%, and sampled active wallets 30%. Every
+  component uses average-rank percentiles against earlier hourly observations;
+  no fixed maxima, neutral 50, or synthetic history is used.
+- Warm-up remains explicit: under 24 earlier hourly observations returns a null
+  index; 24-167 is `warming_up`, 168-719 is `partial`, and 720+ is `ready`.
+- Migration `014_pulse_sol_chain_index.sql` adds the direct-chain event store,
+  wallet panel, collector cursor, and auditable index fields.
+- The scheduled workflow runs every five minutes. A first run only establishes
+  the cursor. If a later run cannot reach that cursor inside the configured
+  page cap, it records `coverage_status=gap`, keeps the old cursor, and does not
+  write an index snapshot. Only continuous complete collection writes history.
+- Production setup still requires applying migration `014` and adding rotated
+  GitHub Action secrets: `SOLANA_RPC_URL`, `SUPABASE_URL`, and
+  `SUPABASE_SECRET_KEY`.
+- Verification: Python 13/13, backend API 59/59, TypeScript typecheck,
+  frontend/backend builds, and `git diff --check` pass.
+
