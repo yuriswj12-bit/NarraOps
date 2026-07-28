@@ -1,19 +1,17 @@
 // @ts-nocheck
 
 const COMPONENTS = Object.freeze([
-  ["daily_tokens_created", "0.15"],
-  ["tokens_launched_24h", "0.20"],
-  ["graduated_tokens_24h", "0.30"],
-  ["daily_active_wallets", "0.20"],
-  ["daily_revenue_usd", "0.15"],
+  ["launched_tokens_24h", "launch_score", "0.15"],
+  ["graduated_tokens_24h", "graduation_score", "0.55"],
+  ["active_wallets_24h", "active_wallet_score", "0.30"],
 ]);
 
 function decimalOrNull(value) {
   return value == null ? null : String(value);
 }
 
-function component(row, name, weight) {
-  const score = decimalOrNull(row?.[`${name}_score`]);
+function component(row, name, scoreField, weight) {
+  const score = decimalOrNull(row?.[scoreField]);
   const rawValue = decimalOrNull(row?.[name]);
   return {
     raw_value: rawValue,
@@ -38,16 +36,23 @@ export function buildPulseMarketResponse(rows = []) {
       Date.parse(row.observed_at) <=
         Date.parse(current.observed_at) - 24 * 60 * 60 * 1000,
   );
-  const value = decimalOrNull(current?.market_activity_index);
-  const previousValue = decimalOrNull(previous?.market_activity_index);
+  const value = decimalOrNull(
+    current?.market_activity_index_display ?? current?.market_activity_index,
+  );
+  const previousValue = decimalOrNull(
+    previous?.market_activity_index_display ?? previous?.market_activity_index,
+  );
   const change24h =
     value != null && previousValue != null
       ? (Number(value) - Number(previousValue)).toFixed(2)
       : null;
 
   return {
-    schema_version: "pulse.market.v2",
-    data_status: current?.calculation_status || "awaiting_market_observation",
+    schema_version: "pulse.market.v3",
+    data_status:
+      current?.history_status ||
+      current?.calculation_status ||
+      "awaiting_market_observation",
     observed_at: current?.observed_at || null,
     index: {
       name: "Meme Market Activity Index",
@@ -55,20 +60,29 @@ export function buildPulseMarketResponse(rows = []) {
       change_24h: change24h,
       unit: "points",
       methodology:
-        "Pump.fun aggregates are percentile-normalized against up to 90 prior snapshots, then weighted. New components start at a neutral Beta score until a prior snapshot exists.",
+        "Direct Solana observations are ranked against the previous 30 days of real hourly history using duplicate-aware mid-rank percentiles. No neutral default or synthetic history is used.",
+      raw_value: decimalOrNull(current?.market_activity_index_raw),
+      baseline_sample_count: current?.baseline_sample_count ?? 0,
+      history_coverage: decimalOrNull(current?.history_coverage),
       components: Object.fromEntries(
-        COMPONENTS.map(([name, weight]) => [
+        COMPONENTS.map(([name, scoreField, weight]) => [
           name,
-          component(current, name, weight),
+          component(current, name, scoreField, weight),
         ]),
       ),
     },
     sparkline: ordered
-      .filter((row) => row.market_activity_index != null)
+      .filter(
+        (row) =>
+          row.market_activity_index_display != null ||
+          row.market_activity_index != null,
+      )
       .reverse()
       .map((row) => ({
         observed_at: row.observed_at,
-        value: String(row.market_activity_index),
+        value: String(
+          row.market_activity_index_display ?? row.market_activity_index,
+        ),
       })),
     explanation:
       "Measures Pump.fun Meme market creation, graduation, wallet participation, and revenue activity. It is not a price prediction or trading signal.",
@@ -80,7 +94,7 @@ export async function loadPulseMarketResponse(supabase) {
   const { data, error } = await supabase
     .from("pulse_pumpfun_market_observations")
     .select(
-      "observation_bucket,observed_at,daily_tokens_created,tokens_launched_24h,graduated_tokens_24h,daily_active_wallets,daily_revenue_usd,daily_tokens_created_score,tokens_launched_24h_score,graduated_tokens_24h_score,daily_active_wallets_score,daily_revenue_usd_score,market_activity_index,calculation_status,component_status,source_status",
+      "observation_bucket,observed_at,launched_tokens_24h,graduated_tokens_24h,active_wallets_24h,launch_score,graduation_score,active_wallet_score,market_activity_index_raw,market_activity_index_display,baseline_sample_count,history_coverage,history_status,sampling_audit,index_method_version,market_activity_index,calculation_status,component_status,source_status",
     )
     .order("observed_at", { ascending: false })
     .limit(3000);

@@ -1,5 +1,27 @@
 # Backend handoff
 
+## 2026-07-29 Pulse direct-chain index foundation
+
+- Replaced the five-factor Dune scoring contract with three direct-chain inputs:
+  `launched_tokens_24h` (15%), `graduated_tokens_24h` (55%), and
+  `active_wallets_24h` (30%).
+- Percentiles use only earlier real hourly observations, mid-rank duplicate
+  handling, a rolling 720-hour cap, no neutral 50 default, and no synthetic
+  history.
+- Warm-up states are `insufficient`, `warming_up`, `partial`, and `ready`.
+  Unrounded and displayed index values, per-component baseline counts, and
+  history coverage are exposed separately.
+- Added deterministic signature sampling and a fixed-size dynamic wallet panel.
+  Inactive wallets can be replaced gradually, with a daily replacement cap and
+  deterministic non-top-activity candidate selection.
+- Migration `014_pulse_sol_chain_index.sql` adds the raw metrics, component
+  scores, audit fields, sample metadata, and method version.
+- The scheduled Dune workflow is retired. A direct Solana collector still needs
+  to be connected to `SOLANA_RPC_URL`; no chain observations are fabricated
+  while that endpoint is absent.
+
+Verification: TypeScript passed, backend API 59/59, Pulse Python 10/10.
+
 - Mount the contract at `/api/v1`; do not rename execution fields without updating OpenAPI and JSON Schemas first.
 - Enforce equality between the `Idempotency-Key` header and body `idempotencyKey`.
 - Replace the in-memory idempotency store with a durable unique constraint and transaction/lock before enabling submission.

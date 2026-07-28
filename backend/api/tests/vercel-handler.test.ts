@@ -14,30 +14,31 @@ test("Pulse market response keeps decimal values as strings", () => {
   const response = buildPulseMarketResponse([
     {
       observed_at: "2026-07-26T00:00:00.000Z",
-      daily_tokens_created: 26426,
-      tokens_launched_24h: 26426,
+      launched_tokens_24h: 26426,
       graduated_tokens_24h: 1049,
-      daily_active_wallets: 120000,
-      daily_revenue_usd: "1234567.89",
-      daily_tokens_created_score: "70.00",
-      tokens_launched_24h_score: "65.00",
-      graduated_tokens_24h_score: "75.00",
-      daily_active_wallets_score: "80.00",
-      daily_revenue_usd_score: "60.00",
-      market_activity_index: "71.75",
-      calculation_status: "ready",
+      active_wallets_24h: 120000,
+      launch_score: "65.00",
+      graduation_score: "75.00",
+      active_wallet_score: "80.00",
+      market_activity_index_raw: "75.0001",
+      market_activity_index_display: 75,
+      baseline_sample_count: 720,
+      history_coverage: "1.0000",
+      history_status: "ready",
     },
     {
       observed_at: "2026-07-25T00:00:00.000Z",
-      market_activity_index: "70.25",
-      calculation_status: "ready",
+      market_activity_index_raw: "73.4000",
+      market_activity_index_display: 73,
+      history_status: "ready",
     },
   ]);
   assert.equal(response.data_status, "ready");
-  assert.equal(response.index.value, "71.75");
-  assert.equal(response.index.change_24h, "1.50");
-  assert.equal(response.schema_version, "pulse.market.v2");
-  assert.equal(response.index.components.daily_revenue_usd.raw_value, "1234567.89");
+  assert.equal(response.index.value, "75");
+  assert.equal(response.index.raw_value, "75.0001");
+  assert.equal(response.index.change_24h, "2.00");
+  assert.equal(response.schema_version, "pulse.market.v3");
+  assert.equal(response.index.components.active_wallets_24h.raw_value, "120000");
   assert.equal(response.sparkline.length, 2);
 });
 

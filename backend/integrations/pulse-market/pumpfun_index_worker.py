@@ -43,6 +43,10 @@ def load_history() -> list[dict]:
 
 
 def run() -> dict:
+    if os.getenv("DUNE_PIPELINE_RETIRED", "").lower() == "true":
+        raise RuntimeError(
+            "The scheduled Dune collector is retired; use the direct Solana collector."
+        )
     metrics = fetch_pumpfun_metrics()
     current = {name: str(metric.value) for name, metric in metrics.items()}
     calculated = calculate_index(current, load_history())
