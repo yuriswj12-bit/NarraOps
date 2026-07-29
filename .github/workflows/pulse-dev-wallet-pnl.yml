@@ -8,7 +8,9 @@ on:
         required: false
         default: "3"
   schedule:
-    - cron: "12 * * * *"
+    # Two smaller runs are more resilient to delayed or skipped GitHub cron
+    # events while keeping the GMGN request rate conservative.
+    - cron: "17,47 * * * *"
 
 permissions:
   contents: read
@@ -20,7 +22,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 59
+    timeout-minutes: 29
 
     steps:
       - name: Check out repository
@@ -39,7 +41,7 @@ jobs:
           GMGN_API_KEY: ${{ secrets.GMGN_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          WALLET_LIMIT: ${{ inputs.wallet_limit || '125' }}
+          WALLET_LIMIT: ${{ inputs.wallet_limit || '55' }}
         run: >-
           python3 scripts/collect-dev-wallet-pnl.py
           --limit "$WALLET_LIMIT"
@@ -47,4 +49,4 @@ jobs:
           --min-interval-seconds 25
           --max-requests-per-minute 2
           --max-cooldown-wait 75
-          --max-runtime-seconds 3150
+          --max-runtime-seconds 1620
