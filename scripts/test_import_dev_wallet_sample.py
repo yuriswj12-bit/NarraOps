@@ -53,7 +53,15 @@ class ImportDevWalletSampleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported tier"):
             MODULE.load_rows(path, "2026-07-29T00:00:00+00:00")
 
+    def test_new_secret_key_is_not_sent_as_bearer_token(self):
+        headers = MODULE.supabase_headers("sb_secret_example")
+        self.assertEqual(headers["apikey"], "sb_secret_example")
+        self.assertNotIn("authorization", headers)
+
+    def test_legacy_service_role_is_sent_as_bearer_token(self):
+        headers = MODULE.supabase_headers("legacy-jwt")
+        self.assertEqual(headers["authorization"], "Bearer legacy-jwt")
+
 
 if __name__ == "__main__":
     unittest.main()
-
