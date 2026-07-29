@@ -319,9 +319,21 @@ GitHub sync:
   the cursor. If a later run cannot reach that cursor inside the configured
   page cap, it records `coverage_status=gap`, keeps the old cursor, and does not
   write an index snapshot. Only continuous complete collection writes history.
-- Production setup still requires applying migration `014` and adding rotated
+- Production setup still requires applying migration `014` and configuring
   GitHub Action secrets: `SOLANA_RPC_URL`, `SUPABASE_URL`, and
   `SUPABASE_SECRET_KEY`.
 - Verification: Python 13/13, backend API 59/59, TypeScript typecheck,
   frontend/backend builds, and `git diff --check` pass.
+
+Deployment update:
+
+- Hosted Supabase project `ysumvxrtstwhbvjbamas` applied migration `014` on
+  2026-07-29 through the authenticated Supabase Management API.
+- Verification confirmed all three direct-chain tables, all 12 required index
+  fields, and RLS on every new table. PostgREST schema reload was requested.
+- Supabase CLI `2.110.0` is pinned as a project dev dependency. The repository
+  is initialized for `npx supabase`; local link state remains ignored.
+- Remaining activation step: add `SOLANA_RPC_URL` to GitHub Actions Secrets,
+  then run `Pulse Solana Index` twice. The first run establishes the cursor;
+  the first subsequent complete run begins hourly history.
 
