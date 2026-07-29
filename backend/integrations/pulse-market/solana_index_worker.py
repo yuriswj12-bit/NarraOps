@@ -14,6 +14,20 @@ from solana_rpc import fetch_pump_transactions
 from wallet_sample import WalletCandidate, refresh_wallet_panel, should_sample_signature
 
 
+def response_shape(value: object, depth: int = 0) -> object:
+    """Return only container keys and value types; never log chain data."""
+    if depth >= 4:
+        return type(value).__name__
+    if isinstance(value, dict):
+        return {
+            str(key): response_shape(item, depth + 1)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [] if not value else [response_shape(value[0], depth + 1)]
+    return type(value).__name__
+
+
 def supabase(path: str, method: str = "GET", body: object | None = None):
     base = os.environ["SUPABASE_URL"].rstrip("/")
     secret = os.environ["SUPABASE_SECRET_KEY"]
@@ -89,6 +103,8 @@ def run() -> dict:
     transactions, newest, reached_cursor = collect_transactions(
         cursor, int(os.getenv("PULSE_MAX_PAGES_PER_RUN", "20"))
     )
+    if transactions and os.getenv("PULSE_DEBUG_RESPONSE_SHAPE") == "true":
+        print(json.dumps({"alchemy_response_shape": response_shape(transactions[0])}))
     coverage_status = (
         "initializing" if cursor is None else ("complete" if reached_cursor else "gap")
     )
