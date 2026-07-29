@@ -24,9 +24,15 @@ TIERS = ("A-Core", "B-Primary", "C-Watch")
 
 
 class ProviderCooldown(RuntimeError):
-    def __init__(self, wait_seconds: int, message: str) -> None:
+    def __init__(
+        self,
+        wait_seconds: int,
+        message: str,
+        newly_observed_429: bool = False,
+    ) -> None:
         super().__init__(message)
         self.wait_seconds = wait_seconds
+        self.newly_observed_429 = newly_observed_429
 
 
 def utc_now() -> datetime:
@@ -137,8 +143,6 @@ def gmgn_stats(
     wallet: str,
     source_period: str,
     timeout: int,
-    max_retries: int,
-    max_rate_limit_wait: int,
 ) -> dict:
     command = [
         cli,
@@ -152,23 +156,44 @@ def gmgn_stats(
         source_period,
         "--raw",
     ]
-    for attempt in range(max_retries + 1):
-        process = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+    process = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+    )
+    if not process.returncode:
+        return json.loads(process.stdout)
+    message = " ".join((process.stderr or process.stdout).split())[:500]
+    wait_seconds = rate_limit_wait_seconds(message)
+    if wait_seconds is not None:
+        raise ProviderCooldown(max(wait_seconds, 300), message, newly_observed_429=True)
+    raise RuntimeError(message or f"gmgn-cli exited {process.returncode}")
+
+
+def acquire_request_slot(
+    db: Supabase,
+    min_interval_seconds: int,
+    max_requests_per_minute: int,
+    max_wait_seconds: int,
+) -> None:
+    while True:
+        wait_seconds = db.request(
+            "rpc/acquire_pulse_gmgn_request_slot",
+            "POST",
+            {
+                "p_min_interval_seconds": min_interval_seconds,
+                "p_max_requests_per_minute": max_requests_per_minute,
+            },
         )
-        if not process.returncode:
-            return json.loads(process.stdout)
-        message = " ".join((process.stderr or process.stdout).split())[:500]
-        wait_seconds = rate_limit_wait_seconds(message)
-        if wait_seconds is None or attempt == max_retries:
-            raise RuntimeError(message or f"gmgn-cli exited {process.returncode}")
-        if wait_seconds > max_rate_limit_wait:
-            raise ProviderCooldown(wait_seconds, message)
+        wait_seconds = int(wait_seconds or 0)
+        if wait_seconds <= 0:
+            return
+        if wait_seconds > max_wait_seconds:
+            raise ProviderCooldown(wait_seconds, "shared_provider_cooldown")
         time.sleep(wait_seconds)
-    raise RuntimeError("unreachable GMGN retry state")
 
 
 def decimal_value(payload: dict, key: str, required: bool = False) -> Decimal | None:
@@ -252,9 +277,11 @@ def build_snapshot(
 def run(
     limit: int,
     timeout: int,
-    delay: float,
-    max_retries: int,
-    max_rate_limit_wait: int,
+    timeframes: tuple[str, ...],
+    min_interval_seconds: int,
+    max_requests_per_minute: int,
+    max_cooldown_wait: int,
+    max_runtime_seconds: int,
 ) -> dict:
     cli = shutil.which("gmgn-cli.cmd") or shutil.which("gmgn-cli")
     if not cli:
@@ -269,7 +296,7 @@ def run(
         {
             "started_at": started_at,
             "status": "running",
-            "requested_timeframes": list(PERIOD_MAP),
+            "requested_timeframes": list(timeframes),
         },
         "return=representation",
     )
@@ -278,19 +305,29 @@ def run(
     failures: list[dict] = []
     succeeded_wallets = set()
     provider_cooldown_seconds: int | None = None
+    requests_attempted = 0
+    rate_limit_events = 0
 
     for wallet in wallets:
+        if (utc_now() - started).total_seconds() >= max_runtime_seconds:
+            break
         wallet_ok = True
         wallet_observations: list[dict] = []
-        for timeframe, source_period in PERIOD_MAP.items():
+        for timeframe in timeframes:
+            source_period = PERIOD_MAP[timeframe]
             try:
+                acquire_request_slot(
+                    db,
+                    min_interval_seconds,
+                    max_requests_per_minute,
+                    max_cooldown_wait,
+                )
+                requests_attempted += 1
                 payload = gmgn_stats(
                     cli,
                     wallet["creator_wallet"],
                     source_period,
                     timeout,
-                    max_retries,
-                    max_rate_limit_wait,
                 )
                 row = observation(wallet, timeframe, payload, started_at, run_id)
                 observations_by_period[timeframe].append(row)
@@ -298,6 +335,14 @@ def run(
             except ProviderCooldown as error:
                 wallet_ok = False
                 provider_cooldown_seconds = error.wait_seconds
+                if error.newly_observed_429:
+                    rate_limit_events += 1
+                    db.request(
+                        "rpc/block_pulse_gmgn_requests",
+                        "POST",
+                        {"p_retry_after_seconds": error.wait_seconds},
+                        "return=minimal",
+                    )
                 failures.append(
                     {
                         "wallet_suffix": wallet["creator_wallet"][-6:],
@@ -316,8 +361,6 @@ def run(
                         "error": str(error)[:300],
                     }
                 )
-            if delay:
-                time.sleep(delay)
         if wallet_observations:
             db.request(
                 "pulse_dev_wallet_period_pnl?on_conflict=creator_wallet,timeframe,observed_at",
@@ -360,6 +403,8 @@ def run(
             "wallets_failed": len(wallets) - len(succeeded_wallets),
             "observations_written": len(observations),
             "snapshots_created": len(snapshots),
+            "requests_attempted": requests_attempted,
+            "rate_limit_events": rate_limit_events,
             "cursor_wallet": wallets[-1]["creator_wallet"] if wallets else None,
             "error_summary": {"failures": failures[:50]},
         },
@@ -372,6 +417,8 @@ def run(
         "wallets_attempted": len(wallets),
         "wallets_succeeded": len(succeeded_wallets),
         "observations_written": len(observations),
+        "requests_attempted": requests_attempted,
+        "rate_limit_events": rate_limit_events,
         "provider_cooldown_seconds": provider_cooldown_seconds,
         "snapshots": [
             {
@@ -389,23 +436,36 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=3)
     parser.add_argument("--timeout", type=int, default=120)
-    parser.add_argument("--delay", type=float, default=2.0)
-    parser.add_argument("--max-retries", type=int, default=2)
-    parser.add_argument("--max-rate-limit-wait", type=int, default=75)
+    parser.add_argument(
+        "--timeframes",
+        nargs="+",
+        choices=tuple(PERIOD_MAP),
+        default=("24h",),
+    )
+    parser.add_argument("--min-interval-seconds", type=int, default=25)
+    parser.add_argument("--max-requests-per-minute", type=int, default=2)
+    parser.add_argument("--max-cooldown-wait", type=int, default=75)
+    parser.add_argument("--max-runtime-seconds", type=int, default=3300)
     args = parser.parse_args()
-    if args.limit < 1 or args.limit > 100:
-        parser.error("--limit must be between 1 and 100 during Phase 3")
-    if args.max_retries < 0 or args.max_retries > 5:
-        parser.error("--max-retries must be between 0 and 5")
-    if args.max_rate_limit_wait < 0 or args.max_rate_limit_wait > 300:
-        parser.error("--max-rate-limit-wait must be between 0 and 300 seconds")
+    if args.limit < 1 or args.limit > 150:
+        parser.error("--limit must be between 1 and 150")
+    if args.min_interval_seconds < 1:
+        parser.error("--min-interval-seconds must be positive")
+    if args.max_requests_per_minute < 1:
+        parser.error("--max-requests-per-minute must be positive")
+    if args.max_cooldown_wait < 0:
+        parser.error("--max-cooldown-wait cannot be negative")
+    if args.max_runtime_seconds < 60:
+        parser.error("--max-runtime-seconds must be at least 60")
     try:
         result = run(
             args.limit,
             args.timeout,
-            args.delay,
-            args.max_retries,
-            args.max_rate_limit_wait,
+            tuple(args.timeframes),
+            args.min_interval_seconds,
+            args.max_requests_per_minute,
+            args.max_cooldown_wait,
+            args.max_runtime_seconds,
         )
     except Exception as error:
         print(f"error: {error}", file=sys.stderr)
