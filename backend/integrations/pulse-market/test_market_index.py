@@ -1,8 +1,9 @@
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from market_index import calculate_index, percentile_score
-from solana_index_worker import estimate_daily_count
+from solana_index_worker import cleanup_retained_data, estimate_daily_count
 from wallet_sample import WalletCandidate, refresh_wallet_panel, should_sample_signature
 
 
@@ -17,6 +18,23 @@ def row(value):
 class MarketIndexTests(unittest.TestCase):
     def test_bounded_chain_sample_estimates_daily_rate(self):
         self.assertEqual(estimate_daily_count(10, 60), 14_400)
+
+    @patch("solana_index_worker.supabase")
+    def test_cleanup_never_deletes_hourly_observations(self, mocked_supabase):
+        cutoff = cleanup_retained_data(
+            datetime(2026, 7, 29, tzinfo=timezone.utc), 30
+        )
+        self.assertEqual(cutoff, "2026-06-29T00:00:00+00:00")
+        deleted_paths = [call.args[0] for call in mocked_supabase.call_args_list]
+        self.assertTrue(
+            any(path.startswith("pulse_pumpfun_chain_events?") for path in deleted_paths)
+        )
+        self.assertTrue(
+            any(path.startswith("pulse_wallet_sample_panel?") for path in deleted_paths)
+        )
+        self.assertFalse(
+            any("pulse_pumpfun_market_observations" in path for path in deleted_paths)
+        )
 
     def test_fewer_than_24_observations_returns_null(self):
         result = calculate_index(row(10), [row(index) for index in range(23)])
@@ -87,6 +105,40 @@ class WalletSampleTests(unittest.TestCase):
         )
         self.assertEqual(panel, [WalletCandidate(address, now - timedelta(minutes=5))])
         self.assertEqual(audit["removed_count"], 0)
+
+    def test_daily_replacement_budget_is_shared_across_runs(self):
+        now = datetime(2026, 7, 29, tzinfo=timezone.utc)
+        current = [
+            WalletCandidate(f"old-{index}", now - timedelta(days=30))
+            for index in range(100)
+        ]
+        candidates = [
+            WalletCandidate(f"new-{index}", now - timedelta(hours=1))
+            for index in range(100)
+        ]
+        panel, audit = refresh_wallet_panel(
+            current,
+            candidates,
+            now=now,
+            target_size=100,
+            max_daily_replacement_rate=0.05,
+            replacements_already_today=4,
+        )
+        self.assertEqual(len(panel), 100)
+        self.assertEqual(audit["removed_count"], 1)
+        self.assertEqual(audit["daily_replacements_after_run"], 5)
+
+        panel, audit = refresh_wallet_panel(
+            current,
+            candidates,
+            now=now,
+            target_size=100,
+            max_daily_replacement_rate=0.05,
+            replacements_already_today=5,
+        )
+        self.assertEqual(len(panel), 100)
+        self.assertEqual(audit["removed_count"], 0)
+        self.assertEqual(audit["replacement_cap"], 0)
 
 
 if __name__ == "__main__":

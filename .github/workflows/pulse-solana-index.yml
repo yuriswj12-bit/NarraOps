@@ -3,7 +3,7 @@ name: Pulse Solana Index
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/10 * * * *"
 
 permissions:
   contents: read
@@ -26,4 +26,5 @@ jobs:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           PULSE_SIGNATURE_SAMPLE_BPS: "200"
           PULSE_MAX_PAGES_PER_RUN: "20"
+          PULSE_RAW_RETENTION_DAYS: "30"
         run: python3 solana_index_worker.py

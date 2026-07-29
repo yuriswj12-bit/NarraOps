@@ -32,6 +32,7 @@ def refresh_wallet_panel(
     target_size: int = 5_000,
     inactive_days: int = 14,
     max_daily_replacement_rate: float = 0.05,
+    replacements_already_today: int = 0,
 ) -> tuple[list[WalletCandidate], dict]:
     """Refresh a fixed-size panel without selecting only the most-active wallets."""
     if target_size <= 0:
@@ -49,7 +50,8 @@ def refresh_wallet_panel(
         (item for item in current_by_address.values() if item.last_seen_at < cutoff),
         key=lambda item: (item.last_seen_at, stable_score(item.address)),
     )
-    replacement_cap = max(1, int(target_size * max_daily_replacement_rate))
+    daily_replacement_limit = max(1, int(target_size * max_daily_replacement_rate))
+    replacement_cap = max(0, daily_replacement_limit - replacements_already_today)
     remove_addresses = {item.address for item in inactive[:replacement_cap]}
     retained = [
         item for item in current_by_address.values() if item.address not in remove_addresses
@@ -71,5 +73,9 @@ def refresh_wallet_panel(
         "added_count": len(entrants),
         "inactive_cutoff": cutoff.isoformat(),
         "replacement_cap": replacement_cap,
+        "daily_replacement_limit": daily_replacement_limit,
+        "replacements_already_today": replacements_already_today,
+        "daily_replacements_after_run": replacements_already_today
+        + len(remove_addresses),
         "panel_version": now.date().isoformat(),
     }
