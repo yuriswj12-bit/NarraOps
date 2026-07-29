@@ -57,3 +57,34 @@ Next validation should use resumable micro-batches and provider-aware global
 rate-limit state. The first partial snapshot remains in Supabase as audit
 evidence, not as a production metric.
 
+## Resumable micro-batch follow-up
+
+Migration `016_dev_wallet_pnl_microbatch.sql` adds per-wallet scheduling state:
+
+- `pnl_last_collected_at`
+- `pnl_collection_failures`
+- `pnl_next_retry_at`
+
+The queue selects the least recently collected active wallet from each tier.
+New wallets have no collection timestamp and naturally enter the queue.
+Incomplete wallets receive exponential retry delay without being removed.
+
+Observations are now persisted after each wallet rather than at the end of a
+batch. Snapshot aggregation runs in PostgreSQL and selects only the latest fresh
+real observation per active wallet:
+
+- 24H PnL observation freshness: 6 hours
+- 7D PnL observation freshness: 24 hours
+- 30D PnL observation freshness: 72 hours
+
+This prevents an old wallet result from silently remaining in a current
+aggregate.
+
+The collector also implements a global circuit breaker. A provider cooldown
+longer than the configured safe wait stops the whole batch after the current
+request. It does not continue sending calls that could extend the ban.
+
+Live circuit-breaker validation returned a provider retry hint of 307 seconds.
+The run closed as `failed` in about 30 seconds, wrote no observations or
+snapshots, and scheduled only the attempted wallet for retry. No later wallet
+was requested.

@@ -2,6 +2,7 @@ import importlib.util
 import unittest
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 
 MODULE_PATH = Path(__file__).with_name("collect-dev-wallet-pnl.py")
 SPEC = importlib.util.spec_from_file_location("collect_dev_wallet_pnl", MODULE_PATH)
@@ -86,6 +87,16 @@ class CollectDevWalletPnlTests(unittest.TestCase):
     def test_rate_limit_wait_has_conservative_fallback(self):
         self.assertEqual(MODULE.rate_limit_wait_seconds("HTTP 429"), 65)
         self.assertIsNone(MODULE.rate_limit_wait_seconds("HTTP 500"))
+
+    @patch.object(MODULE.subprocess, "run")
+    def test_long_provider_cooldown_fails_fast(self, run):
+        run.return_value.returncode = 1
+        run.return_value.stderr = "HTTP 429 RATE_LIMIT_BANNED (~180s remaining)"
+        run.return_value.stdout = ""
+        with self.assertRaises(MODULE.ProviderCooldown) as context:
+            MODULE.gmgn_stats("gmgn-cli", "wallet", "1d", 30, 2, 75)
+        self.assertEqual(context.exception.wait_seconds, 185)
+        self.assertEqual(run.call_count, 1)
 
 
 if __name__ == "__main__":

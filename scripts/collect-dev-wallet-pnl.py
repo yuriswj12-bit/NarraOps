@@ -22,6 +22,12 @@ PERIOD_MAP = {"24h": "1d", "7d": "7d", "30d": "30d"}
 TIERS = ("A-Core", "B-Primary", "C-Watch")
 
 
+class ProviderCooldown(RuntimeError):
+    def __init__(self, wait_seconds: int, message: str) -> None:
+        super().__init__(message)
+        self.wait_seconds = wait_seconds
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -98,7 +104,8 @@ def load_active_wallets(db: Supabase, limit: int) -> tuple[list[dict], int]:
                 "select": "creator_wallet,tier,sample_score",
                 "status": "eq.active",
                 "tier": f"eq.{tier}",
-                "order": "sample_score.desc",
+                "or": f"(pnl_next_retry_at.is.null,pnl_next_retry_at.lte.{iso(utc_now())})",
+                "order": "pnl_last_collected_at.asc.nullsfirst,sample_score.desc",
                 "limit": str(quota),
             }
         )
@@ -121,6 +128,7 @@ def gmgn_stats(
     source_period: str,
     timeout: int,
     max_retries: int,
+    max_rate_limit_wait: int,
 ) -> dict:
     command = [
         cli,
@@ -147,6 +155,8 @@ def gmgn_stats(
         wait_seconds = rate_limit_wait_seconds(message)
         if wait_seconds is None or attempt == max_retries:
             raise RuntimeError(message or f"gmgn-cli exited {process.returncode}")
+        if wait_seconds > max_rate_limit_wait:
+            raise ProviderCooldown(wait_seconds, message)
         time.sleep(wait_seconds)
     raise RuntimeError("unreachable GMGN retry state")
 
@@ -229,7 +239,13 @@ def build_snapshot(
     }
 
 
-def run(limit: int, timeout: int, delay: float, max_retries: int) -> dict:
+def run(
+    limit: int,
+    timeout: int,
+    delay: float,
+    max_retries: int,
+    max_rate_limit_wait: int,
+) -> dict:
     cli = shutil.which("gmgn-cli.cmd") or shutil.which("gmgn-cli")
     if not cli:
         raise RuntimeError("gmgn-cli is not installed")
@@ -251,9 +267,11 @@ def run(limit: int, timeout: int, delay: float, max_retries: int) -> dict:
     observations_by_period: dict[str, list[dict]] = defaultdict(list)
     failures: list[dict] = []
     succeeded_wallets = set()
+    provider_cooldown_seconds: int | None = None
 
     for wallet in wallets:
         wallet_ok = True
+        wallet_observations: list[dict] = []
         for timeframe, source_period in PERIOD_MAP.items():
             try:
                 payload = gmgn_stats(
@@ -262,10 +280,23 @@ def run(limit: int, timeout: int, delay: float, max_retries: int) -> dict:
                     source_period,
                     timeout,
                     max_retries,
+                    max_rate_limit_wait,
                 )
-                observations_by_period[timeframe].append(
-                    observation(wallet, timeframe, payload, started_at, run_id)
+                row = observation(wallet, timeframe, payload, started_at, run_id)
+                observations_by_period[timeframe].append(row)
+                wallet_observations.append(row)
+            except ProviderCooldown as error:
+                wallet_ok = False
+                provider_cooldown_seconds = error.wait_seconds
+                failures.append(
+                    {
+                        "wallet_suffix": wallet["creator_wallet"][-6:],
+                        "timeframe": timeframe,
+                        "error": "provider_rate_limit_cooldown",
+                        "retry_after_seconds": error.wait_seconds,
+                    }
                 )
+                break
             except Exception as error:
                 wallet_ok = False
                 failures.append(
@@ -277,29 +308,36 @@ def run(limit: int, timeout: int, delay: float, max_retries: int) -> dict:
                 )
             if delay:
                 time.sleep(delay)
+        if wallet_observations:
+            db.request(
+                "pulse_dev_wallet_period_pnl?on_conflict=creator_wallet,timeframe,observed_at",
+                "POST",
+                wallet_observations,
+                "resolution=merge-duplicates,return=minimal",
+            )
+        db.request(
+            "rpc/mark_pulse_dev_pnl_wallet_collection",
+            "POST",
+            {
+                "p_creator_wallet": wallet["creator_wallet"],
+                "p_collected_at": started_at,
+                "p_complete": wallet_ok,
+            },
+            "return=minimal",
+        )
         if wallet_ok:
             succeeded_wallets.add(wallet["creator_wallet"])
+        if provider_cooldown_seconds is not None:
+            break
 
     observations = [row for rows in observations_by_period.values() for row in rows]
+    snapshots = []
     if observations:
-        db.request(
-            "pulse_dev_wallet_period_pnl?on_conflict=creator_wallet,timeframe,observed_at",
+        snapshots = db.request(
+            "rpc/refresh_pulse_dev_wallet_pnl_snapshots",
             "POST",
-            observations,
-            "resolution=merge-duplicates,return=minimal",
-        )
-
-    tiers = {row["creator_wallet"]: row["tier"] for row in wallets}
-    snapshots = [
-        build_snapshot(timeframe, started_at, observations_by_period[timeframe], tiers, eligible_count, run_id)
-        for timeframe in PERIOD_MAP
-    ]
-    db.request(
-        "pulse_dev_wallet_pnl_snapshots?on_conflict=snapshot_at,timeframe",
-        "POST",
-        snapshots,
-        "resolution=merge-duplicates,return=minimal",
-    )
+            {"p_snapshot_at": started_at, "p_collection_run_id": run_id},
+        ) or []
     status = "completed" if not failures else ("partial" if observations else "failed")
     db.request(
         f"pulse_dev_pnl_collection_runs?id=eq.{run_id}",
@@ -324,6 +362,7 @@ def run(limit: int, timeout: int, delay: float, max_retries: int) -> dict:
         "wallets_attempted": len(wallets),
         "wallets_succeeded": len(succeeded_wallets),
         "observations_written": len(observations),
+        "provider_cooldown_seconds": provider_cooldown_seconds,
         "snapshots": [
             {
                 "timeframe": row["timeframe"],
@@ -338,17 +377,26 @@ def run(limit: int, timeout: int, delay: float, max_retries: int) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--limit", type=int, default=3)
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--delay", type=float, default=2.0)
     parser.add_argument("--max-retries", type=int, default=2)
+    parser.add_argument("--max-rate-limit-wait", type=int, default=75)
     args = parser.parse_args()
     if args.limit < 1 or args.limit > 100:
         parser.error("--limit must be between 1 and 100 during Phase 3")
     if args.max_retries < 0 or args.max_retries > 5:
         parser.error("--max-retries must be between 0 and 5")
+    if args.max_rate_limit_wait < 0 or args.max_rate_limit_wait > 300:
+        parser.error("--max-rate-limit-wait must be between 0 and 300 seconds")
     try:
-        result = run(args.limit, args.timeout, args.delay, args.max_retries)
+        result = run(
+            args.limit,
+            args.timeout,
+            args.delay,
+            args.max_retries,
+            args.max_rate_limit_wait,
+        )
     except Exception as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
