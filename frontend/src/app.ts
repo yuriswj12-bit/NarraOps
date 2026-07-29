@@ -1298,7 +1298,13 @@ function getMarketChartGeometry(width, height, points, range) {
   };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
-  const domain = getMarketChartDomain(range);
+  const latestPointTimestamp = points.at(-1)?.timestamp;
+  const domain = getMarketChartDomain(
+    range,
+    Number.isFinite(latestPointTimestamp)
+      ? new Date(latestPointTimestamp)
+      : new Date(),
+  );
   const chartPoints = points
     .filter((point) => point.timestamp >= domain.start && point.timestamp <= domain.end)
     .map((point) => ({
