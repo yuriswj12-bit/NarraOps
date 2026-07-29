@@ -9,7 +9,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 from market_index import calculate_index
-from pump_chain import parse_pump_events
+from pump_chain import instruction_diagnostics, parse_pump_events, transaction_signature
 from solana_rpc import fetch_pump_transactions
 from wallet_sample import WalletCandidate, refresh_wallet_panel, should_sample_signature
 
@@ -80,9 +80,9 @@ def collect_transactions(
         rows, token = fetch_pump_transactions(pagination_token=token)
         if not rows:
             break
-        newest = newest or rows[0].get("signature")
+        newest = newest or transaction_signature(rows[0])
         for row in rows:
-            if cursor and row.get("signature") == cursor:
+            if cursor and transaction_signature(row) == cursor:
                 return collected, newest, True
             collected.append(row)
         if not token:
@@ -104,14 +104,25 @@ def run() -> dict:
         cursor, int(os.getenv("PULSE_MAX_PAGES_PER_RUN", "20"))
     )
     if transactions and os.getenv("PULSE_DEBUG_RESPONSE_SHAPE") == "true":
-        print(json.dumps({"alchemy_response_shape": response_shape(transactions[0])}))
+        diagnostic_sample = transactions[:20]
+        print(
+            json.dumps(
+                {
+                    "alchemy_response_shape": response_shape(transactions[0]),
+                    "transaction_count": len(transactions),
+                    "pump_diagnostics": [
+                        instruction_diagnostics(row) for row in diagnostic_sample
+                    ],
+                }
+            )
+        )
     coverage_status = (
         "initializing" if cursor is None else ("complete" if reached_cursor else "gap")
     )
     event_rows = []
     candidates: dict[str, datetime] = {}
     for transaction in transactions:
-        signature = str(transaction.get("signature") or "")
+        signature = transaction_signature(transaction)
         sampled = should_sample_signature(signature, rate_bps)
         for event in parse_pump_events(transaction):
             if event.event_type in {"buy", "sell"} and not sampled:

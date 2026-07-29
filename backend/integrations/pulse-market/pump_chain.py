@@ -103,14 +103,41 @@ def iter_instructions(result: dict) -> Iterable[tuple[str, dict]]:
             yield f"{outer}.{inner}", instruction
 
 
+def transaction_signature(entry: dict) -> str:
+    result = entry.get("transactionResult") or entry
+    signatures = result.get("transaction", {}).get("signatures") or []
+    return str(entry.get("signature") or (signatures[0] if signatures else ""))
+
+
+def instruction_diagnostics(entry: dict) -> dict:
+    """Return Pump instruction counts and discriminators, never account data."""
+    result = entry.get("transactionResult") or entry
+    keys = transaction_keys(result)
+    pump_instructions = 0
+    discriminators: dict[str, int] = {}
+    for _, instruction in iter_instructions(result):
+        if instruction_program(instruction, keys) != PUMP_PROGRAM_ID:
+            continue
+        pump_instructions += 1
+        try:
+            discriminator = ",".join(
+                str(value)
+                for value in b58decode(str(instruction.get("data") or ""))[:8]
+            )
+        except ValueError:
+            discriminator = "decode_error"
+        discriminators[discriminator] = discriminators.get(discriminator, 0) + 1
+    return {
+        "pump_instruction_count": pump_instructions,
+        "discriminators": discriminators,
+    }
+
+
 def parse_pump_events(entry: dict) -> list[PumpEvent]:
     result = entry.get("transactionResult") or entry
     if result.get("meta", {}).get("err") is not None:
         return []
-    signature = (
-        entry.get("signature")
-        or result.get("transaction", {}).get("signatures", [""])[0]
-    )
+    signature = transaction_signature(entry)
     slot = int(entry.get("slot") or result.get("slot") or 0)
     raw_time = entry.get("blockTime") or result.get("blockTime")
     if not signature or raw_time is None:
