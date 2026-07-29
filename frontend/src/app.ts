@@ -437,8 +437,7 @@ const marketRangeDuration = Object.freeze({
 
 function getMarketSeries(market, range) {
   const duration = marketRangeDuration[range] || marketRangeDuration["24h"];
-  const now = Date.now();
-  return (Array.isArray(market?.sparkline) ? market.sparkline : [])
+  const points = (Array.isArray(market?.sparkline) ? market.sparkline : [])
     .map((point) => ({
       observedAt: String(point?.observed_at || ""),
       timestamp: Date.parse(point?.observed_at),
@@ -447,9 +446,16 @@ function getMarketSeries(market, range) {
     .filter(
       (point) =>
         Number.isFinite(point.timestamp) &&
-        Number.isFinite(point.value) &&
-        point.timestamp >= now - duration &&
-        point.timestamp <= now,
+        Number.isFinite(point.value),
+    )
+    .sort((left, right) => left.timestamp - right.timestamp);
+  const anchor = points.at(-1)?.timestamp;
+  if (!Number.isFinite(anchor)) return [];
+  return points
+    .filter(
+      (point) =>
+        point.timestamp >= anchor - duration &&
+        point.timestamp <= anchor,
     )
     .sort((left, right) => left.timestamp - right.timestamp);
 }
@@ -1485,7 +1491,13 @@ function getDevPnlChartGeometry(width, height, points, range) {
   };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
-  const domain = getMarketChartDomain(range);
+  const latestPointTimestamp = points.at(-1)?.timestamp;
+  const domain = getMarketChartDomain(
+    range,
+    Number.isFinite(latestPointTimestamp)
+      ? new Date(latestPointTimestamp)
+      : new Date(),
+  );
   const visible = points.filter(
     (point) => point.timestamp >= domain.start && point.timestamp <= domain.end,
   );
