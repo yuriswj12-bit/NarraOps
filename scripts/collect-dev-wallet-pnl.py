@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -59,19 +60,28 @@ class Supabase:
         body: object | None = None,
         prefer: str | None = None,
     ):
-        request = urllib.request.Request(
-            f"{self.url}/rest/v1/{path}",
-            data=None if body is None else json.dumps(body).encode("utf-8"),
-            method=method,
-            headers=supabase_headers(self.secret, prefer),
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                content = response.read()
-                return json.loads(content) if content else None
-        except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Supabase {method} {path} failed ({error.code}): {detail}") from error
+        attempts = 3 if method == "GET" else 1
+        for attempt in range(attempts):
+            request = urllib.request.Request(
+                f"{self.url}/rest/v1/{path}",
+                data=None if body is None else json.dumps(body).encode("utf-8"),
+                method=method,
+                headers=supabase_headers(self.secret, prefer),
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    content = response.read()
+                    return json.loads(content) if content else None
+            except urllib.error.HTTPError as error:
+                detail = error.read().decode("utf-8", errors="replace")
+                raise RuntimeError(
+                    f"Supabase {method} {path} failed ({error.code}): {detail}"
+                ) from error
+            except (http.client.IncompleteRead, urllib.error.URLError, TimeoutError):
+                if attempt + 1 == attempts:
+                    raise
+                time.sleep(2**attempt)
+        raise RuntimeError("unreachable Supabase retry state")
 
 
 def load_active_wallets(db: Supabase, limit: int) -> tuple[list[dict], int]:
@@ -252,6 +262,7 @@ def run(
     db = Supabase()
     started = utc_now()
     started_at = iso(started)
+    wallets, eligible_count = load_active_wallets(db, limit)
     run_rows = db.request(
         "pulse_dev_pnl_collection_runs",
         "POST",
@@ -263,7 +274,6 @@ def run(
         "return=representation",
     )
     run_id = int(run_rows[0]["id"])
-    wallets, eligible_count = load_active_wallets(db, limit)
     observations_by_period: dict[str, list[dict]] = defaultdict(list)
     failures: list[dict] = []
     succeeded_wallets = set()

@@ -98,6 +98,31 @@ class CollectDevWalletPnlTests(unittest.TestCase):
         self.assertEqual(context.exception.wait_seconds, 185)
         self.assertEqual(run.call_count, 1)
 
+    @patch.object(MODULE.time, "sleep")
+    @patch.object(MODULE.urllib.request, "urlopen")
+    def test_supabase_get_retries_incomplete_response(self, urlopen, sleep):
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b"[]"
+
+        urlopen.side_effect = [MODULE.http.client.IncompleteRead(b"partial"), Response()]
+        with patch.dict(
+            MODULE.os.environ,
+            {"SUPABASE_URL": "https://example.supabase.co", "SUPABASE_SECRET_KEY": "legacy"},
+        ):
+            result = MODULE.Supabase().request("table?select=id")
+        self.assertEqual(result, [])
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(1)
+
 
 if __name__ == "__main__":
     unittest.main()
