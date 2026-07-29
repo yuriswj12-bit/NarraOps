@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from market_index import calculate_index, percentile_score
+from solana_index_worker import estimate_daily_count
 from wallet_sample import WalletCandidate, refresh_wallet_panel, should_sample_signature
 
 
@@ -14,6 +15,9 @@ def row(value):
 
 
 class MarketIndexTests(unittest.TestCase):
+    def test_bounded_chain_sample_estimates_daily_rate(self):
+        self.assertEqual(estimate_daily_count(10, 60), 14_400)
+
     def test_fewer_than_24_observations_returns_null(self):
         result = calculate_index(row(10), [row(index) for index in range(23)])
         self.assertEqual(result["history_status"], "insufficient")

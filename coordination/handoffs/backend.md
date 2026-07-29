@@ -315,10 +315,17 @@ GitHub sync:
   index; 24-167 is `warming_up`, 168-719 is `partial`, and 720+ is `ready`.
 - Migration `014_pulse_sol_chain_index.sql` adds the direct-chain event store,
   wallet panel, collector cursor, and auditable index fields.
-- The scheduled workflow runs every five minutes. A first run only establishes
-  the cursor. If a later run cannot reach that cursor inside the configured
-  page cap, it records `coverage_status=gap`, keeps the old cursor, and does not
-  write an index snapshot. Only continuous complete collection writes history.
+- The scheduled workflow runs every five minutes and reads a bounded sample of
+  the newest real Pump.fun transactions. It estimates 24-hour launch and
+  graduation rates from the distinct events observed during that sample's real
+  block-time span. This avoids claiming full-market enumeration while keeping
+  request volume bounded.
+- Every snapshot stores sample size, observed seconds, raw event counts,
+  estimator method, cursor reachability, component scores, and history
+  coverage. `coverage_status=sampled` makes the limited census explicit.
+- Active-wallet input comes from the dynamic wallet panel. The panel admits
+  newly observed participants, retires inactive addresses, and therefore does
+  not freeze the index to a permanent wallet cohort.
 - Production setup still requires applying migration `014` and configuring
   GitHub Action secrets: `SOLANA_RPC_URL`, `SUPABASE_URL`, and
   `SUPABASE_SECRET_KEY`.
@@ -333,7 +340,8 @@ Deployment update:
   fields, and RLS on every new table. PostgREST schema reload was requested.
 - Supabase CLI `2.110.0` is pinned as a project dev dependency. The repository
   is initialized for `npx supabase`; local link state remains ignored.
-- Remaining activation step: add `SOLANA_RPC_URL` to GitHub Actions Secrets,
-  then run `Pulse Solana Index` twice. The first run establishes the cursor;
-  the first subsequent complete run begins hourly history.
+- `SOLANA_RPC_URL` is configured in GitHub Actions and the live workflow has
+  confirmed successful Alchemy response parsing. The response normalizer reads
+  signatures from `transaction.signatures`, matching Alchemy's full transaction
+  response shape.
 

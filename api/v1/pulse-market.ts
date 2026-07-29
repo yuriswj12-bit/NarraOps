@@ -60,7 +60,7 @@ export function buildPulseMarketResponse(rows = []) {
       change_24h: change24h,
       unit: "points",
       methodology:
-        "Direct Solana observations are ranked against the previous 30 days of real hourly history using duplicate-aware mid-rank percentiles. No neutral default or synthetic history is used.",
+        "Bounded samples of real Pump.fun transactions estimate 24-hour launch and graduation rates; a rotating wallet panel measures participation. Each metric is ranked against earlier real hourly snapshots using duplicate-aware mid-rank percentiles. No neutral default or synthetic history is used.",
       raw_value: decimalOrNull(current?.market_activity_index_raw),
       baseline_sample_count: current?.baseline_sample_count ?? 0,
       history_coverage: decimalOrNull(current?.history_coverage),
@@ -85,7 +85,7 @@ export function buildPulseMarketResponse(rows = []) {
         ),
       })),
     explanation:
-      "Measures Pump.fun Meme market creation, graduation, wallet participation, and revenue activity. It is not a price prediction or trading signal.",
+      "Measures Pump.fun Meme market creation, graduation, and wallet participation from bounded on-chain samples. It is not a full transaction census, price prediction, or trading signal.",
   };
 }
 

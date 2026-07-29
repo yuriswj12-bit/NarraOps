@@ -26,5 +26,4 @@ jobs:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           PULSE_SIGNATURE_SAMPLE_BPS: "200"
           PULSE_MAX_PAGES_PER_RUN: "20"
-          PULSE_DEBUG_RESPONSE_SHAPE: "true"
         run: python3 solana_index_worker.py
