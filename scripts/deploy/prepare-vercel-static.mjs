@@ -11,7 +11,7 @@ const files = [
   "index.html",
   "app.html",
   "app.js",
-  "app-20260729-pulse-market-history.js",
+  "app-20260729-pulse-market-history-v2.js",
   "styles.css",
 ];
 for (const file of files) {

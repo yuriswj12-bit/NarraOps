@@ -20,4 +20,4 @@ await esbuild.build({
   define: publicEnv,
 });
 
-await copyFile("app.js", "app-20260729-pulse-market-history.js");
+await copyFile("app.js", "app-20260729-pulse-market-history-v2.js");
