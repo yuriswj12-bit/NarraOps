@@ -1,4 +1,5 @@
 import esbuild from "esbuild";
+import { copyFile } from "node:fs/promises";
 
 const publicEnv = {
   __NARRAOPS_SUPABASE_URL__: JSON.stringify(
@@ -18,3 +19,5 @@ await esbuild.build({
   outfile: "app.js",
   define: publicEnv,
 });
+
+await copyFile("app.js", "app-20260729-pulse-market-history.js");
