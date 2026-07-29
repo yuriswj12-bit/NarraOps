@@ -19,7 +19,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Collect direct Pump.fun chain observations
@@ -29,6 +29,10 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           PULSE_SIGNATURE_SAMPLE_BPS: "200"
-          PULSE_MAX_PAGES_PER_RUN: "20"
+          # A 2,000-transaction head sample covered only ~33 seconds and
+          # routinely contained zero launches or migrations. A fixed 12,000
+          # transaction sample remains bounded while making both rare event
+          # metrics observable.
+          PULSE_MAX_PAGES_PER_RUN: "120"
           PULSE_RAW_RETENTION_DAYS: "30"
         run: python3 solana_index_worker.py

@@ -248,7 +248,6 @@ def run() -> dict:
     if panel_payload:
         supabase("pulse_wallet_sample_panel?on_conflict=address", "POST", panel_payload)
 
-    cutoff_time = now - timedelta(hours=24)
     sample_times = [
         datetime.fromtimestamp(int(row["blockTime"]), timezone.utc)
         for row in transactions
@@ -276,12 +275,12 @@ def run() -> dict:
             if observed_seconds
             else None
         ),
+        # This is deliberately a fixed-size transaction-sample metric rather
+        # than the panel population. The panel approaches its 5k capacity over
+        # time and would otherwise report artificial growth followed by a
+        # permanent plateau.
         "active_wallets_24h": len(
-            {
-                item.address
-                for item in panel
-                if item.last_seen_at >= cutoff_time
-            }
+            {event.user_address for event in sample_events if event.user_address}
         ),
     }
     bucket = now.replace(minute=0, second=0, microsecond=0)
@@ -291,6 +290,7 @@ def run() -> dict:
                 "pulse_pumpfun_market_observations",
                 select="launched_tokens_24h,graduated_tokens_24h,active_wallets_24h,observed_at",
                 observation_bucket=f"lt.{bucket.isoformat()}",
+                index_method_version="eq.solana-percentile-v2",
                 order="observed_at.desc",
                 max_rows=720,
             )
@@ -309,6 +309,7 @@ def run() -> dict:
         "baseline_sample_count": calculated["baseline_sample_count"],
         "history_coverage": calculated["history_coverage"],
         "history_status": calculated["history_status"],
+        "index_method_version": "solana-percentile-v2",
         "sampling_audit": {
             **panel_audit,
             "sampling_rate_bps": rate_bps,
