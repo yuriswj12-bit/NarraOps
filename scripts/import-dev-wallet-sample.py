@@ -87,6 +87,19 @@ def load_rows(path: Path, imported_at: str) -> tuple[list[dict], Counter]:
     return rows, tiers
 
 
+def supabase_headers(secret: str) -> dict[str, str]:
+    headers = {
+        "apikey": secret,
+        "content-type": "application/json",
+        "prefer": "resolution=merge-duplicates,return=minimal",
+    }
+    # New sb_secret keys are not JWTs and Supabase rejects them in a Bearer
+    # header. Legacy service_role JWTs still require Authorization.
+    if not secret.startswith("sb_secret_"):
+        headers["authorization"] = f"Bearer {secret}"
+    return headers
+
+
 def supabase_upsert(rows: list[dict], batch_size: int) -> None:
     base_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
     secret = os.environ.get("SUPABASE_SECRET_KEY", "")
@@ -100,12 +113,7 @@ def supabase_upsert(rows: list[dict], batch_size: int) -> None:
             endpoint,
             data=payload,
             method="POST",
-            headers={
-                "apikey": secret,
-                "authorization": f"Bearer {secret}",
-                "content-type": "application/json",
-                "prefer": "resolution=merge-duplicates,return=minimal",
-            },
+            headers=supabase_headers(secret),
         )
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
@@ -155,4 +163,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
