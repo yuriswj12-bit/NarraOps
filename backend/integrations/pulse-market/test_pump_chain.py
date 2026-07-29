@@ -6,6 +6,7 @@ from pump_chain import (
     PUMP_PROGRAM_ID,
     b58encode,
     parse_pump_events,
+    transaction_signature,
 )
 
 
@@ -38,6 +39,7 @@ class PumpChainTests(unittest.TestCase):
         self.assertEqual(events[0].mint, "mint-a")
         self.assertEqual(events[0].user_address, "wallet-a")
         self.assertEqual(events[0].block_time.tzinfo, timezone.utc)
+        self.assertEqual(transaction_signature(entry), "sig-a")
 
     def test_ignores_failed_transaction(self):
         entry = {

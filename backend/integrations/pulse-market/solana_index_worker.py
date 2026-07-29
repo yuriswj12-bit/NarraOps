@@ -9,7 +9,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 from market_index import calculate_index
-from pump_chain import parse_pump_events
+from pump_chain import parse_pump_events, transaction_signature
 from solana_rpc import fetch_pump_transactions
 from wallet_sample import WalletCandidate, refresh_wallet_panel, should_sample_signature
 
@@ -66,14 +66,20 @@ def collect_transactions(
         rows, token = fetch_pump_transactions(pagination_token=token)
         if not rows:
             break
-        newest = newest or rows[0].get("signature")
+        newest = newest or transaction_signature(rows[0])
         for row in rows:
-            if cursor and row.get("signature") == cursor:
-                return collected, newest, True
+            if cursor and transaction_signature(row) == cursor:
+                reached_cursor = True
             collected.append(row)
         if not token:
             break
     return collected, newest, reached_cursor
+
+
+def estimate_daily_count(event_count: int, observed_seconds: int) -> int:
+    if event_count < 0 or observed_seconds <= 0:
+        raise ValueError("sample counts and duration must be positive")
+    return round(event_count * 86_400 / observed_seconds)
 
 
 def run() -> dict:
@@ -89,15 +95,19 @@ def run() -> dict:
     transactions, newest, reached_cursor = collect_transactions(
         cursor, int(os.getenv("PULSE_MAX_PAGES_PER_RUN", "20"))
     )
-    coverage_status = (
-        "initializing" if cursor is None else ("complete" if reached_cursor else "gap")
-    )
+    coverage_status = "sampled"
     event_rows = []
     candidates: dict[str, datetime] = {}
+    sample_events = []
     for transaction in transactions:
-        signature = str(transaction.get("signature") or "")
+        signature = transaction_signature(transaction)
         sampled = should_sample_signature(signature, rate_bps)
         for event in parse_pump_events(transaction):
+            sample_events.append(event)
+            if event.user_address:
+                candidates[event.user_address] = max(
+                    candidates.get(event.user_address, event.block_time), event.block_time
+                )
             if event.event_type in {"buy", "sell"} and not sampled:
                 continue
             event_rows.append(
@@ -113,10 +123,6 @@ def run() -> dict:
                     "sampled": sampled,
                 }
             )
-            if sampled and event.user_address:
-                candidates[event.user_address] = max(
-                    candidates.get(event.user_address, event.block_time), event.block_time
-                )
     if event_rows:
         supabase(
             "pulse_pumpfun_chain_events?on_conflict=signature,instruction_path,event_type",
@@ -199,25 +205,39 @@ def run() -> dict:
     if panel_payload:
         supabase("pulse_wallet_sample_panel?on_conflict=address", "POST", panel_payload)
 
-    cutoff = (now - timedelta(hours=24)).isoformat()
-    recent = query_all(
-        "pulse_pumpfun_chain_events",
-        select="event_type,mint,user_address,sampled",
-        block_time=f"gte.{cutoff}",
-        max_rows=100_000,
+    cutoff_time = now - timedelta(hours=24)
+    sample_times = [
+        datetime.fromtimestamp(int(row["blockTime"]), timezone.utc)
+        for row in transactions
+        if row.get("blockTime") is not None
+    ]
+    observed_seconds = (
+        max(1, round((max(sample_times) - min(sample_times)).total_seconds()))
+        if sample_times
+        else 0
+    )
+    sample_launches = len(
+        {event.mint for event in sample_events if event.event_type == "create"}
+    )
+    sample_graduations = len(
+        {event.mint for event in sample_events if event.event_type == "migrate"}
     )
     current_metrics = {
-        "launched_tokens_24h": len(
-            {row["mint"] for row in recent if row["event_type"] == "create"}
+        "launched_tokens_24h": (
+            estimate_daily_count(sample_launches, observed_seconds)
+            if observed_seconds
+            else None
         ),
-        "graduated_tokens_24h": len(
-            {row["mint"] for row in recent if row["event_type"] == "migrate"}
+        "graduated_tokens_24h": (
+            estimate_daily_count(sample_graduations, observed_seconds)
+            if observed_seconds
+            else None
         ),
         "active_wallets_24h": len(
             {
-                row["user_address"]
-                for row in recent
-                if row.get("sampled") and row["user_address"] in included
+                item.address
+                for item in panel
+                if item.last_seen_at >= cutoff_time
             }
         ),
     }
@@ -251,16 +271,20 @@ def run() -> dict:
             "sampling_rate_bps": rate_bps,
             "candidate_transaction_count": len(transactions),
             "stored_event_count": len(event_rows),
+            "observed_window_seconds": observed_seconds,
+            "sample_launch_count": sample_launches,
+            "sample_graduation_count": sample_graduations,
+            "daily_estimator": "event_count / observed_seconds * 86400",
+            "cursor_reached": reached_cursor,
         },
         "source_status": {
             "provider": "solana_rpc",
             "status": coverage_status,
         },
     }
-    # Never publish a snapshot from a run with a detected pagination gap.
-    # The initial run establishes the cursor; the next complete run starts
-    # truthful rolling history.
-    if coverage_status == "complete":
+    # Every snapshot is a bounded estimate from a real, fixed-size transaction
+    # sample. The audit payload preserves the observed duration and counts.
+    if transactions and observed_seconds:
         supabase(
             "pulse_pumpfun_market_observations?on_conflict=observation_bucket",
             "POST",
@@ -272,26 +296,21 @@ def run() -> dict:
         {
             "collector_id": "pump-mainnet",
             "provider": "solana_rpc",
-            "latest_signature": (
-                newest if coverage_status in {"initializing", "complete"} else cursor
+            "latest_signature": newest or cursor,
+            "latest_slot": max(
+                (int(row.get("slot") or 0) for row in transactions), default=None
             ),
-            "latest_slot": (
-                max((int(row.get("slot") or 0) for row in transactions), default=None)
-                if coverage_status != "gap"
-                else (state[0].get("latest_slot") if state else None)
-            ),
-            "last_success_at": (
-                now.isoformat()
-                if coverage_status != "gap"
-                else (state[0].get("last_success_at") if state else None)
-            ),
+            "last_success_at": now.isoformat(),
             "sampling_rate_bps": rate_bps,
             "parser_version": "pump-idl-2026-07",
             "coverage_status": coverage_status,
             "updated_at": now.isoformat(),
         },
     )
-    return {**observation, "snapshot_written": coverage_status == "complete"}
+    return {
+        **observation,
+        "snapshot_written": bool(transactions and observed_seconds),
+    }
 
 
 if __name__ == "__main__":
