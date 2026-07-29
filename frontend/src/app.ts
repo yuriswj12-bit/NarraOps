@@ -99,6 +99,7 @@ const state = {
     marketRange: "24h",
     devPnlRange: "24h",
     devPnl: null,
+    devPnlError: null,
   },
   go: {
     pendingOpportunityId: null,
@@ -380,9 +381,10 @@ async function loadPulse() {
   state.pulse.error = null;
   if (state.view === "pulse") renderPulseConnected();
   try {
-    const [pulseResult, marketResult] = await Promise.allSettled([
+    const [pulseResult, marketResult, devPnlResult] = await Promise.allSettled([
       apiRequest("/api/v1/pulse"),
       apiRequest("/api/v1/pulse/market"),
+      apiRequest("/api/v1/pulse/dev-wallet-pnl"),
     ]);
     if (pulseResult.status === "rejected") throw pulseResult.reason;
     const payload = pulseResult.value;
@@ -402,6 +404,15 @@ async function loadPulse() {
         ? marketResult.reason.message
         : String(marketResult.reason || "Unavailable");
     }
+    if (devPnlResult.status === "fulfilled") {
+      state.pulse.devPnl = devPnlResult.value;
+      state.pulse.devPnlError = null;
+    } else {
+      state.pulse.devPnl = null;
+      state.pulse.devPnlError = devPnlResult.reason instanceof Error
+        ? devPnlResult.reason.message
+        : String(devPnlResult.reason || "Unavailable");
+    }
   } catch (error) {
     opportunities = [];
     state.pulse.dataStatus = "unavailable";
@@ -410,6 +421,8 @@ async function loadPulse() {
     state.pulse.limitations = [];
     state.pulse.market = null;
     state.pulse.marketError = null;
+    state.pulse.devPnl = null;
+    state.pulse.devPnlError = null;
   } finally {
     state.pulse.loading = false;
     if (state.view === "pulse") renderPulseConnected();
@@ -441,18 +454,41 @@ function getMarketSeries(market, range) {
     .sort((left, right) => left.timestamp - right.timestamp);
 }
 
+function getDevPnlSeries(devPnl, range) {
+  const duration = marketRangeDuration[range] || marketRangeDuration["24h"];
+  const now = Date.now();
+  const selected = devPnl?.ranges?.[range];
+  return (Array.isArray(selected?.history) ? selected.history : [])
+    .map((point) => ({
+      observedAt: String(point?.observed_at || ""),
+      timestamp: Date.parse(point?.observed_at),
+      value: Number(point?.value),
+    }))
+    .filter(
+      (point) =>
+        Number.isFinite(point.timestamp) &&
+        Number.isFinite(point.value) &&
+        point.timestamp >= now - duration &&
+        point.timestamp <= now,
+    )
+    .sort((left, right) => left.timestamp - right.timestamp);
+}
+
 function formatCompactUsdAmount(value) {
+  if (value == null || value === "") return null;
   const amount = Number(value);
-  if (!Number.isFinite(amount) || amount < 0) return null;
+  if (!Number.isFinite(amount)) return null;
+  const sign = amount < 0 ? "-" : "";
+  const absolute = Math.abs(amount);
   const units = [
     [1_000_000_000, "B"],
     [1_000_000, "M"],
     [1_000, "K"],
   ];
-  const unit = units.find(([threshold]) => amount >= threshold);
-  if (!unit) return `$${Math.round(amount).toLocaleString("en-US")}`;
+  const unit = units.find(([threshold]) => absolute >= threshold);
+  if (!unit) return `${sign}$${Math.round(absolute).toLocaleString("en-US")}`;
   const [divisor, suffix] = unit;
-  return `$${(amount / divisor).toFixed(1).replace(/\.0$/, "")}${suffix}`;
+  return `${sign}$${(absolute / divisor).toFixed(1).replace(/\.0$/, "")}${suffix}`;
 }
 
 function renderPulseConnected() {
@@ -474,7 +510,9 @@ function renderPulseConnected() {
     >${label}</button>
   `).join("");
   const devPnlRange = state.pulse.devPnlRange || "24h";
-  const devPnlDisplay = formatCompactUsdAmount(state.pulse.devPnl?.value);
+  const selectedDevPnl = state.pulse.devPnl?.ranges?.[devPnlRange] || {};
+  const devPnlDisplay = formatCompactUsdAmount(selectedDevPnl.value);
+  const devPnlSeries = getDevPnlSeries(state.pulse.devPnl, devPnlRange);
   const devPnlRangeTabs = [
     ["24h", "24H"],
     ["7d", "7D"],
@@ -528,17 +566,26 @@ function renderPulseConnected() {
             class="market-help"
             type="button"
             aria-label="${t("Dev 钱包盈利口径", "Dev wallet PnL methodology")}"
-            data-tooltip="${t("统计符合条件的当日 Meme 发射中，已纳入 Dev 钱包库地址的总盈利金额。具体计算口径将在数据接口接入后确定。", "Total profit amount for tracked Dev-wallet addresses from eligible same-day Meme launches. The final calculation contract will be connected later.")}"
+            data-tooltip="${t("Dev 钱包在所选时间范围内的已实现美元盈利总额。", "Total realized USD PnL reported for tracked Dev wallets in the selected period.")}"
           ><i class="fa-regular fa-circle-question" aria-hidden="true"></i></button>
         </div>
         <div class="market-range-tabs" role="group" aria-label="${t("盈利时间范围", "PnL time range")}">
           ${devPnlRangeTabs}
         </div>
       </div>
-      <div class="market-index-row dev-pnl-value-row" aria-label="${devPnlDisplay || t("Dev 钱包总盈利数据尚未接入", "Dev wallet total profit data is not connected yet")}">
+      <div class="market-index-row dev-pnl-value-row" aria-label="${devPnlDisplay || t("暂无 Dev 钱包盈利数据", "No Dev wallet PnL data")}">
         <span class="dev-pnl-value">${devPnlDisplay || "$—"}</span>
       </div>
-      <div class="market-chart-shell dev-pnl-chart-shell empty"></div>
+      <div class="market-chart-shell dev-pnl-chart-shell ${devPnlSeries.length < 2 ? "empty" : ""}">
+        ${devPnlSeries.length >= 2
+          ? `
+            <canvas class="market-activity-chart dev-pnl-chart" data-dev-pnl-points="${escapeHtml(JSON.stringify(devPnlSeries))}" data-dev-pnl-chart-range="${devPnlRange}" role="img" aria-label="${t("Dev 钱包盈利趋势", "Dev wallet PnL trend")}"></canvas>
+            <span class="chart-hover-line" aria-hidden="true"></span>
+            <span class="chart-hover-point" aria-hidden="true"></span>
+            <div class="chart-floating-tooltip" role="status" aria-live="polite"></div>
+          `
+          : ""}
+      </div>
     </article>
   `;
   const metrics = marketCard + devPnlCard;
@@ -1421,6 +1468,162 @@ function bindMarketChartInteraction(canvas, points, range) {
   canvas.addEventListener("pointerleave", hideHover);
 }
 
+function niceUsdCeiling(value) {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const normalized = value / magnitude;
+  const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return nice * magnitude;
+}
+
+function getDevPnlChartGeometry(width, height, points, range) {
+  const plot = {
+    left: width < 560 ? 48 : 64,
+    right: width < 560 ? 8 : 16,
+    top: 12,
+    bottom: width < 560 ? 30 : 38,
+  };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const domain = getMarketChartDomain(range);
+  const visible = points.filter(
+    (point) => point.timestamp >= domain.start && point.timestamp <= domain.end,
+  );
+  const maximum = niceUsdCeiling(
+    Math.max(1, ...visible.map((point) => Math.max(0, point.value))),
+  );
+  const chartPoints = visible.map((point) => ({
+    ...point,
+    x: plot.left + ((point.timestamp - domain.start) / (domain.end - domain.start)) * plotWidth,
+    y: plot.top + ((maximum - Math.max(0, point.value)) / maximum) * plotHeight,
+  }));
+  return { plot, plotWidth, plotHeight, domain, chartPoints, maximum };
+}
+
+function drawDevPnlChart(canvas, points, range) {
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (!width || !height || points.length < 2) return;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  const context = canvas.getContext("2d");
+  context.scale(ratio, ratio);
+  context.clearRect(0, 0, width, height);
+  const { plot, plotWidth, plotHeight, domain, chartPoints, maximum } =
+    getDevPnlChartGeometry(width, height, points, range);
+
+  context.font = `${width < 560 ? 10 : 12}px Inter, ui-sans-serif, system-ui, sans-serif`;
+  context.textBaseline = "middle";
+  context.strokeStyle = "rgba(148, 148, 166, 0.18)";
+  context.fillStyle = "rgba(165, 164, 183, 0.72)";
+  context.lineWidth = 1;
+  context.setLineDash([3, 4]);
+  [1, 0.75, 0.5, 0.25, 0].forEach((ratioValue) => {
+    const value = maximum * ratioValue;
+    const y = plot.top + (1 - ratioValue) * plotHeight;
+    context.beginPath();
+    context.moveTo(plot.left, y);
+    context.lineTo(width - plot.right, y);
+    context.stroke();
+    context.textAlign = "right";
+    context.fillText(formatCompactUsdAmount(value), plot.left - 10, y);
+  });
+
+  const visibleTicks = width < 560
+    ? domain.ticks.filter((_, index) => index % Math.ceil(domain.ticks.length / 4) === 0)
+    : domain.ticks;
+  context.setLineDash([]);
+  context.textAlign = "center";
+  context.textBaseline = "bottom";
+  visibleTicks.forEach((timestamp) => {
+    const x = plot.left + ((timestamp - domain.start) / (domain.end - domain.start)) * plotWidth;
+    context.fillText(formatMarketAxisTime(timestamp, range), x, height - 2);
+  });
+  if (chartPoints.length < 2) return;
+
+  context.beginPath();
+  context.moveTo(chartPoints[0].x, plot.top + plotHeight);
+  chartPoints.forEach((point) => context.lineTo(point.x, point.y));
+  context.lineTo(chartPoints.at(-1).x, plot.top + plotHeight);
+  context.closePath();
+  context.fillStyle = "rgba(43, 214, 123, 0.07)";
+  context.fill();
+  context.beginPath();
+  chartPoints.forEach((point, index) => {
+    if (index === 0) context.moveTo(point.x, point.y);
+    else context.lineTo(point.x, point.y);
+  });
+  context.lineWidth = 2;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = "#2bd67b";
+  context.stroke();
+}
+
+function bindDevPnlChartInteraction(canvas, points, range) {
+  const shell = canvas.closest(".market-chart-shell");
+  const cursor = shell?.querySelector(".chart-hover-line");
+  const pointMarker = shell?.querySelector(".chart-hover-point");
+  const tooltip = shell?.querySelector(".chart-floating-tooltip");
+  if (!shell || !cursor || !pointMarker || !tooltip) return;
+  const hideHover = () => {
+    cursor.classList.remove("visible");
+    pointMarker.classList.remove("visible");
+    tooltip.classList.remove("visible");
+  };
+  canvas.addEventListener("pointermove", (event) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const geometry = getDevPnlChartGeometry(canvas.clientWidth, canvas.clientHeight, points, range);
+    const { plot, plotWidth, plotHeight, chartPoints, domain, maximum } = geometry;
+    if (
+      chartPoints.length < 1 ||
+      x < plot.left ||
+      x > plot.left + plotWidth ||
+      y < plot.top ||
+      y > plot.top + plotHeight
+    ) {
+      hideHover();
+      return;
+    }
+    const pointerTimestamp =
+      domain.start + ((x - plot.left) / plotWidth) * (domain.end - domain.start);
+    const first = chartPoints[0];
+    const last = chartPoints.at(-1);
+    const timestamp = Math.max(first.timestamp, Math.min(last.timestamp, pointerTimestamp));
+    const rightIndex = chartPoints.findIndex((point) => point.timestamp >= timestamp);
+    const right = rightIndex <= 0 ? first : chartPoints[rightIndex];
+    const left = rightIndex <= 0 ? first : chartPoints[rightIndex - 1];
+    const segmentDuration = right.timestamp - left.timestamp;
+    const segmentRatio = segmentDuration > 0 ? (timestamp - left.timestamp) / segmentDuration : 0;
+    const value = left.value + (right.value - left.value) * segmentRatio;
+    const pointX = plot.left + ((timestamp - domain.start) / (domain.end - domain.start)) * plotWidth;
+    const pointY = plot.top + ((maximum - Math.max(0, value)) / maximum) * plotHeight;
+    cursor.style.left = `${pointX}px`;
+    cursor.style.top = `${plot.top}px`;
+    cursor.style.height = `${plotHeight}px`;
+    pointMarker.style.left = `${pointX}px`;
+    pointMarker.style.top = `${pointY}px`;
+    tooltip.innerHTML = `
+      <time>${escapeHtml(formatChartTooltipTime(timestamp))}</time>
+      <span>Dev Wallet PnL</span>
+      <strong>${escapeHtml(formatCompactUsdAmount(value) || "$—")}</strong>
+    `;
+    const tooltipWidth = 176;
+    const tooltipLeft = x + 14 + tooltipWidth > canvas.clientWidth
+      ? Math.max(0, x - tooltipWidth - 14)
+      : x + 14;
+    tooltip.style.left = `${tooltipLeft}px`;
+    tooltip.style.top = `${Math.max(6, Math.min(y - 34, canvas.clientHeight - 104))}px`;
+    cursor.classList.add("visible");
+    pointMarker.classList.add("visible");
+    tooltip.classList.add("visible");
+  });
+  canvas.addEventListener("pointerleave", hideHover);
+}
+
 function drawVisibleCharts() {
   document.querySelectorAll("[data-chart]").forEach((canvas) => {
     const [type, indexString] = canvas.dataset.chart.split("-");
@@ -1439,6 +1642,18 @@ function drawVisibleCharts() {
           range,
         );
         bindMarketChartInteraction(canvas, points, range);
+      }
+    } catch {
+      /* malformed external chart data stays undisplayed */
+    }
+  });
+  document.querySelectorAll("[data-dev-pnl-points]").forEach((canvas) => {
+    try {
+      const points = JSON.parse(canvas.dataset.devPnlPoints || "[]");
+      if (Array.isArray(points) && points.length > 1) {
+        const range = canvas.dataset.devPnlChartRange || "24h";
+        drawDevPnlChart(canvas, points, range);
+        bindDevPnlChartInteraction(canvas, points, range);
       }
     } catch {
       /* malformed external chart data stays undisplayed */

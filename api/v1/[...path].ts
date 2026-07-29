@@ -7,6 +7,7 @@ import { getAddress, verifyMessage } from "ethers";
 import { REVIEWED_PULSE_SNAPSHOT } from "./pulse-snapshot";
 import { buildPulsePlanResponse } from "./go/pulse-plan";
 import { loadPulseMarketResponse } from "./pulse-market";
+import { loadPulseDevWalletPnlResponse } from "./pulse-dev-wallet-pnl";
 
 const COOKIE_NAME = "narraops_session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -779,6 +780,17 @@ export default async function handler(request, response) {
       response,
       200,
       await loadPulseMarketResponse(serverSupabase()),
+      {
+        "cache-control":
+          "public, max-age=0, s-maxage=60, stale-while-revalidate=300",
+      },
+    );
+  }
+  if (request.method === "GET" && path === "/api/v1/pulse/dev-wallet-pnl") {
+    return sendJson(
+      response,
+      200,
+      await loadPulseDevWalletPnlResponse(serverSupabase()),
       {
         "cache-control":
           "public, max-age=0, s-maxage=60, stale-while-revalidate=300",
