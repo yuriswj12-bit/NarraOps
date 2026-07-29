@@ -1,97 +1,88 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from dev_lifecycle import DevThresholds, classify_dev
-from market_index import calculate_index
+from market_index import calculate_index, percentile_score
+from wallet_sample import WalletCandidate, refresh_wallet_panel, should_sample_signature
+
+
+def row(value):
+    return {
+        "launched_tokens_24h": value,
+        "graduated_tokens_24h": value,
+        "active_wallets_24h": value,
+    }
 
 
 class MarketIndexTests(unittest.TestCase):
-    def test_requires_complete_thirty_day_baseline(self):
-        current = {
-            "daily_tokens_created": 100,
-            "tokens_launched_24h": 50,
-            "graduated_tokens_24h": 20,
-            "daily_active_wallets": 5000,
-            "daily_revenue_usd": "100000000",
-        }
-        result = calculate_index(current, [])
-        self.assertEqual(result["status"], "beta")
-        self.assertEqual(result["value"], "50.00")
+    def test_fewer_than_24_observations_returns_null(self):
+        result = calculate_index(row(10), [row(index) for index in range(23)])
+        self.assertEqual(result["history_status"], "insufficient")
+        self.assertIsNone(result["market_activity_index_raw"])
 
-    def test_weighted_percentiles_total_one_hundred(self):
-        history = [
-            {
-                "daily_tokens_created": index,
-                "tokens_launched_24h": index,
-                "graduated_tokens_24h": index,
-                "daily_active_wallets": index,
-                "daily_revenue_usd": index,
-            }
-            for index in range(30)
-        ]
+    def test_warming_up_uses_available_real_history(self):
+        result = calculate_index(row(100), [row(index) for index in range(24)])
+        self.assertEqual(result["history_status"], "warming_up")
+        self.assertEqual(result["market_activity_index_display"], 100)
+
+    def test_duplicate_values_use_mid_rank(self):
+        self.assertEqual(str(percentile_score(5, [1, 5, 5, 9])), "50.0")
+
+    def test_weights_and_unrounded_value_are_preserved(self):
+        history = [row(index) for index in range(720)]
         current = {
-            "daily_tokens_created": 100,
-            "tokens_launched_24h": 100,
-            "graduated_tokens_24h": 100,
-            "daily_active_wallets": 100,
-            "daily_revenue_usd": 100,
+            "launched_tokens_24h": 360,
+            "graduated_tokens_24h": 720,
+            "active_wallets_24h": 0,
         }
         result = calculate_index(current, history)
-        self.assertEqual(result["status"], "ready")
-        self.assertEqual(result["value"], "100.00")
+        self.assertEqual(result["history_status"], "ready")
+        self.assertIsNotNone(result["market_activity_index_raw"])
+        self.assertIsInstance(result["market_activity_index_display"], int)
+        self.assertEqual(result["baseline_sample_count"], 720)
 
-    def test_missing_component_prevents_public_index(self):
-        history = [
-            {
-                "daily_tokens_created": index,
-                "tokens_launched_24h": index,
-                "graduated_tokens_24h": index,
-                "daily_active_wallets": index,
-                "daily_revenue_usd": index,
-            }
-            for index in range(30)
+    def test_missing_current_metric_returns_null(self):
+        current = row(100)
+        current["active_wallets_24h"] = None
+        result = calculate_index(current, [row(index) for index in range(24)])
+        self.assertIsNone(result["market_activity_index_raw"])
+
+
+class WalletSampleTests(unittest.TestCase):
+    def test_signature_sampling_is_deterministic(self):
+        self.assertEqual(
+            should_sample_signature("signature-a", 200),
+            should_sample_signature("signature-a", 200),
+        )
+
+    def test_panel_replacement_is_capped_and_fixed_size(self):
+        now = datetime(2026, 7, 29, tzinfo=timezone.utc)
+        current = [
+            WalletCandidate(f"old-{index}", now - timedelta(days=30))
+            for index in range(100)
         ]
-        current = dict(history[-1])
-        current["daily_revenue_usd"] = None
-        result = calculate_index(current, history)
-        self.assertEqual(result["status"], "partial_data")
-        self.assertIsNone(result["value"])
-
-
-class DevLifecycleTests(unittest.TestCase):
-    def setUp(self):
-        self.now = datetime(2026, 7, 26, tzinfo=timezone.utc)
-        self.thresholds = DevThresholds()
-
-    def test_recent_dev(self):
-        status = classify_dev(
-            first_launch_at=self.now - timedelta(days=3),
-            last_launch_at=self.now - timedelta(hours=1),
-            launches_in_long_term_window=1,
-            now=self.now,
-            thresholds=self.thresholds,
+        candidates = [
+            WalletCandidate(f"new-{index}", now - timedelta(hours=1))
+            for index in range(100)
+        ]
+        panel, audit = refresh_wallet_panel(
+            current, candidates, now=now, target_size=100, max_daily_replacement_rate=0.05
         )
-        self.assertEqual(status, "recent")
+        self.assertEqual(len(panel), 100)
+        self.assertEqual(audit["removed_count"], 5)
+        self.assertEqual(audit["added_count"], 5)
 
-    def test_recent_becomes_inactive_after_ten_days_idle(self):
-        status = classify_dev(
-            first_launch_at=self.now - timedelta(days=20),
-            last_launch_at=self.now - timedelta(days=10),
-            launches_in_long_term_window=1,
-            now=self.now,
-            thresholds=self.thresholds,
+    def test_existing_wallet_activity_refreshes_before_inactivity_filter(self):
+        now = datetime(2026, 7, 29, tzinfo=timezone.utc)
+        address = "returning-wallet"
+        panel, audit = refresh_wallet_panel(
+            [WalletCandidate(address, now - timedelta(days=30))],
+            [WalletCandidate(address, now - timedelta(minutes=5))],
+            now=now,
+            target_size=1,
+            inactive_days=14,
         )
-        self.assertEqual(status, "inactive")
-
-    def test_long_term_requires_age_and_frequency(self):
-        status = classify_dev(
-            first_launch_at=self.now - timedelta(days=90),
-            last_launch_at=self.now - timedelta(hours=1),
-            launches_in_long_term_window=300,
-            now=self.now,
-            thresholds=self.thresholds,
-        )
-        self.assertEqual(status, "long_term")
+        self.assertEqual(panel, [WalletCandidate(address, now - timedelta(minutes=5))])
+        self.assertEqual(audit["removed_count"], 0)
 
 
 if __name__ == "__main__":

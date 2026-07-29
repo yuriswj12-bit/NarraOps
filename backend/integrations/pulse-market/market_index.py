@@ -1,31 +1,17 @@
-"""Pulse Pump.fun Meme Market Activity Index calculation."""
+"""Auditable rolling-percentile Market Activity Index."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Iterable, Mapping
 
 
 WEIGHTS = {
-    "daily_tokens_created": Decimal("0.15"),
-    "tokens_launched_24h": Decimal("0.20"),
-    "graduated_tokens_24h": Decimal("0.30"),
-    "daily_active_wallets": Decimal("0.20"),
-    "daily_revenue_usd": Decimal("0.15"),
+    "launched_tokens_24h": Decimal("0.15"),
+    "graduated_tokens_24h": Decimal("0.55"),
+    "active_wallets_24h": Decimal("0.30"),
 }
-
-MAX_BASELINE_DAYS = 90
-NEUTRAL_BETA_SCORE = Decimal("50")
-
-
-@dataclass(frozen=True)
-class ComponentResult:
-    raw_value: str | None
-    score: str | None
-    weight: str
-    contribution: str | None
-    status: str
+MAX_BASELINE_HOURS = 720
 
 
 def decimal_value(value: object) -> Decimal | None:
@@ -38,75 +24,94 @@ def decimal_value(value: object) -> Decimal | None:
     return parsed if parsed.is_finite() and parsed >= 0 else None
 
 
+def clamp_score(value: Decimal) -> Decimal:
+    return max(Decimal(0), min(Decimal(100), value))
+
+
 def percentile_score(current: Decimal, history: Iterable[Decimal]) -> Decimal:
-    values = sorted(history)
+    """Empirical mid-rank percentile against earlier observations only."""
+    values = list(history)
     if not values:
         raise ValueError("history is required")
-    below = sum(1 for value in values if value < current)
-    equal = sum(1 for value in values if value == current)
-    percentile = (Decimal(below) + Decimal(equal) / Decimal(2)) / Decimal(len(values))
-    return (percentile * Decimal(100)).quantize(Decimal("0.01"))
+    below = sum(value < current for value in values)
+    equal = sum(value == current for value in values)
+    result = (
+        (Decimal(below) + Decimal(equal) / Decimal(2))
+        / Decimal(len(values))
+        * Decimal(100)
+    )
+    return clamp_score(result)
+
+
+def history_status(sample_count: int) -> str:
+    if sample_count < 24:
+        return "insufficient"
+    if sample_count < 168:
+        return "warming_up"
+    if sample_count < 720:
+        return "partial"
+    return "ready"
 
 
 def calculate_index(
     current: Mapping[str, object],
     history: Iterable[Mapping[str, object]],
 ) -> dict:
-    baseline_rows = list(history)[-MAX_BASELINE_DAYS:]
-    components: dict[str, ComponentResult] = {}
-    total = Decimal(0)
+    rows = list(history)[-MAX_BASELINE_HOURS:]
+    component_results: dict[str, dict] = {}
+    component_counts: list[int] = []
+    weighted_total = Decimal(0)
     complete = True
 
     for name, weight in WEIGHTS.items():
         raw = decimal_value(current.get(name))
         baseline = [
             parsed
-            for row in baseline_rows
+            for row in rows
             if (parsed := decimal_value(row.get(name))) is not None
         ]
-        if raw is None:
+        component_counts.append(len(baseline))
+        if raw is None or not baseline:
             complete = False
-            result = ComponentResult(None, None, str(weight), None, "missing")
-        elif not baseline:
-            score = NEUTRAL_BETA_SCORE
-            contribution = (score * weight).quantize(Decimal("0.01"))
-            total += contribution
-            result = ComponentResult(
-                str(raw),
-                str(score),
-                str(weight),
-                str(contribution),
-                "beta_neutral",
-            )
+            score = None
+            contribution = None
         else:
             score = percentile_score(raw, baseline)
-            contribution = (score * weight).quantize(Decimal("0.01"))
-            total += contribution
-            result = ComponentResult(
-                str(raw),
-                str(score),
-                str(weight),
-                str(contribution),
-                "ready",
-            )
-        components[name] = result
+            contribution = score * weight
+            weighted_total += contribution
+        component_results[name] = {
+            "raw_value": str(raw) if raw is not None else None,
+            "score": str(score.quantize(Decimal("0.0001"))) if score is not None else None,
+            "weight": str(weight),
+            "contribution": (
+                str(contribution.quantize(Decimal("0.0001")))
+                if contribution is not None
+                else None
+            ),
+            "baseline_sample_count": len(baseline),
+        }
 
-    has_beta_component = any(
-        item.status == "beta_neutral" for item in components.values()
+    baseline_sample_count = min(component_counts, default=0)
+    status = history_status(baseline_sample_count)
+    raw_index = clamp_score(weighted_total) if complete and baseline_sample_count >= 24 else None
+    display_index = (
+        int(raw_index.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        if raw_index is not None
+        else None
     )
-    status = "partial_data" if not complete else ("beta" if has_beta_component else "ready")
+    expected = min(MAX_BASELINE_HOURS, max(len(rows), 24))
+    coverage = (
+        Decimal(baseline_sample_count) / Decimal(expected)
+        if expected
+        else Decimal(0)
+    )
     return {
-        "status": status,
-        "value": str(total.quantize(Decimal("0.01"))) if complete else None,
-        "components": {
-            name: {
-                "raw_value": item.raw_value,
-                "score": item.score,
-                "weight": item.weight,
-                "contribution": item.contribution,
-                "status": item.status,
-            }
-            for name, item in components.items()
-        },
-        "baseline_days": min(len(baseline_rows), MAX_BASELINE_DAYS),
+        "history_status": status,
+        "market_activity_index_raw": (
+            str(raw_index.quantize(Decimal("0.0001"))) if raw_index is not None else None
+        ),
+        "market_activity_index_display": display_index,
+        "components": component_results,
+        "baseline_sample_count": baseline_sample_count,
+        "history_coverage": str(min(Decimal(1), coverage).quantize(Decimal("0.0001"))),
     }

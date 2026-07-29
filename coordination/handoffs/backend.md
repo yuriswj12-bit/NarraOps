@@ -1,5 +1,27 @@
 # Backend handoff
 
+## 2026-07-29 Pulse direct-chain index foundation
+
+- Replaced the five-factor Dune scoring contract with three direct-chain inputs:
+  `launched_tokens_24h` (15%), `graduated_tokens_24h` (55%), and
+  `active_wallets_24h` (30%).
+- Percentiles use only earlier real hourly observations, mid-rank duplicate
+  handling, a rolling 720-hour cap, no neutral 50 default, and no synthetic
+  history.
+- Warm-up states are `insufficient`, `warming_up`, `partial`, and `ready`.
+  Unrounded and displayed index values, per-component baseline counts, and
+  history coverage are exposed separately.
+- Added deterministic signature sampling and a fixed-size dynamic wallet panel.
+  Inactive wallets can be replaced gradually, with a daily replacement cap and
+  deterministic non-top-activity candidate selection.
+- Migration `014_pulse_sol_chain_index.sql` adds the raw metrics, component
+  scores, audit fields, sample metadata, and method version.
+- The scheduled Dune workflow is retired. A direct Solana collector still needs
+  to be connected to `SOLANA_RPC_URL`; no chain observations are fabricated
+  while that endpoint is absent.
+
+Verification: TypeScript passed, backend API 59/59, Pulse Python 10/10.
+
 - Mount the contract at `/api/v1`; do not rename execution fields without updating OpenAPI and JSON Schemas first.
 - Enforce equality between the `Idempotency-Key` header and body `idempotencyKey`.
 - Replace the in-memory idempotency store with a durable unique constraint and transaction/lock before enabling submission.
@@ -271,4 +293,47 @@ GitHub sync:
 - No interpolation or synthetic history is added. A range with fewer than two
   observations remains an empty chart on the client.
 - Verification: backend API 59/59.
+
+## 2026-07-29 Direct Solana Pulse index
+
+- The Dune collector is retired. The replacement reads Pump.fun transactions
+  through the standard Solana RPC surface configured only by
+  `SOLANA_RPC_URL`; credentials are never committed or logged.
+- Pump.fun instructions are parsed from the official public IDL
+  discriminators. Successful `create` and `migrate` events provide the rolling
+  24-hour launch and graduation metrics. Buy/sell activity uses deterministic
+  signature sampling and a dynamic wallet panel.
+- The wallet panel targets 5,000 addresses, refreshes last-seen timestamps,
+  retires wallets inactive for 14 days, admits accumulated candidate wallets,
+  and caps daily replacement at 5%. Selection is deterministic pseudo-random,
+  not a ranking of the most active wallets.
+- The index uses only three raw rolling metrics:
+  launches 15%, graduations 55%, and sampled active wallets 30%. Every
+  component uses average-rank percentiles against earlier hourly observations;
+  no fixed maxima, neutral 50, or synthetic history is used.
+- Warm-up remains explicit: under 24 earlier hourly observations returns a null
+  index; 24-167 is `warming_up`, 168-719 is `partial`, and 720+ is `ready`.
+- Migration `014_pulse_sol_chain_index.sql` adds the direct-chain event store,
+  wallet panel, collector cursor, and auditable index fields.
+- The scheduled workflow runs every five minutes. A first run only establishes
+  the cursor. If a later run cannot reach that cursor inside the configured
+  page cap, it records `coverage_status=gap`, keeps the old cursor, and does not
+  write an index snapshot. Only continuous complete collection writes history.
+- Production setup still requires applying migration `014` and configuring
+  GitHub Action secrets: `SOLANA_RPC_URL`, `SUPABASE_URL`, and
+  `SUPABASE_SECRET_KEY`.
+- Verification: Python 13/13, backend API 59/59, TypeScript typecheck,
+  frontend/backend builds, and `git diff --check` pass.
+
+Deployment update:
+
+- Hosted Supabase project `ysumvxrtstwhbvjbamas` applied migration `014` on
+  2026-07-29 through the authenticated Supabase Management API.
+- Verification confirmed all three direct-chain tables, all 12 required index
+  fields, and RLS on every new table. PostgREST schema reload was requested.
+- Supabase CLI `2.110.0` is pinned as a project dev dependency. The repository
+  is initialized for `npx supabase`; local link state remains ignored.
+- Remaining activation step: add `SOLANA_RPC_URL` to GitHub Actions Secrets,
+  then run `Pulse Solana Index` twice. The first run establishes the cursor;
+  the first subsequent complete run begins hourly history.
 
