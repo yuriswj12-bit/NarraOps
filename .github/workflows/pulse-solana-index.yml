@@ -3,7 +3,11 @@ name: Pulse Solana Index
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/10 * * * *"
+    # GitHub scheduled workflows can be delayed or occasionally skipped.
+    # Two bounded attempts per hour make it much more likely that every UTC
+    # hour receives one real observation; the database upsert keeps only one
+    # snapshot per hour.
+    - cron: "17,47 * * * *"
 
 permissions:
   contents: read

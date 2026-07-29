@@ -366,6 +366,26 @@ if __name__ == "__main__":
                 "history_status": result["history_status"],
                 "market_activity_index": result["market_activity_index_display"],
                 "observed_at": result["observed_at"],
+                "baseline_sample_count": result["baseline_sample_count"],
+                "raw_metrics": {
+                    "launched_tokens_24h": result["launched_tokens_24h"],
+                    "graduated_tokens_24h": result["graduated_tokens_24h"],
+                    "active_wallets_24h": result["active_wallets_24h"],
+                },
+                "sample_audit": {
+                    "candidate_transaction_count": result["sampling_audit"][
+                        "candidate_transaction_count"
+                    ],
+                    "observed_window_seconds": result["sampling_audit"][
+                        "observed_window_seconds"
+                    ],
+                    "sample_launch_count": result["sampling_audit"][
+                        "sample_launch_count"
+                    ],
+                    "sample_graduation_count": result["sampling_audit"][
+                        "sample_graduation_count"
+                    ],
+                },
             }
         )
     )
