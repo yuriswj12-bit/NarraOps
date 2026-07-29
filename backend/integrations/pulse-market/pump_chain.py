@@ -11,7 +11,9 @@ PUMP_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 INSTRUCTIONS = {
     bytes([24, 30, 200, 40, 5, 28, 7, 119]): ("create", 0, 7),
+    bytes([214, 144, 76, 236, 95, 139, 49, 180]): ("create", 0, 5),
     bytes([155, 234, 231, 146, 236, 158, 162, 30]): ("migrate", 2, 5),
+    bytes([187, 203, 18, 31, 206, 237, 254, 41]): ("migrate", 2, 7),
     bytes([102, 6, 61, 18, 1, 218, 235, 234]): ("buy", 2, 6),
     bytes([51, 230, 133, 164, 1, 127, 131, 173]): ("sell", 2, 6),
     bytes([184, 23, 238, 97, 103, 197, 211, 61]): ("buy", 1, 13),

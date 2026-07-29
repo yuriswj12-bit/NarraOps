@@ -15,6 +15,16 @@ def encoded_instruction(discriminator, accounts):
 
 
 class PumpChainTests(unittest.TestCase):
+    def test_includes_current_create_and_migrate_v2_discriminators(self):
+        self.assertEqual(
+            INSTRUCTIONS[bytes([214, 144, 76, 236, 95, 139, 49, 180])],
+            ("create", 0, 5),
+        )
+        self.assertEqual(
+            INSTRUCTIONS[bytes([187, 203, 18, 31, 206, 237, 254, 41])],
+            ("migrate", 2, 7),
+        )
+
     def test_parses_successful_migrate(self):
         migrate = next(key for key, value in INSTRUCTIONS.items() if value[0] == "migrate")
         accounts = ["global", "authority", "mint-a", "curve", "ata", "wallet-a"]
