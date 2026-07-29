@@ -94,9 +94,21 @@ class CollectDevWalletPnlTests(unittest.TestCase):
         run.return_value.stderr = "HTTP 429 RATE_LIMIT_BANNED (~180s remaining)"
         run.return_value.stdout = ""
         with self.assertRaises(MODULE.ProviderCooldown) as context:
-            MODULE.gmgn_stats("gmgn-cli", "wallet", "1d", 30, 2, 75)
-        self.assertEqual(context.exception.wait_seconds, 185)
+            MODULE.gmgn_stats("gmgn-cli", "wallet", "1d", 30)
+        self.assertEqual(context.exception.wait_seconds, 300)
+        self.assertTrue(context.exception.newly_observed_429)
         self.assertEqual(run.call_count, 1)
+
+    @patch.object(MODULE.time, "sleep")
+    def test_shared_slot_wait_does_not_report_new_429(self, sleep):
+        class FakeDb:
+            responses = [2, 0]
+
+            def request(self, *args, **kwargs):
+                return self.responses.pop(0)
+
+        MODULE.acquire_request_slot(FakeDb(), 25, 2, 75)
+        sleep.assert_called_once_with(2)
 
     @patch.object(MODULE.time, "sleep")
     @patch.object(MODULE.urllib.request, "urlopen")

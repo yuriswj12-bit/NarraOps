@@ -1,7 +1,14 @@
-name: Pulse Market Collector
+name: Pulse Dev Wallet PnL
 
 on:
   workflow_dispatch:
+    inputs:
+      wallet_limit:
+        description: "Maximum wallets in this segment"
+        required: false
+        default: "3"
+  schedule:
+    - cron: "12 * * * *"
 
 permissions:
   contents: read
@@ -27,15 +34,17 @@ jobs:
       - name: Install GMGN CLI
         run: npm install --global gmgn-cli@1.4.9
 
-      - name: Collect Pulse market data
-        working-directory: backend/integrations/pulse-market
+      - name: Collect rolling 24H Dev wallet PnL
         env:
           GMGN_API_KEY: ${{ secrets.GMGN_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          PULSE_POLL_INTERVAL_SECONDS: "60"
-          PULSE_POLL_WINDOW_MINUTES: "1"
-          PULSE_GMGN_CONCURRENCY: "3"
-          PULSE_GMGN_TIMEOUT_SECONDS: "30"
-          PULSE_WORKER_MAX_RUNTIME_SECONDS: "3300"
-        run: python3 run_worker_forever.py
+          WALLET_LIMIT: ${{ inputs.wallet_limit || '125' }}
+        run: >-
+          python3 scripts/collect-dev-wallet-pnl.py
+          --limit "$WALLET_LIMIT"
+          --timeframes 24h
+          --min-interval-seconds 25
+          --max-requests-per-minute 2
+          --max-cooldown-wait 75
+          --max-runtime-seconds 3150

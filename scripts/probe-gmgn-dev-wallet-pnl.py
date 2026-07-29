@@ -60,6 +60,8 @@ def invoke(cli: str, wallet: str, period: str) -> tuple[dict, float]:
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=120,
     )
     elapsed = time.perf_counter() - started
