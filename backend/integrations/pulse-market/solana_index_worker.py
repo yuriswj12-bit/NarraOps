@@ -14,7 +14,13 @@ from solana_rpc import fetch_pump_transactions
 from wallet_sample import WalletCandidate, refresh_wallet_panel, should_sample_signature
 
 
-def supabase(path: str, method: str = "GET", body: object | None = None):
+def supabase(
+    path: str,
+    method: str = "GET",
+    body: object | None = None,
+    *,
+    prefer: str = "return=representation,resolution=merge-duplicates",
+):
     base = os.environ["SUPABASE_URL"].rstrip("/")
     secret = os.environ["SUPABASE_SECRET_KEY"]
     request = urllib.request.Request(
@@ -25,7 +31,7 @@ def supabase(path: str, method: str = "GET", body: object | None = None):
             "apikey": secret,
             "Authorization": f"Bearer {secret}",
             "Content-Type": "application/json",
-            "Prefer": "return=representation,resolution=merge-duplicates",
+            "Prefer": prefer,
         },
     )
     with urllib.request.urlopen(request, timeout=30) as response:
@@ -82,9 +88,38 @@ def estimate_daily_count(event_count: int, observed_seconds: int) -> int:
     return round(event_count * 86_400 / observed_seconds)
 
 
+def cleanup_retained_data(now: datetime, retention_days: int) -> str:
+    if retention_days <= 0:
+        raise ValueError("retention_days must be positive")
+    cutoff = (now - timedelta(days=retention_days)).isoformat()
+    encoded_cutoff = urllib.parse.quote(cutoff, safe=":-")
+    supabase(
+        f"pulse_pumpfun_chain_events?block_time=lt.{encoded_cutoff}",
+        "DELETE",
+        prefer="return=minimal",
+    )
+    # Candidate rows are no longer persisted: each run discovers fresh
+    # candidates directly from the bounded chain sample.
+    supabase(
+        "pulse_wallet_sample_panel?status=eq.candidate",
+        "DELETE",
+        prefer="return=minimal",
+    )
+    supabase(
+        "pulse_wallet_sample_panel"
+        f"?status=eq.removed&removed_at=lt.{encoded_cutoff}",
+        "DELETE",
+        prefer="return=minimal",
+    )
+    return cutoff
+
+
 def run() -> dict:
     now = datetime.now(timezone.utc)
     rate_bps = int(os.getenv("PULSE_SIGNATURE_SAMPLE_BPS", "200"))
+    retention_cutoff = cleanup_retained_data(
+        now, int(os.getenv("PULSE_RAW_RETENTION_DAYS", "30"))
+    )
     state = query(
         "pulse_chain_collection_state",
         select="*",
@@ -144,13 +179,21 @@ def run() -> dict:
             row["address"], datetime.fromisoformat(row["last_seen_at"])
         )
         for row in panel_rows
-        if row["status"] in {"candidate", "included"}
+        if row["status"] == "included"
     }
     for address, seen in candidates.items():
         existing = available_by_address.get(address)
         if not existing or seen > existing.last_seen_at:
             available_by_address[address] = WalletCandidate(address, seen)
     available = list(available_by_address.values())
+    replacements_already_today = sum(
+        1
+        for row in panel_rows
+        if row["status"] == "removed"
+        and row.get("removed_at")
+        and datetime.fromisoformat(row["removed_at"]).astimezone(timezone.utc).date()
+        == now.date()
+    )
     panel, panel_audit = refresh_wallet_panel(
         current,
         available,
@@ -160,12 +203,12 @@ def run() -> dict:
         max_daily_replacement_rate=float(
             os.getenv("PULSE_WALLET_MAX_DAILY_REPLACEMENT_RATE", "0.05")
         ),
+        replacements_already_today=replacements_already_today,
     )
     included = {item.address for item in panel}
     panel_payload = []
-    for item in available:
+    for item in panel:
         existing = existing_by_address.get(item.address)
-        is_included = item.address in included
         panel_payload.append(
             {
                 "address": item.address,
@@ -178,11 +221,11 @@ def run() -> dict:
                 "included_at": (
                     existing.get("included_at")
                     if existing and existing.get("included_at")
-                    else (now.isoformat() if is_included else None)
+                    else now.isoformat()
                 ),
                 "removed_at": None,
                 "panel_version": panel_audit["panel_version"],
-                "status": "included" if is_included else "candidate",
+                "status": "included",
                 "updated_at": now.isoformat(),
             }
         )
@@ -276,6 +319,8 @@ def run() -> dict:
             "sample_graduation_count": sample_graduations,
             "daily_estimator": "event_count / observed_seconds * 86400",
             "cursor_reached": reached_cursor,
+            "raw_retention_cutoff": retention_cutoff,
+            "hourly_observations_retained": True,
         },
         "source_status": {
             "provider": "solana_rpc",

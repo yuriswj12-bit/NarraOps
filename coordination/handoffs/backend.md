@@ -315,7 +315,7 @@ GitHub sync:
   index; 24-167 is `warming_up`, 168-719 is `partial`, and 720+ is `ready`.
 - Migration `014_pulse_sol_chain_index.sql` adds the direct-chain event store,
   wallet panel, collector cursor, and auditable index fields.
-- The scheduled workflow runs every five minutes and reads a bounded sample of
+- The scheduled workflow runs every ten minutes and reads a bounded sample of
   the newest real Pump.fun transactions. It estimates 24-hour launch and
   graduation rates from the distinct events observed during that sample's real
   block-time span. This avoids claiming full-market enumeration while keeping
@@ -325,7 +325,13 @@ GitHub sync:
   coverage. `coverage_status=sampled` makes the limited census explicit.
 - Active-wallet input comes from the dynamic wallet panel. The panel admits
   newly observed participants, retires inactive addresses, and therefore does
-  not freeze the index to a permanent wallet cohort.
+  not freeze the index to a permanent wallet cohort. Removed rows written on
+  the current UTC date are counted before each refresh, so the 5% replacement
+  limit is shared across all ten-minute runs and resets only on the next day.
+- Raw Pump.fun event rows and removed wallet records are retained for 30 days.
+  Transient candidate wallets are not persisted. Hourly aggregate observations
+  are retained independently, so raw-data cleanup never removes the history
+  used by the `24H / 7D / 30D` Pulse curves.
 - Production setup still requires applying migration `014` and configuring
   GitHub Action secrets: `SOLANA_RPC_URL`, `SUPABASE_URL`, and
   `SUPABASE_SECRET_KEY`.
