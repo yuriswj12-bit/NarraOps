@@ -782,6 +782,24 @@ button {
   color: #2bd67b;
 }
 
+.dev-pnl-chart-shell .chart-hover-line {
+  border-left-color: rgba(43, 214, 123, 0.5);
+}
+
+.dev-pnl-chart-shell .chart-hover-point {
+  border-color: #8deab8;
+  background: #2bd67b;
+  box-shadow: 0 0 0 4px rgba(43, 214, 123, 0.14);
+}
+
+.dev-pnl-chart-shell .chart-floating-tooltip {
+  border-color: rgba(43, 214, 123, 0.22);
+}
+
+.dev-pnl-chart-shell .chart-floating-tooltip strong {
+  color: #2bd67b;
+}
+
 .dev-pnl-chart-shell {
   background: transparent;
 }

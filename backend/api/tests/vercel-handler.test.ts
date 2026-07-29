@@ -4,6 +4,7 @@ import handlerModule, {
   handleAssetsRoute,
 } from "../../../api/v1/[...path].ts";
 import { buildPulseMarketResponse } from "../../../api/v1/pulse-market.ts";
+import { buildPulseDevWalletPnlResponse } from "../../../api/v1/pulse-dev-wallet-pnl.ts";
 
 const handler =
   typeof handlerModule === "function"
@@ -63,6 +64,43 @@ test("Pulse market response preserves every available aggregate observation", ()
     response.sparkline.at(-1).observed_at,
     rows.at(-1).observed_at,
   );
+});
+
+test("Dev wallet PnL response exposes latest real amount and real history by range", () => {
+  const response = buildPulseDevWalletPnlResponse([
+    {
+      snapshot_at: "2026-07-29T03:00:00.000Z",
+      timeframe: "24h",
+      total_realized_pnl_usd: "13876.03",
+      source_status: "partial",
+    },
+    {
+      snapshot_at: "2026-07-29T02:00:00.000Z",
+      timeframe: "24h",
+      total_realized_pnl_usd: "9200.10",
+      source_status: "partial",
+    },
+    {
+      snapshot_at: "2026-07-29T03:00:00.000Z",
+      timeframe: "7d",
+      total_realized_pnl_usd: "70250.55",
+      source_status: "partial",
+    },
+  ]);
+  assert.equal(response.schema_version, "pulse.dev-wallet-pnl.v1");
+  assert.equal(response.data_status, "partial");
+  assert.equal(response.ranges["24h"].value, "13876.03");
+  assert.equal(response.ranges["24h"].history.length, 2);
+  assert.equal(response.ranges["24h"].history[0].value, "9200.10");
+  assert.equal(response.ranges["7d"].value, "70250.55");
+  assert.equal(response.ranges["30d"].value, null);
+  assert.deepEqual(response.ranges["30d"].history, []);
+});
+
+test("Dev wallet PnL response never fabricates missing values", () => {
+  const response = buildPulseDevWalletPnlResponse([]);
+  assert.equal(response.ranges["24h"].value, null);
+  assert.deepEqual(response.ranges["24h"].history, []);
 });
 
 function responseRecorder() {
