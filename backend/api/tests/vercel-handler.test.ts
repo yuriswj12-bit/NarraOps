@@ -51,6 +51,31 @@ test("Pulse market response never fabricates an index without observations", () 
   assert.deepEqual(response.sparkline, []);
 });
 
+test("Pulse market response keeps the last real index during warm-up", () => {
+  const response = buildPulseMarketResponse([
+    {
+      observed_at: "2026-07-29T12:00:00.000Z",
+      market_activity_index_display: null,
+      market_activity_index: null,
+      history_status: "warming_up",
+    },
+    {
+      observed_at: "2026-07-28T12:00:00.000Z",
+      market_activity_index_display: 90,
+      market_activity_index_raw: "89.75",
+      history_status: "ready",
+    },
+  ]);
+  assert.equal(response.data_status, "warming_up");
+  assert.equal(response.observed_at, "2026-07-29T12:00:00.000Z");
+  assert.equal(response.displayed_observed_at, "2026-07-28T12:00:00.000Z");
+  assert.equal(response.index.value, "90");
+  assert.equal(response.index.raw_value, "89.75");
+  assert.deepEqual(response.sparkline, [
+    { observed_at: "2026-07-28T12:00:00.000Z", value: "90" },
+  ]);
+});
+
 test("Pulse market response preserves every available aggregate observation", () => {
   const rows = Array.from({ length: 96 }, (_, index) => ({
     observed_at: new Date(Date.UTC(2026, 6, 1, index * 3)).toISOString(),

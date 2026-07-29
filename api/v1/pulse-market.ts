@@ -30,14 +30,23 @@ export function buildPulseMarketResponse(rows = []) {
     (left, right) => Date.parse(right.observed_at) - Date.parse(left.observed_at),
   );
   const current = ordered[0] || null;
+  const displayRow =
+    ordered.find(
+      (row) =>
+        row.market_activity_index_display != null ||
+        row.market_activity_index != null,
+    ) || null;
   const previous = ordered.find(
     (row) =>
-      current &&
+      displayRow &&
+      (row.market_activity_index_display != null ||
+        row.market_activity_index != null) &&
       Date.parse(row.observed_at) <=
-        Date.parse(current.observed_at) - 24 * 60 * 60 * 1000,
+        Date.parse(displayRow.observed_at) - 24 * 60 * 60 * 1000,
   );
   const value = decimalOrNull(
-    current?.market_activity_index_display ?? current?.market_activity_index,
+    displayRow?.market_activity_index_display ??
+      displayRow?.market_activity_index,
   );
   const previousValue = decimalOrNull(
     previous?.market_activity_index_display ?? previous?.market_activity_index,
@@ -54,6 +63,7 @@ export function buildPulseMarketResponse(rows = []) {
       current?.calculation_status ||
       "awaiting_market_observation",
     observed_at: current?.observed_at || null,
+    displayed_observed_at: displayRow?.observed_at || null,
     index: {
       name: "Meme Market Activity Index",
       value,
@@ -61,13 +71,13 @@ export function buildPulseMarketResponse(rows = []) {
       unit: "points",
       methodology:
         "Bounded samples of real Pump.fun transactions estimate 24-hour launch and graduation rates; a rotating wallet panel measures participation. Each metric is ranked against earlier real hourly snapshots using duplicate-aware mid-rank percentiles. No neutral default or synthetic history is used.",
-      raw_value: decimalOrNull(current?.market_activity_index_raw),
-      baseline_sample_count: current?.baseline_sample_count ?? 0,
-      history_coverage: decimalOrNull(current?.history_coverage),
+      raw_value: decimalOrNull(displayRow?.market_activity_index_raw),
+      baseline_sample_count: displayRow?.baseline_sample_count ?? 0,
+      history_coverage: decimalOrNull(displayRow?.history_coverage),
       components: Object.fromEntries(
         COMPONENTS.map(([name, scoreField, weight]) => [
           name,
-          component(current, name, scoreField, weight),
+          component(displayRow, name, scoreField, weight),
         ]),
       ),
     },
