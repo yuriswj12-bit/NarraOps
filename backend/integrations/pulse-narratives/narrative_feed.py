@@ -11,8 +11,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-PLATFORMS = frozenset({"x", "tiktok"})
-SOURCE_TYPES = frozenset({"monitored_account", "trend_discovery"})
+PLATFORMS = frozenset({"x", "news", "rss"})
+MONITORED_PLATFORMS = frozenset({"x"})
+SOURCE_TYPES = frozenset(
+    {"monitored_account", "trend_discovery", "public_feed"}
+)
 CATEGORIES = frozenset(
     {
         "politics_satire",
@@ -100,6 +103,8 @@ class SourceItem:
             raise ValueError("unsupported source type")
         if not str(value["original_text"]).strip():
             raise ValueError("original_text cannot be empty")
+        if not str(value["source_url"]).strip():
+            raise ValueError("source_url cannot be empty")
         parse_timestamp(str(value["published_at"]))
         parse_timestamp(str(value["collected_at"]))
         media_urls = tuple(str(url) for url in value.get("media_urls") or ())
@@ -155,17 +160,24 @@ class SourceItem:
 def exact_dedupe(items: Iterable[SourceItem]) -> list[SourceItem]:
     output: list[SourceItem] = []
     seen_source_keys: set[tuple[str, str]] = set()
+    seen_source_urls: set[str] = set()
     seen_fingerprints: set[str] = set()
     for item in items:
         source_key = (item.platform, item.source_id)
+        source_url = item.source_url.casefold().rstrip("/")
         fingerprint = content_fingerprint(
             item.platform,
             item.source_id,
             item.original_text,
         )
-        if source_key in seen_source_keys or fingerprint in seen_fingerprints:
+        if (
+            source_key in seen_source_keys
+            or source_url in seen_source_urls
+            or fingerprint in seen_fingerprints
+        ):
             continue
         seen_source_keys.add(source_key)
+        seen_source_urls.add(source_url)
         seen_fingerprints.add(fingerprint)
         output.append(item)
     return output
@@ -181,8 +193,8 @@ def load_source_registry(path: Path) -> list[dict[str, Any]]:
         platform = row.get("platform")
         source_type = row.get("source_type")
         handle = str(row.get("handle") or "").strip().removeprefix("@")
-        if platform not in PLATFORMS:
-            raise ValueError("source registry has an unsupported platform")
+        if platform not in MONITORED_PLATFORMS:
+            raise ValueError("source registry has an unsupported monitored platform")
         if source_type not in SOURCE_TYPES:
             raise ValueError("source registry has an unsupported source type")
         if not handle:

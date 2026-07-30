@@ -57,6 +57,12 @@ class NarrativeFeedTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "one-hour"):
             source(NOW - timedelta(hours=1)).to_card("events", NOW)
 
+    def test_tiktok_is_not_a_supported_v1_platform(self):
+        value = dict(source().__dict__)
+        value["platform"] = "tiktok"
+        with self.assertRaisesRegex(ValueError, "unsupported platform"):
+            feed.SourceItem.from_dict(value)
+
     def test_exact_dedupe_keeps_one_source_item(self):
         item = source()
         self.assertEqual(len(feed.exact_dedupe([item, item])), 1)

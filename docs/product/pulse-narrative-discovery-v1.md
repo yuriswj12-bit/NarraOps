@@ -5,10 +5,16 @@
 The second Pulse layer is a real-time source-card feed, not an AI explanation,
 scoring, risk, or token-analysis surface.
 
-Sources are limited to X and TikTok. Discovery has two source modes:
+V1 must remain useful without a paid social-data subscription. Its source
+priority is:
 
-1. monitored accounts that repeatedly publish usable stories; and
-2. broad trend discovery on the same platforms.
+1. OpenNews's anonymous `free_hot` endpoint for broad event and partial X
+   discovery;
+2. public RSS/Atom feeds as an independent fallback;
+3. optional X access for monitored accounts when a reviewed credential and
+   budget are configured.
+
+TikTok is not a V1 source.
 
 Every accepted source item is displayed. The UI does not cap the feed at 12
 cards. Desktop uses four independently scrolling category columns and the
@@ -50,7 +56,7 @@ expires_at = min(
 
 The UI offers a 3, 5, or 15 minute refresh interval, defaulting to 5 minutes.
 This controls when the client asks for the next processed feed. It must not
-cause one external X or TikTok collection run per user.
+cause one external collection run per user.
 
 Each card has a separate replace action. Replacement marks the card dismissed
 for that user and returns the next unseen card from the same category. It does
@@ -70,7 +76,7 @@ to see the public source.
 ## Processing boundary
 
 ```text
-X / TikTok
+OpenNews free hot / RSS / optional X
   -> collectors
   -> common normalization
   -> exact source deduplication
@@ -89,7 +95,37 @@ source material.
 
 ## Official source capability findings
 
-### X
+### OpenNews free hot
+
+The public client code exposes:
+
+```text
+GET https://ai.6551.io/open/free_hot
+```
+
+The endpoint works without a token and returns news plus some original X links,
+source names, text, and publication timestamps. NarraOps treats it as an
+external provider, filters every result to the one-hour product window, and
+does not consume its scores or trading signals.
+
+Provider references:
+
+- https://github.com/6551Team/opennews-mcp
+- https://github.com/6551Team/opennews-mcp/blob/main/src/opennews_mcp/api_client.py
+
+Status: implemented as a credential-free V1 source. Availability is monitored;
+RSS remains the independent fallback because a third party can change or
+withdraw a free endpoint.
+
+### RSS and Atom
+
+Public feeds supply original text, links, publisher identity, publication time,
+and attached media when the feed exposes it. Items without a real parseable
+publication timestamp are rejected rather than guessed.
+
+Status: implemented as a credential-free V1 fallback.
+
+### Optional X
 
 X Recent Search can retrieve recent public posts and request `created_at`,
 author data, and media expansions. It requires a developer project and bearer
@@ -100,25 +136,15 @@ Official references:
 - https://docs.x.com/x-api/posts/search-recent-posts
 - https://docs.x.com/x-api/posts/search/integrate/overview
 
-Status: technically suitable; production access and budget are not configured.
+OpenTwitter MCP is also an optional 6551-backed client for search and monitored
+account events. Its free quota is not required for the credential-free feed and
+must be measured before production use.
 
-### TikTok
+Provider reference:
 
-TikTok Display API lists public videos for a user who authorized the app. It
-does not provide broad trend discovery.
+- https://github.com/6551Team/opentwitter-mcp
 
-TikTok Research API can query public videos, but access is restricted to
-approved research projects and TikTok states that new videos can take up to 48
-hours to enter its search engine.
-
-Official references:
-
-- https://developers.tiktok.com/doc/display-api-overview/
-- https://developers.tiktok.com/doc/research-api-faq
-
-Status: official APIs do not currently satisfy NarraOps's one-hour discovery
-requirement. A compliant near-real-time provider or reviewed controlled-browser
-adapter is a product and compliance decision, not an implemented capability.
+Status: optional enhancement only; V1 remains operational without it.
 
 ## Phase 1 acceptance
 
@@ -126,6 +152,8 @@ adapter is a product and compliance decision, not an implemented capability.
 - one-hour and thirty-minute lifecycle rules are tested;
 - exact deduplication is tested;
 - monitored-source registry validation exists;
+- OpenNews free-hot normalization is tested;
+- RSS/Atom normalization and honest timestamp rejection are tested;
 - X probe fails safely when no credential is configured;
-- TikTok is explicitly reported as blocked rather than represented as live;
+- TikTok is absent from the V1 source contract;
 - no production API, database, or frontend behavior changes in this phase.

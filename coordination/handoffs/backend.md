@@ -1,8 +1,24 @@
 # Backend handoff
 
+## 2026-07-30 Pulse credential-free source adapters
+
+- Removed TikTok from the Pulse narrative-discovery V1 source contract.
+- Added a read-only OpenNews adapter for the anonymous `free_hot` endpoint.
+  It uses only original text, URL, source, and publication time; provider
+  scores and trading signals are deliberately ignored.
+- Added RSS/Atom normalization with real publication-time enforcement and
+  attached-media extraction.
+- Both adapters reject sources outside the previous hour, deduplicate exact
+  items, and never create placeholder content when a source is unavailable.
+- OpenTwitter and the official X API remain optional enhancements. The V1
+  credential-free feed does not consume the 3,000-message OpenTwitter quota.
+- Added an auditable one-shot collector that writes normalized source items and
+  per-source health status. Public API, Supabase persistence, scheduling, and
+  frontend four-column rendering remain integration tasks.
+
 ## 2026-07-30 Pulse narrative discovery Phase 1
 
-- Defined the new second-layer contract as a real-time X/TikTok source-card
+- Defined the new second-layer contract as a real-time source-card
   feed. Cards preserve original text, URL, media, platform, author, and
   published time; they do not contain AI explanations, scores, risk, or token
   analysis.
@@ -12,9 +28,8 @@
 - Added exact source deduplication, six category identifiers, four user-state
   identifiers, and validated monitored-source registry loading.
 - Added an official-source probe. X Recent Search is technically suitable but
-  needs `X_BEARER_TOKEN` and budget. TikTok's official APIs are not suitable for
-  one-hour broad discovery: Display API is user-authorized only and Research
-  API may index new videos up to 48 hours late.
+  needs `X_BEARER_TOKEN` and budget. The newer credential-free adapters above
+  are the V1 baseline.
 - This phase deliberately does not change the public API, Supabase schema, or
   frontend. Integration still needs a shared JSON Schema/OpenAPI update after
   the Phase 1 contract is reviewed.

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "opennews-web3-meme",
+    "type": "opennews_free_hot",
+    "category": "web3",
+    "subcategory": "meme",
+    "enabled": true
+  },
+  {
+    "id": "google-news-viral-events",
+    "type": "rss",
+    "name": "Google News - viral events",
+    "url": "https://news.google.com/rss/search?q=viral%20event&hl=en-US&gl=US&ceid=US:en",
+    "enabled": true
+  },
+  {
+    "id": "google-news-internet-culture",
+    "type": "rss",
+    "name": "Google News - internet culture",
+    "url": "https://news.google.com/rss/search?q=internet%20culture%20viral&hl=en-US&gl=US&ceid=US:en",
+    "enabled": true
+  }
+]
