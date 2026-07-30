@@ -6,11 +6,42 @@ import handlerModule, {
 import { buildPulseMarketResponse } from "../../../api/v1/pulse-market.ts";
 import { buildPulseDevWalletPnlResponse } from "../../../api/v1/pulse-dev-wallet-pnl.ts";
 import { buildPulseNarrativesResponse } from "../../../api/v1/pulse-narratives.ts";
+import { buildNarrativeSnapshotPlanResponse } from "../../../api/v1/go/narrative-snapshot-plan.ts";
 
 const handler =
   typeof handlerModule === "function"
     ? handlerModule
     : (handlerModule as { default: typeof handlerModule }).default;
+
+test("private narrative snapshot plan preserves source evidence without inventing analysis", () => {
+  const response = buildNarrativeSnapshotPlanResponse({
+    snapshot_id: "846b9ae8-a679-463c-a31d-d98374134b53",
+    narrative_id: "nar_source_1",
+    category: "events",
+    platform: "rss",
+    source_type: "news",
+    author_name: "Example News",
+    original_text: "A newly reported event with meme potential.",
+    source_url: "https://example.com/source",
+    media_type: "image",
+    media_urls: ["https://example.com/image.jpg"],
+    video_thumbnail_url: null,
+    source_published_at: "2026-07-30T08:00:00.000Z",
+    source_expires_at: "2026-07-30T09:00:00.000Z",
+    created_at: "2026-07-30T08:10:00.000Z",
+  });
+
+  assert.equal(response.mode, "pulse_narrative_snapshot");
+  assert.equal(response.data_status, "private_snapshot");
+  assert.equal(response.execution, "disabled");
+  assert.equal(response.card.type, "narrative_snapshot");
+  assert.equal(response.plan.executable, false);
+  assert.equal(response.plan.requires_user_confirmation, true);
+  assert.equal(response.source.original_text, "A newly reported event with meme potential.");
+  assert.equal(response.source.source_url, "https://example.com/source");
+  assert.equal("score" in response.plan, false);
+  assert.equal("risk" in response.plan, false);
+});
 
 test("Pulse market response keeps decimal values as strings", () => {
   const response = buildPulseMarketResponse([

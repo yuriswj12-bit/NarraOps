@@ -6,6 +6,7 @@ import nacl from "tweetnacl";
 import { getAddress, verifyMessage } from "ethers";
 import { REVIEWED_PULSE_SNAPSHOT } from "./pulse-snapshot";
 import { buildPulsePlanResponse } from "./go/pulse-plan";
+import { buildNarrativeSnapshotPlanResponse } from "./go/narrative-snapshot-plan";
 import { loadPulseMarketResponse } from "./pulse-market";
 import { loadPulseDevWalletPnlResponse } from "./pulse-dev-wallet-pnl";
 import {
@@ -826,6 +827,67 @@ export default async function handler(request, response) {
 
   if (request.method === "POST" && path === "/api/v1/go/plan") {
     const body = await readBody(request);
+    const snapshotId = body.snapshotId || body.snapshot_id || null;
+    if (snapshotId) {
+      const narrativeSupabase = serverSupabase();
+      if (!narrativeSupabase) {
+        return apiError(
+          response,
+          503,
+          "SUPABASE_SERVER_NOT_CONFIGURED",
+          "Server-side Supabase persistence is not configured",
+        );
+      }
+      try {
+        if (
+          typeof snapshotId !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+            snapshotId,
+          )
+        ) {
+          return apiError(
+            response,
+            400,
+            "INVALID_NARRATIVE_SNAPSHOT_ID",
+            "Narrative snapshot id must be a UUID",
+          );
+        }
+        const narrativeSession = await loadSession(narrativeSupabase, request);
+        const userId = authenticatedUserId(narrativeSession);
+        const snapshot = await requireResult(
+          narrativeSupabase
+            .from("pulse_narrative_snapshots")
+            .select(
+              "snapshot_id,narrative_id,category,platform,source_type,author_name,original_text,source_url,media_type,media_urls,video_thumbnail_url,source_published_at,source_expires_at,created_at",
+            )
+            .eq("snapshot_id", snapshotId)
+            .eq("user_id", userId)
+            .maybeSingle(),
+          "Unable to read the private narrative snapshot",
+        );
+        if (!snapshot) {
+          return apiError(
+            response,
+            404,
+            "NARRATIVE_SNAPSHOT_NOT_FOUND",
+            "Narrative snapshot was not found",
+          );
+        }
+        return sendJson(
+          response,
+          200,
+          buildNarrativeSnapshotPlanResponse(snapshot),
+          { "cache-control": "private, no-store" },
+        );
+      } catch (error) {
+        return apiError(
+          response,
+          error.status || 500,
+          error.code || "INTERNAL_ERROR",
+          error.message || "Unable to load the private narrative snapshot",
+        );
+      }
+    }
     const result = buildPulsePlanResponse(REVIEWED_PULSE_SNAPSHOT, {
       opportunityId: body.opportunityId || body.opportunity_id || null,
       message: body.message || body.input || null,
