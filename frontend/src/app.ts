@@ -2142,8 +2142,10 @@ function getAgentResponse(command) {
 }
 
 function shouldUsePulsePlan(command) {
-  if (state.go.pendingOpportunityId) return true;
-  return /\/(pulse|narrative|launch|plan)\b|execution plan|analyze in go|pulse opportunity|opportunity id/i.test(command);
+  if (state.go.pendingOpportunityId || state.go.pendingNarrativeSnapshot?.snapshot_id) {
+    return true;
+  }
+  return /\/(pulse|narrative|launch|plan|analyze-meme)\b|execution plan|analyze in go|pulse opportunity|opportunity id/i.test(command);
 }
 
 function replacePendingMessage(pendingId, message) {
@@ -2158,12 +2160,14 @@ function replacePendingMessage(pendingId, message) {
 
 async function submitPulsePlan(command, pendingId) {
   const opportunityId = state.go.pendingOpportunityId;
+  const snapshotId = state.go.pendingNarrativeSnapshot?.snapshot_id || null;
   state.go.busy = true;
   try {
     const payload = await apiRequest("/api/v1/go/plan", {
       method: "POST",
       body: JSON.stringify({
         opportunityId,
+        snapshotId,
         message: command,
         command: command.startsWith("/") ? command : undefined,
         context: {
@@ -2198,6 +2202,7 @@ async function submitPulsePlan(command, pendingId) {
   } finally {
     state.go.busy = false;
     state.go.pendingOpportunityId = null;
+    state.go.pendingNarrativeSnapshot = null;
   }
 }
 
