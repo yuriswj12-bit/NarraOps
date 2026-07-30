@@ -1,0 +1,18 @@
+[
+  {
+    "platform": "x",
+    "source_type": "monitored_account",
+    "handle": "replace_with_reviewed_account",
+    "category_hint": "events",
+    "priority": 10,
+    "enabled": false
+  },
+  {
+    "platform": "x",
+    "source_type": "trend_discovery",
+    "handle": "system_recent_search",
+    "category_hint": null,
+    "priority": 100,
+    "enabled": false
+  }
+]

@@ -1,5 +1,24 @@
 # Backend handoff
 
+## 2026-07-30 Pulse narrative discovery Phase 1
+
+- Defined the new second-layer contract as a real-time X/TikTok source-card
+  feed. Cards preserve original text, URL, media, platform, author, and
+  published time; they do not contain AI explanations, scores, risk, or token
+  analysis.
+- Added deterministic one-hour source eligibility and thirty-minute maximum
+  display lifetime:
+  `min(published_at + 60m, first_displayed_at + 30m)`.
+- Added exact source deduplication, six category identifiers, four user-state
+  identifiers, and validated monitored-source registry loading.
+- Added an official-source probe. X Recent Search is technically suitable but
+  needs `X_BEARER_TOKEN` and budget. TikTok's official APIs are not suitable for
+  one-hour broad discovery: Display API is user-authorized only and Research
+  API may index new videos up to 48 hours late.
+- This phase deliberately does not change the public API, Supabase schema, or
+  frontend. Integration still needs a shared JSON Schema/OpenAPI update after
+  the Phase 1 contract is reviewed.
+
 ## 2026-07-29 Pulse direct-chain index foundation
 
 - Replaced the five-factor Dune scoring contract with three direct-chain inputs:
