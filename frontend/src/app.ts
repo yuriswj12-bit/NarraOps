@@ -100,9 +100,14 @@ const state = {
     devPnlRange: "24h",
     devPnl: null,
     devPnlError: null,
+    narratives: null,
+    narrativesError: null,
+    narrativeRefreshMinutes: 5,
+    dismissedNarratives: new Set(),
   },
   go: {
     pendingOpportunityId: null,
+    pendingNarrative: null,
     busy: false,
   },
   assets: {
@@ -381,10 +386,11 @@ async function loadPulse() {
   state.pulse.error = null;
   if (state.view === "pulse") renderPulseConnected();
   try {
-    const [pulseResult, marketResult, devPnlResult] = await Promise.allSettled([
+    const [pulseResult, marketResult, devPnlResult, narrativesResult] = await Promise.allSettled([
       apiRequest("/api/v1/pulse", { cache: "no-store" }),
       apiRequest("/api/v1/pulse/market", { cache: "no-store" }),
       apiRequest("/api/v1/pulse/dev-wallet-pnl", { cache: "no-store" }),
+      apiRequest("/api/v1/pulse/narratives", { cache: "no-store" }),
     ]);
     if (pulseResult.status === "rejected") throw pulseResult.reason;
     const payload = pulseResult.value;
@@ -413,6 +419,15 @@ async function loadPulse() {
         ? devPnlResult.reason.message
         : String(devPnlResult.reason || "Unavailable");
     }
+    if (narrativesResult.status === "fulfilled") {
+      state.pulse.narratives = narrativesResult.value;
+      state.pulse.narrativesError = null;
+    } else {
+      state.pulse.narratives = null;
+      state.pulse.narrativesError = narrativesResult.reason instanceof Error
+        ? narrativesResult.reason.message
+        : String(narrativesResult.reason || "Unavailable");
+    }
   } catch (error) {
     opportunities = [];
     state.pulse.dataStatus = "unavailable";
@@ -423,6 +438,8 @@ async function loadPulse() {
     state.pulse.marketError = null;
     state.pulse.devPnl = null;
     state.pulse.devPnlError = null;
+    state.pulse.narratives = null;
+    state.pulse.narrativesError = null;
   } finally {
     state.pulse.loading = false;
     if (state.view === "pulse") renderPulseConnected();
@@ -495,6 +512,125 @@ function formatCompactUsdAmount(value) {
   if (!unit) return `${sign}$${Math.round(absolute).toLocaleString("en-US")}`;
   const [divisor, suffix] = unit;
   return `${sign}$${(absolute / divisor).toFixed(1).replace(/\.0$/, "")}${suffix}`;
+}
+
+const narrativeCategories = Object.freeze([
+  ["politics_satire", "Politics / Satire", "政治 / 讽刺"],
+  ["events", "Events", "事件"],
+  ["animals_characters", "Animals / Characters", "动物 / 角色"],
+  ["internet_culture", "Internet Culture", "互联网文化"],
+  ["ai_tech", "AI / Tech", "AI / 科技"],
+  ["crypto_native", "Crypto Native", "加密原生"],
+]);
+
+function formatNarrativeTime(value) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "";
+  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+  if (elapsedMinutes < 1) return t("刚刚", "Just now");
+  if (elapsedMinutes < 60) return t(`${elapsedMinutes} 分钟前`, `${elapsedMinutes}m ago`);
+  return new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function narrativeCard(item) {
+  const mediaUrl = Array.isArray(item.media_urls) && item.media_urls.length
+    ? item.media_urls[0]
+    : item.video_thumbnail_url || null;
+  const mediaCount = Array.isArray(item.media_urls) ? item.media_urls.length : 0;
+  return `
+    <article class="narrative-card" data-narrative-card="${escapeHtml(item.narrative_id)}">
+      ${mediaUrl ? `
+        <a class="narrative-media" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer" aria-label="${t("打开原始来源", "Open original source")}">
+          <img src="${escapeHtml(mediaUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer">
+          ${item.media_type === "video" || item.video_thumbnail_url
+            ? `<span class="narrative-play" aria-hidden="true"><i class="fa-solid fa-play"></i></span>`
+            : ""}
+          ${mediaCount > 1 ? `<span class="narrative-media-count">+${mediaCount - 1}</span>` : ""}
+        </a>
+      ` : ""}
+      <div class="narrative-card-body">
+        <div class="narrative-meta">
+          <span>${escapeHtml(item.platform === "x" ? "X" : item.author_name || item.platform || "")}</span>
+          <time datetime="${escapeHtml(item.published_at)}">${escapeHtml(formatNarrativeTime(item.published_at))}</time>
+        </div>
+        <p class="narrative-original">${escapeHtml(item.original_text)}</p>
+        <div class="narrative-actions">
+          <a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">${t("原文", "Open source")} <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></a>
+          <span class="narrative-action-group">
+            <button type="button" data-refresh-narrative="${escapeHtml(item.narrative_id)}" aria-label="${t("刷新这张卡片", "Refresh this card")}" title="${t("刷新这张卡片", "Refresh this card")}"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>
+            <button class="narrative-use" type="button" data-use-narrative="${escapeHtml(item.narrative_id)}">${t("使用", "Use")} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+          </span>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function getVisibleNarratives() {
+  const columns = state.pulse.narratives?.columns || {};
+  const dismissed = state.pulse.dismissedNarratives;
+  return Object.fromEntries(narrativeCategories.map(([category]) => [
+    category,
+    (Array.isArray(columns[category]) ? columns[category] : [])
+      .filter((item) => item?.narrative_id && !dismissed.has(item.narrative_id)),
+  ]));
+}
+
+function findNarrativeById(narrativeId) {
+  const columns = state.pulse.narratives?.columns || {};
+  for (const [category] of narrativeCategories) {
+    const match = (Array.isArray(columns[category]) ? columns[category] : [])
+      .find((item) => item?.narrative_id === narrativeId);
+    if (match) return match;
+  }
+  return null;
+}
+
+function renderNarrativeDiscovery() {
+  const columns = getVisibleNarratives();
+  const total = Object.values(columns).reduce((sum, items) => sum + items.length, 0);
+  const refreshMinutes = state.pulse.narrativeRefreshMinutes;
+  const intervalControls = [3, 5, 15].map((minutes) => `
+    <button type="button" data-narrative-refresh-interval="${minutes}" class="${refreshMinutes === minutes ? "active" : ""}" aria-pressed="${refreshMinutes === minutes}">${minutes} MIN</button>
+  `).join("");
+  const categoryColumns = narrativeCategories.map(([category, en, zh]) => {
+    const items = columns[category];
+    return `
+      <section class="narrative-column" aria-labelledby="narrative-${category}">
+        <header>
+          <div><h3 id="narrative-${category}">${t(zh, en)}</h3><span>${items.length} ${t("条实时叙事", "live")}</span></div>
+        </header>
+        <div class="narrative-column-feed">
+          ${items.length
+            ? items.map(narrativeCard).join("")
+            : `<div class="narrative-column-empty"><span>${t("暂无新叙事", "No fresh narratives")}</span></div>`}
+        </div>
+      </section>
+    `;
+  }).join("");
+  const status = state.pulse.narrativesError
+    ? t("数据源暂时不可用", "Source temporarily unavailable")
+    : state.pulse.loading
+      ? t("正在更新", "Updating")
+      : total
+        ? t("实时", "Live")
+        : t("等待新信号", "Waiting for signals");
+  return `
+    <section class="section-block narrative-discovery">
+      <div class="narrative-discovery-header">
+        <div><h2>Narrative Discovery</h2><span class="narrative-live-status"><i aria-hidden="true"></i>${status}</span></div>
+        <div class="narrative-refresh-controls">
+          <span>${t("刷新间隔", "Refresh interval")}</span>
+          <div role="group" aria-label="${t("叙事刷新间隔", "Narrative refresh interval")}">${intervalControls}</div>
+          <button type="button" data-action="refresh-narratives" aria-label="${t("立即刷新", "Refresh now")}"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>
+        </div>
+      </div>
+      <div class="narrative-columns">${categoryColumns}</div>
+    </section>
+  `;
 }
 
 function renderPulseConnected() {
@@ -595,34 +731,6 @@ function renderPulseConnected() {
     </article>
   `;
   const metrics = marketCard + devPnlCard;
-  const opportunityCards = opportunities.map((item) => `
-    <button class="opportunity-card" type="button" data-opportunity="${escapeHtml(item.id)}">
-      <div class="opportunity-topline">
-        <span class="opportunity-source"><span class="source-icon"><i class="${item.icon}" aria-hidden="true"></i></span><span class="source-pill">${escapeHtml(item.source)}</span></span>
-        <span class="score-pill">${escapeHtml(item.score)}</span>
-      </div>
-      <h3>${escapeHtml(state.language === "zh" ? item.titleZh : item.titleEn)}</h3>
-      <p>${escapeHtml(state.language === "zh" ? item.bodyZh : item.bodyEn)}</p>
-      <div class="opportunity-footer">
-        <span class="metric-stack"><span>${t("公开证据", "Public evidence")}</span><strong>${escapeHtml(item.momentum)}</strong></span>
-        <span class="metric-stack"><span>${t("证据缺口", "Evidence gaps")}</span><strong>${escapeHtml(item.reach)}</strong></span>
-      </div>
-    </button>
-  `).join("");
-  const emptyState = state.pulse.loading
-    ? `<div class="empty-state large"><i class="fa-solid fa-spinner fa-spin"></i>${t("正在读取已审核证据…", "Loading reviewed evidence…")}</div>`
-    : state.pulse.error
-      ? `<div class="empty-state large"><i class="fa-solid fa-triangle-exclamation"></i>${t("Pulse API 暂时不可用：", "Pulse API is unavailable: ")}${escapeHtml(state.pulse.error)}</div>`
-      : `<div class="empty-state large"><i class="fa-regular fa-folder-open"></i>${t("当前没有通过人工审核的机会。", "No opportunities have passed manual review.")}</div>`;
-  const limitationCards = (state.pulse.limitations.length ? state.pulse.limitations : [
-    t("仅展示人工审核后的公开证据。", "Only manually reviewed public evidence is displayed."),
-  ]).map((item) => `
-    <article class="intel-card">
-      <div class="intel-topline"><span class="signal-icon"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></span></div>
-      <h3>${t("证据边界", "Evidence boundary")}</h3>
-      <p>${escapeHtml(item)}</p>
-    </article>
-  `).join("");
 
   viewRoot.innerHTML = `
     ${pageHeading(
@@ -631,14 +739,7 @@ function renderPulseConnected() {
       "",
     )}
     <section aria-label="${t("市场概览", "Market overview")}"><div class="signal-grid pulse-overview-grid">${metrics}</div></section>
-    <section class="section-block">
-      <div class="section-header"><div><h2>${t("已审核机会", "Reviewed opportunities")}</h2><p>${t("点击卡片查看证据来源、风险和缺口。", "Open a card to inspect sources, risks, and evidence gaps.")}</p></div></div>
-      <div class="opportunity-grid">${opportunityCards || emptyState}</div>
-    </section>
-    <section class="section-block">
-      <div class="section-header"><div><h2>${t("数据边界", "Data boundaries")}</h2><p>${t("尚未接入的信号会明确标注，不会用样本数据替代。", "Missing signals are stated explicitly and never replaced by sample data.")}</p></div></div>
-      <div class="intel-grid">${limitationCards}</div>
-    </section>
+    ${renderNarrativeDiscovery()}
   `;
   requestAnimationFrame(drawVisibleCharts);
 }
@@ -2158,6 +2259,39 @@ languageMenu.addEventListener("click", (event) => {
 
 
 viewRoot.addEventListener("click", async (event) => {
+  const refreshNarrativeId = event.target.closest("[data-refresh-narrative]")?.dataset.refreshNarrative;
+  if (refreshNarrativeId) {
+    state.pulse.dismissedNarratives.add(refreshNarrativeId);
+    renderPulseConnected();
+    return;
+  }
+
+  const useNarrativeId = event.target.closest("[data-use-narrative]")?.dataset.useNarrative;
+  if (useNarrativeId) {
+    const narrative = findNarrativeById(useNarrativeId);
+    if (!narrative) return;
+    state.pulse.dismissedNarratives.add(useNarrativeId);
+    state.go.pendingNarrative = { ...narrative };
+    switchView("go");
+    window.setTimeout(() => {
+      const input = document.querySelector("#agentInput");
+      if (!input) return;
+      input.value = `/analyze-meme ${narrative.source_url}`;
+      input.focus();
+    }, 0);
+    return;
+  }
+
+  const narrativeRefreshInterval = Number(
+    event.target.closest("[data-narrative-refresh-interval]")?.dataset.narrativeRefreshInterval,
+  );
+  if ([3, 5, 15].includes(narrativeRefreshInterval)) {
+    state.pulse.narrativeRefreshMinutes = narrativeRefreshInterval;
+    scheduleNarrativeRefresh();
+    renderPulseConnected();
+    return;
+  }
+
   const opportunity = event.target.closest("[data-opportunity]");
   if (opportunity) {
     openPulseOpportunity(opportunity.dataset.opportunity);
@@ -2242,6 +2376,9 @@ viewRoot.addEventListener("click", async (event) => {
   if (action === "scan") {
     await loadPulse();
     showToast(t("公开证据已刷新。", "Public evidence refreshed."));
+  } else if (action === "refresh-narratives") {
+    await loadPulse();
+    scheduleNarrativeRefresh();
   } else if (action === "view-all") {
     showToast(t("完整机会库将在数据源接入后开放。", "The full opportunity library opens after source integration."));
   } else if (action === "language") {
@@ -2582,15 +2719,18 @@ window.addEventListener("hashchange", () => {
   if (state.view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
 });
 
-// Pulse is a live data surface. Refresh while it is visible and immediately
-// after the user returns to a backgrounded tab so an hours-old in-memory
-// snapshot is never mistaken for the current public API value.
-const pulseRefreshIntervalMs = 5 * 60 * 1000;
-window.setInterval(() => {
-  if (state.view === "pulse" && document.visibilityState === "visible") {
-    void loadPulse();
-  }
-}, pulseRefreshIntervalMs);
+// Refresh changes what the browser reads from NarraOps, not how often external
+// source providers are called. The collector remains independently scheduled.
+let narrativeRefreshTimer = null;
+function scheduleNarrativeRefresh() {
+  if (narrativeRefreshTimer) window.clearInterval(narrativeRefreshTimer);
+  narrativeRefreshTimer = window.setInterval(() => {
+    if (state.view === "pulse" && document.visibilityState === "visible") {
+      void loadPulse();
+    }
+  }, state.pulse.narrativeRefreshMinutes * 60 * 1000);
+}
+scheduleNarrativeRefresh();
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.view === "pulse") {
