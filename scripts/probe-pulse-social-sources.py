@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe official X/TikTok API readiness without logging credentials."""
+"""Probe optional X API readiness without logging credentials."""
 
 from __future__ import annotations
 
@@ -59,22 +59,6 @@ def probe_x(query: str) -> dict:
         }
 
 
-def probe_tiktok() -> dict:
-    return {
-        "provider": "tiktok",
-        "status": "blocked_by_product_access",
-        "suitable_for_one_hour_feed": False,
-        "reason": (
-            "Official Research API may index new videos up to 48 hours late; "
-            "Display API only lists videos for an authorizing user."
-        ),
-        "next_decision": (
-            "Select and review a compliant near-real-time provider or controlled "
-            "browser adapter before implementation."
-        ),
-    }
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -87,7 +71,6 @@ def main() -> int:
         json.dumps(
             {
                 "x": probe_x(args.x_query),
-                "tiktok": probe_tiktok(),
             },
             indent=2,
         )
