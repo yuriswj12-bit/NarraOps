@@ -3,6 +3,7 @@ import test from "node:test";
 import handlerModule, {
   handleAssetsRoute,
 } from "../../../api/v1/[...path].ts";
+import goPlanHandlerModule from "../../../api/v1/go/plan.ts";
 import { buildPulseMarketResponse } from "../../../api/v1/pulse-market.ts";
 import { buildPulseDevWalletPnlResponse } from "../../../api/v1/pulse-dev-wallet-pnl.ts";
 import { buildPulseNarrativesResponse } from "../../../api/v1/pulse-narratives.ts";
@@ -12,6 +13,10 @@ const handler =
   typeof handlerModule === "function"
     ? handlerModule
     : (handlerModule as { default: typeof handlerModule }).default;
+const goPlanHandler =
+  typeof goPlanHandlerModule === "function"
+    ? goPlanHandlerModule
+    : (goPlanHandlerModule as { default: typeof goPlanHandlerModule }).default;
 
 test("private narrative snapshot plan preserves source evidence without inventing analysis", () => {
   const response = buildNarrativeSnapshotPlanResponse({
@@ -443,7 +448,7 @@ test("Vercel auth endpoints fail closed without server credentials", async () =>
 
 test("Go plan endpoint builds a review-only execution plan from Pulse evidence", async () => {
   const recorder = responseRecorder();
-  await handler(
+  await goPlanHandler(
     {
       method: "POST",
       url: "/api/v1/go/plan",
@@ -469,7 +474,7 @@ test("Go plan endpoint builds a review-only execution plan from Pulse evidence",
 
 test("Go plan endpoint returns not found for unknown opportunity ids", async () => {
   const recorder = responseRecorder();
-  await handler(
+  await goPlanHandler(
     {
       method: "POST",
       url: "/api/v1/go/plan",
