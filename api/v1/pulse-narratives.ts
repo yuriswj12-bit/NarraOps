@@ -9,12 +9,17 @@ const CATEGORIES = Object.freeze([
   "crypto_native",
 ]);
 
-export function buildPulseNarrativesResponse(rows = [], now = new Date()) {
+export function buildPulseNarrativesResponse(
+  rows = [],
+  now = new Date(),
+  hiddenNarrativeIds = new Set(),
+) {
   const currentTime = now.getTime();
   const active = rows
     .filter((row) => Number.isFinite(Date.parse(row.published_at)))
     .filter((row) => Number.isFinite(Date.parse(row.expires_at)))
     .filter((row) => Date.parse(row.expires_at) > currentTime)
+    .filter((row) => !hiddenNarrativeIds.has(row.narrative_id))
     .sort((left, right) => Date.parse(right.published_at) - Date.parse(left.published_at))
     .map((row) => ({
       narrative_id: row.narrative_id,
@@ -49,7 +54,11 @@ export function buildPulseNarrativesResponse(rows = [], now = new Date()) {
   };
 }
 
-export async function loadPulseNarrativesResponse(supabase, now = new Date()) {
+export async function loadPulseNarrativesResponse(
+  supabase,
+  now = new Date(),
+  userId = null,
+) {
   if (!supabase) return buildPulseNarrativesResponse([], now);
   const { data, error } = await supabase
     .from("pulse_narrative_candidates")
@@ -71,5 +80,85 @@ export async function loadPulseNarrativesResponse(supabase, now = new Date()) {
       code: "PULSE_NARRATIVES_UNAVAILABLE",
     });
   }
-  return buildPulseNarrativesResponse(data || [], now);
+  let hiddenNarrativeIds = new Set();
+  if (userId) {
+    const { data: states, error: statesError } = await supabase
+      .from("pulse_narrative_user_states")
+      .select("narrative_id")
+      .eq("user_id", userId)
+      .in("state", ["dismissed", "used"]);
+    if (statesError && !["42P01", "PGRST204", "PGRST205"].includes(statesError.code)) {
+      throw Object.assign(new Error("Unable to read private narrative state"), {
+        status: 503,
+        code: "PULSE_NARRATIVE_STATE_UNAVAILABLE",
+      });
+    }
+    hiddenNarrativeIds = new Set((states || []).map((state) => state.narrative_id));
+  }
+  return buildPulseNarrativesResponse(data || [], now, hiddenNarrativeIds);
+}
+
+export async function dismissPulseNarrative(supabase, userId, narrativeId, now = new Date()) {
+  const { data: candidate, error: candidateError } = await supabase
+    .from("pulse_narrative_candidates")
+    .select("narrative_id,category")
+    .eq("narrative_id", narrativeId)
+    .gt("expires_at", now.toISOString())
+    .maybeSingle();
+  if (candidateError) throw candidateError;
+  if (!candidate) {
+    throw Object.assign(new Error("Narrative is unavailable or expired"), {
+      status: 404,
+      code: "PULSE_NARRATIVE_NOT_FOUND",
+    });
+  }
+  const updatedAt = now.toISOString();
+  const { error } = await supabase.from("pulse_narrative_user_states").upsert(
+    {
+      user_id: userId,
+      narrative_id: candidate.narrative_id,
+      category: candidate.category,
+      state: "dismissed",
+      updated_at: updatedAt,
+    },
+    { onConflict: "user_id,narrative_id" },
+  );
+  if (error) throw error;
+  return {
+    narrative_id: candidate.narrative_id,
+    state: "dismissed",
+    updated_at: updatedAt,
+  };
+}
+
+export async function usePulseNarrative(supabase, userId, narrativeId) {
+  const { data, error } = await supabase
+    .rpc("pulse_use_narrative", {
+      p_user_id: userId,
+      p_narrative_id: narrativeId,
+    })
+    .single();
+  if (error) {
+    if (error.code === "P0002") {
+      throw Object.assign(new Error("Narrative is unavailable or expired"), {
+        status: 404,
+        code: "PULSE_NARRATIVE_NOT_FOUND",
+      });
+    }
+    throw error;
+  }
+  return {
+    snapshot_id: data.snapshot_id,
+    narrative_id: data.narrative_id,
+    category: data.category,
+    platform: data.platform,
+    author_name: data.author_name,
+    original_text: data.original_text,
+    source_url: data.source_url,
+    media_type: data.media_type,
+    media_urls: data.media_urls || [],
+    video_thumbnail_url: data.video_thumbnail_url,
+    source_published_at: data.source_published_at,
+    created_at: data.created_at,
+  };
 }
