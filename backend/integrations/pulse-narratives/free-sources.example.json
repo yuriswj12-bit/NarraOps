@@ -7,17 +7,45 @@
     "enabled": true
   },
   {
-    "id": "google-news-viral-events",
+    "id": "google-news-politics-satire",
     "type": "rss",
-    "name": "Google News - viral events",
-    "url": "https://news.google.com/rss/search?q=viral%20event&hl=en-US&gl=US&ceid=US:en",
+    "name": "Google News - politics and satire",
+    "url": "https://news.google.com/rss/search?q=politics%20satire%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "enabled": true
+  },
+  {
+    "id": "google-news-breaking-events",
+    "type": "rss",
+    "name": "Google News - breaking viral events",
+    "url": "https://news.google.com/rss/search?q=breaking%20viral%20event%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "enabled": true
+  },
+  {
+    "id": "google-news-animals-characters",
+    "type": "rss",
+    "name": "Google News - viral animals and characters",
+    "url": "https://news.google.com/rss/search?q=animal%20character%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
     "enabled": true
   },
   {
     "id": "google-news-internet-culture",
     "type": "rss",
-    "name": "Google News - internet culture",
-    "url": "https://news.google.com/rss/search?q=internet%20culture%20viral&hl=en-US&gl=US&ceid=US:en",
+    "name": "Google News - internet memes",
+    "url": "https://news.google.com/rss/search?q=internet%20meme%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "enabled": true
+  },
+  {
+    "id": "google-news-ai-tech",
+    "type": "rss",
+    "name": "Google News - viral AI and technology",
+    "url": "https://news.google.com/rss/search?q=AI%20technology%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "enabled": true
+  },
+  {
+    "id": "google-news-crypto-native",
+    "type": "rss",
+    "name": "Google News - crypto memes",
+    "url": "https://news.google.com/rss/search?q=crypto%20meme%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
     "enabled": true
   }
 ]

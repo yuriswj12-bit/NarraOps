@@ -1,5 +1,24 @@
 # Backend handoff
 
+## 2026-07-30 Pulse production narrative schedule
+
+- Replaced the unreliable production dependency on GitHub scheduled workflows
+  with a Supabase Edge Function invoked by `pg_cron` every five minutes.
+- The collector uses six credential-free Google News RSS searches, fetches them
+  concurrently, accepts only sources published within the previous hour, and
+  gives every card at most thirty minutes of display life.
+- Source-category hints keep the six V1 columns stable while deterministic
+  keyword routing can still refine mixed breaking/viral results.
+- Migration `020_pulse_narrative_edge_schedule.sql` adds a global five-minute
+  idempotency lease and the database schedule. Collector URL and authentication
+  secret live only in Supabase Vault / Edge secrets, never in Git.
+- The previous GitHub workflow remains available for manual fallback but no
+  longer has a production schedule.
+- Hosted rollout completed: the Edge function is deployed, migration `020` is
+  applied, Vault secrets are configured, and the first manual production run
+  inserted 38 real candidates. Automatic cron completion still requires final
+  post-deployment observation.
+
 ## 2026-07-30 Pulse narrative discovery Phase 3
 
 - Migration `019_pulse_narrative_user_state.sql` adds private per-user
