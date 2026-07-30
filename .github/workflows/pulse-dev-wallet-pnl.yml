@@ -6,11 +6,21 @@ on:
       wallet_limit:
         description: "Maximum wallets in this segment"
         required: false
-        default: "3"
+        default: "40"
+      collection_mode:
+        description: "PnL ranges to refresh"
+        required: false
+        default: "24h"
+        type: choice
+        options:
+          - "24h"
+          - "7d-30d"
   schedule:
-    # Two smaller runs are more resilient to delayed or skipped GitHub cron
-    # events while keeping the GMGN request rate conservative.
-    - cron: "17,47 * * * *"
+    # Refresh the short-range card once per hour.
+    - cron: "17 * * * *"
+    # Refresh both longer ranges in a separate, smaller batch. Keeping this
+    # separate prevents 7D/30D from tripling the latency of every 24H run.
+    - cron: "47 * * * *"
 
 permissions:
   contents: read
@@ -41,12 +51,26 @@ jobs:
           GMGN_API_KEY: ${{ secrets.GMGN_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          WALLET_LIMIT: ${{ inputs.wallet_limit || '55' }}
-        run: >-
-          python3 scripts/collect-dev-wallet-pnl.py
-          --limit "$WALLET_LIMIT"
-          --timeframes 24h
-          --min-interval-seconds 25
-          --max-requests-per-minute 2
-          --max-cooldown-wait 75
-          --max-runtime-seconds 1620
+          MANUAL_WALLET_LIMIT: ${{ inputs.wallet_limit || '40' }}
+          MANUAL_COLLECTION_MODE: ${{ inputs.collection_mode || '24h' }}
+          SCHEDULE_EXPRESSION: ${{ github.event.schedule }}
+        shell: bash
+        run: |
+          if [[ "$SCHEDULE_EXPRESSION" == "47 * * * *" || "$MANUAL_COLLECTION_MODE" == "7d-30d" ]]; then
+            WALLET_LIMIT="${MANUAL_WALLET_LIMIT:-10}"
+            if [[ "$SCHEDULE_EXPRESSION" == "47 * * * *" ]]; then
+              WALLET_LIMIT=10
+            fi
+            TIMEFRAMES=(7d 30d)
+          else
+            WALLET_LIMIT="$MANUAL_WALLET_LIMIT"
+            TIMEFRAMES=(24h)
+          fi
+
+          python3 scripts/collect-dev-wallet-pnl.py \
+            --limit "$WALLET_LIMIT" \
+            --timeframes "${TIMEFRAMES[@]}" \
+            --min-interval-seconds 25 \
+            --max-requests-per-minute 2 \
+            --max-cooldown-wait 75 \
+            --max-runtime-seconds 1620
