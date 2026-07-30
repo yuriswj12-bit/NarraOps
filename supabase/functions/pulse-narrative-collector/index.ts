@@ -5,13 +5,15 @@ const DISPLAY_WINDOW_MS = 30 * 60 * 1000;
 const BUCKET_MS = 5 * 60 * 1000;
 const MAX_ITEMS_PER_SOURCE = 100;
 
-const sources = [
-  ["politics-satire", "politics satire when:1h", "politics_satire"],
-  ["breaking-viral", "viral when:1h", "events"],
-  ["animals-characters", "animal character viral when:1h", "animals_characters"],
-  ["internet-culture", "internet meme viral when:1h", "internet_culture"],
-  ["ai-tech", "AI technology viral when:1h", "ai_tech"],
-  ["crypto-native", "crypto meme when:1h", "crypto_native"],
+const rssSources = [
+  ["google-live", "Google News", "https://news.google.com/rss/search?q=%28viral%20OR%20meme%20OR%20satire%20OR%20%22artificial%20intelligence%22%20OR%20crypto%29%20when%3A1h&hl=en-US&gl=US&ceid=US%3Aen", "events"],
+  ["bbc-world", "BBC News", "https://feeds.bbci.co.uk/news/rss.xml", "events"],
+  ["npr-news", "NPR", "https://feeds.npr.org/1001/rss.xml", "events"],
+  ["know-your-meme", "Know Your Meme", "https://knowyourmeme.com/newsfeed.rss", "internet_culture"],
+  ["the-verge", "The Verge", "https://www.theverge.com/rss/index.xml", "ai_tech"],
+  ["techcrunch", "TechCrunch", "https://techcrunch.com/feed/", "ai_tech"],
+  ["cointelegraph", "Cointelegraph", "https://cointelegraph.com/rss", "crypto_native"],
+  ["decrypt", "Decrypt", "https://decrypt.co/feed", "crypto_native"],
 ] as const;
 
 const categoryTerms = {
@@ -64,44 +66,57 @@ async function sha256(value: string) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function fetchGoogleNews(query: string, sourceId: string, categoryHint: string, now: Date) {
-  const params = new URLSearchParams({
-    q: query,
-    hl: "en-US",
-    gl: "US",
-    ceid: "US:en",
-  });
-  const response = await fetch(`https://news.google.com/rss/search?${params}`, {
+function attributeValue(block: string, tagPattern: string, attribute: string) {
+  const match = block.match(new RegExp(`<${tagPattern}\\b[^>]*\\b${attribute}=["']([^"']+)["'][^>]*>`, "i"));
+  return decodeXml(match?.[1] || "");
+}
+
+async function fetchRssSource(
+  sourceId: string,
+  sourceName: string,
+  url: string,
+  categoryHint: string,
+  now: Date,
+) {
+  const response = await fetch(url, {
     headers: { "User-Agent": "NarraOps-Pulse/1.0" },
     signal: AbortSignal.timeout(12_000),
   });
-  if (!response.ok) throw new Error(`Google News returned ${response.status}`);
+  if (!response.ok) throw new Error(`${sourceName} returned ${response.status}`);
   const xml = await response.text();
-  const itemBlocks = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
+  const itemBlocks = [
+    ...[...xml.matchAll(/<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/gi)].map((match) => match[1]),
+    ...[...xml.matchAll(/<entry(?:\s[^>]*)?>([\s\S]*?)<\/entry>/gi)].map((match) => match[1]),
+  ]
     .slice(0, MAX_ITEMS_PER_SOURCE)
-    .map((match) => match[1]);
+    .map((item) => item);
   const rows = [];
   for (const item of itemBlocks) {
     const title = xmlValue(item, "title");
-    const url = xmlValue(item, "link");
-    const publishedAt = new Date(xmlValue(item, "pubDate"));
+    const sourceUrl = xmlValue(item, "link") || attributeValue(item, "link", "href");
+    const publishedAt = new Date(
+      xmlValue(item, "pubDate")
+      || xmlValue(item, "published")
+      || xmlValue(item, "updated"),
+    );
     const ageMs = now.getTime() - publishedAt.getTime();
-    if (!title || !url || !Number.isFinite(publishedAt.getTime()) || ageMs < 0 || ageMs >= SOURCE_WINDOW_MS) continue;
-    const fingerprint = await sha256(`rss\0${url.toLowerCase().replace(/\/$/, "")}\0${title.toLowerCase()}`);
+    if (!title || !sourceUrl || !Number.isFinite(publishedAt.getTime()) || ageMs < 0 || ageMs >= SOURCE_WINDOW_MS) continue;
+    const fingerprint = await sha256(`rss\0${sourceUrl.toLowerCase().replace(/\/$/, "")}\0${title.toLowerCase()}`);
     const expiresAt = new Date(Math.min(
       publishedAt.getTime() + SOURCE_WINDOW_MS,
       now.getTime() + DISPLAY_WINDOW_MS,
     ));
+    const mediaUrl = attributeValue(item, "(?:media:)?(?:content|thumbnail)|enclosure", "url");
     rows.push({
       narrative_id: `nar_${fingerprint.slice(0, 20)}`,
       category: routeCategory(title, categoryHint),
       platform: "rss",
       source_type: "public_feed",
-      author_name: "Google News",
+      author_name: sourceName,
       original_text: title,
-      source_url: url,
-      media_type: null,
-      media_urls: [],
+      source_url: sourceUrl,
+      media_type: mediaUrl ? "image" : null,
+      media_urls: mediaUrl ? [mediaUrl] : [],
       video_thumbnail_url: null,
       published_at: publishedAt.toISOString(),
       expires_at: expiresAt.toISOString(),
@@ -139,9 +154,9 @@ Deno.serve(async (request) => {
   }
   if (leaseError) throw leaseError;
 
-  const sourceResults = await Promise.all(sources.map(async ([sourceId, query, categoryHint]) => {
+  const sourceResults = await Promise.all(rssSources.map(async ([sourceId, sourceName, url, categoryHint]) => {
     try {
-      const rows = await fetchGoogleNews(query, sourceId, categoryHint, startedAt);
+      const rows = await fetchRssSource(sourceId, sourceName, url, categoryHint, startedAt);
       return {
         rows,
         status: { source_id: sourceId, status: "success", items: rows.length },
@@ -153,6 +168,7 @@ Deno.serve(async (request) => {
           source_id: sourceId,
           status: "unavailable",
           error_type: error instanceof Error ? error.name : "Error",
+          error_message: error instanceof Error ? error.message.slice(0, 160) : "unknown error",
           items: 0,
         },
       };
