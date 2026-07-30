@@ -2,6 +2,31 @@
 
 > Current rule (2026-07-22): the first-level product surfaces are Go, Pulse, and Assets. The Launch and Invite sections below are historical implementation records, not current navigation requirements.
 
+## 2026-07-30 Pulse Narrative Discovery grid
+
+- Replaced the legacy Reviewed Opportunities and Data Boundaries sections with
+  the live `GET /api/v1/pulse/narratives` card stream.
+- The desktop stream shows four columns per viewport and keeps all six backend
+  categories available through horizontal scrolling. Every real card returned
+  by the API is rendered; there is no 12-card limit.
+- Category columns scroll independently and preserve source-only content:
+  original text, original source link, attached image or video thumbnail,
+  source platform/publisher, and publication time.
+- Added `3 / 5 / 15 MIN` browser refresh choices with five minutes as default.
+  These refresh the NarraOps API only; external source collection remains an
+  independent backend schedule.
+- Each card has an individual refresh control. It dismisses only that card for
+  the current browser session and does not invent a replacement.
+- `Use` removes the card from the current session, opens Go, and prefills the
+  original source URL for analysis. Durable private narrative snapshots and
+  cross-device used/dismissed state still require the planned backend phase.
+- Honest empty columns show `No fresh narratives`; the UI never supplies sample
+  cards when the API has no qualifying real source.
+- Verification: repository typecheck, frontend build, backend bundle build,
+  JavaScript syntax checks, and diff check pass. In-app browser visual QA was
+  unavailable because its local webview did not attach; production/preview
+  visual QA remains required after deployment.
+
 ## 2026-07-11 product workspace redesign
 
 - Implementation commit: `94bc53b` (`feat: redesign NarraOps product workspace`).
