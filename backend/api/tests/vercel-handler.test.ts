@@ -5,6 +5,7 @@ import handlerModule, {
 } from "../../../api/v1/[...path].ts";
 import { buildPulseMarketResponse } from "../../../api/v1/pulse-market.ts";
 import { buildPulseDevWalletPnlResponse } from "../../../api/v1/pulse-dev-wallet-pnl.ts";
+import { buildPulseNarrativesResponse } from "../../../api/v1/pulse-narratives.ts";
 
 const handler =
   typeof handlerModule === "function"
@@ -126,6 +127,42 @@ test("Dev wallet PnL response never fabricates missing values", () => {
   const response = buildPulseDevWalletPnlResponse([]);
   assert.equal(response.ranges["24h"].value, null);
   assert.deepEqual(response.ranges["24h"].history, []);
+});
+
+test("Pulse narratives returns only unexpired real source cards by category", () => {
+  const now = new Date("2026-07-30T09:00:00.000Z");
+  const response = buildPulseNarrativesResponse([
+    {
+      narrative_id: "nar_live",
+      category: "events",
+      platform: "news",
+      source_type: "trend_discovery",
+      author_name: "source",
+      original_text: "Original source text",
+      source_url: "https://example.com/live",
+      media_urls: [],
+      published_at: "2026-07-30T08:45:00.000Z",
+      expires_at: "2026-07-30T09:15:00.000Z",
+    },
+    {
+      narrative_id: "nar_expired",
+      category: "events",
+      platform: "rss",
+      source_type: "public_feed",
+      author_name: "source",
+      original_text: "Expired source text",
+      source_url: "https://example.com/expired",
+      media_urls: [],
+      published_at: "2026-07-30T08:00:00.000Z",
+      expires_at: "2026-07-30T08:30:00.000Z",
+    },
+  ], now);
+  assert.equal(response.schema_version, "pulse.narratives.v1");
+  assert.equal(response.data_status, "live");
+  assert.equal(response.total, 1);
+  assert.equal(response.columns.events[0].original_text, "Original source text");
+  assert.equal(response.columns.events.length, 1);
+  assert.deepEqual(response.columns.ai_tech, []);
 });
 
 function responseRecorder() {

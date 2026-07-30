@@ -8,6 +8,7 @@ import { REVIEWED_PULSE_SNAPSHOT } from "./pulse-snapshot";
 import { buildPulsePlanResponse } from "./go/pulse-plan";
 import { loadPulseMarketResponse } from "./pulse-market";
 import { loadPulseDevWalletPnlResponse } from "./pulse-dev-wallet-pnl";
+import { loadPulseNarrativesResponse } from "./pulse-narratives";
 
 const COOKIE_NAME = "narraops_session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -794,6 +795,17 @@ export default async function handler(request, response) {
       {
         "cache-control":
           "public, max-age=0, s-maxage=60, stale-while-revalidate=300",
+      },
+    );
+  }
+  if (request.method === "GET" && path === "/api/v1/pulse/narratives") {
+    return sendJson(
+      response,
+      200,
+      await loadPulseNarrativesResponse(serverSupabase()),
+      {
+        "cache-control":
+          "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
       },
     );
   }

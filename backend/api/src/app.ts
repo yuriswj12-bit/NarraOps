@@ -35,6 +35,7 @@ import { mockInviteSummary, mockPulse, mockSettings } from "../../integrations/m
 import { GO_CATEGORIES, GO_COMMANDS, policyForType } from "../../agents/go-command-catalog.ts";
 import { buildPulseMarketResponse } from "../../../api/v1/pulse-market.ts";
 import { buildPulseDevWalletPnlResponse } from "../../../api/v1/pulse-dev-wallet-pnl.ts";
+import { buildPulseNarrativesResponse } from "../../../api/v1/pulse-narratives.ts";
 import { EXECUTION_SIMULATION_STATUSES, EXECUTION_SIMULATION_TYPES } from "../../agents/execution-simulator.ts";
 import { listLaunchPlatforms, resolveLaunchPlatform } from "../../integrations/launch-platform-registry.ts";
 import { buildDraftMetadata, prepareNarrativeLink } from "../../integrations/narrative-link-adapter.ts";
@@ -291,6 +292,11 @@ export function createApplication({ config, logger, repository, conversationRepo
 
       if (req.method === "GET" && url.pathname === "/api/v1/pulse/dev-wallet-pnl") {
         sendJson(res, 200, buildPulseDevWalletPnlResponse([]), requestId);
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/v1/pulse/narratives") {
+        sendJson(res, 200, buildPulseNarrativesResponse([]), requestId);
         return;
       }
 
