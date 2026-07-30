@@ -1,5 +1,23 @@
 # Backend handoff
 
+## 2026-07-30 Pulse narrative discovery Phase 2
+
+- Migration `018_pulse_narrative_pool.sql` adds a private, short-lived
+  `pulse_narrative_candidates` pool and auditable collection-run records.
+- The scheduled credential-free collector runs every five minutes, upserts
+  exact real-source cards, deterministically routes the six V1 categories, and
+  deletes expired rows. It never inserts placeholders or generated history.
+- Added `GET /api/v1/pulse/narratives`. The response groups unexpired cards by
+  category and exposes only original source fields needed by the UI.
+- Source eligibility remains one hour; each collected card is visible for at
+  most thirty minutes. The API advertises UI refresh choices `3/5/15` minutes
+  with `5` as the default, without triggering an external provider request per
+  browser refresh.
+- Hosted rollout still requires applying migration `018` and confirming the
+  repository has `SUPABASE_URL` and `SUPABASE_SECRET_KEY` Actions secrets.
+- Per-user `seen/dismissed/used` state, `Use` snapshots, semantic same-story
+  clustering, and the four-column frontend are intentionally later phases.
+
 ## 2026-07-30 Pulse credential-free source adapters
 
 - Removed TikTok from the Pulse narrative-discovery V1 source contract.
@@ -13,8 +31,9 @@
 - OpenTwitter and the official X API remain optional enhancements. The V1
   credential-free feed does not consume the 3,000-message OpenTwitter quota.
 - Added an auditable one-shot collector that writes normalized source items and
-  per-source health status. Public API, Supabase persistence, scheduling, and
-  frontend four-column rendering remain integration tasks.
+  per-source health status. Supabase persistence, scheduling, and the public
+  read API are now implemented in Phase 2; frontend four-column rendering
+  remains an integration task.
 
 ## 2026-07-30 Pulse narrative discovery Phase 1
 

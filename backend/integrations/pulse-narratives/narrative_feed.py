@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -29,6 +30,23 @@ CATEGORIES = frozenset(
 USER_STATES = frozenset({"unseen", "seen", "dismissed", "used"})
 SOURCE_WINDOW = timedelta(hours=1)
 MAX_DISPLAY_LIFETIME = timedelta(minutes=30)
+CATEGORY_TERMS = {
+    "politics_satire": frozenset(
+        {"president", "election", "government", "trump", "congress", "minister", "politic"}
+    ),
+    "animals_characters": frozenset(
+        {"cat", "dog", "raccoon", "penguin", "animal", "mascot", "character"}
+    ),
+    "internet_culture": frozenset(
+        {"viral", "meme", "internet", "creator", "streamer", "celebrity", "trend"}
+    ),
+    "ai_tech": frozenset(
+        {"ai", "artificial intelligence", "robot", "agent", "grok", "openai", "model"}
+    ),
+    "crypto_native": frozenset(
+        {"crypto", "bitcoin", "ethereum", "solana", "token", "defi", "blockchain"}
+    ),
+}
 
 
 def utc_now() -> datetime:
@@ -58,6 +76,20 @@ def is_source_eligible(published_at: datetime, now: datetime | None = None) -> b
     current = now or utc_now()
     age = current - published_at
     return timedelta(0) <= age < SOURCE_WINDOW
+
+
+def route_category(original_text: str) -> str:
+    """Route source text deterministically; events is the honest fallback."""
+    text = original_text.casefold()
+    matches = {
+        category: sum(
+            bool(re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text))
+            for term in terms
+        )
+        for category, terms in CATEGORY_TERMS.items()
+    }
+    category, count = max(matches.items(), key=lambda item: item[1])
+    return category if count else "events"
 
 
 def content_fingerprint(platform: str, source_id: str, original_text: str) -> str:

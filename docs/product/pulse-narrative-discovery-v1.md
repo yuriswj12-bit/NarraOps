@@ -146,6 +146,53 @@ Provider reference:
 
 Status: optional enhancement only; V1 remains operational without it.
 
+## Phase 2 implementation
+
+The backend now persists the current honest card pool in:
+
+```text
+pulse_narrative_candidates
+pulse_narrative_collection_runs
+```
+
+The five-minute worker collects the credential-free OpenNews and RSS sources,
+applies the existing one-hour source window, routes each item into one of the
+six product categories, and removes expired rows. Provider failures are
+recorded per run and do not create replacement content.
+
+The frontend contract is:
+
+```text
+GET /api/v1/pulse/narratives
+```
+
+It returns category columns containing only:
+
+- original text;
+- original source URL;
+- original media or video thumbnail when available;
+- platform and source type;
+- author or publisher;
+- publication and expiry timestamps.
+
+It does not return AI explanations, opportunity scores, risk scores, token
+recommendations, provider trading signals, or fabricated empty-state cards.
+
+Hosted activation requires migration `018_pulse_narrative_pool.sql` and the
+existing Supabase server credentials in GitHub Actions. Until the migration is
+available, the API returns `data_status = persistence_not_ready` with empty
+columns rather than substituting data.
+
+## Phase 2 acceptance
+
+- short-lived candidates and collection runs are persisted privately;
+- the collector is scheduled every five minutes and supports manual runs;
+- exact source rows are upserted idempotently and expired rows are removed;
+- deterministic category routing covers all six V1 columns;
+- the read API filters expired rows again at request time;
+- empty and not-ready states remain honest;
+- no synthetic cards or synthetic history are created.
+
 ## Phase 1 acceptance
 
 - deterministic source and card contracts exist;
