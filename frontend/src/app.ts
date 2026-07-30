@@ -382,9 +382,9 @@ async function loadPulse() {
   if (state.view === "pulse") renderPulseConnected();
   try {
     const [pulseResult, marketResult, devPnlResult] = await Promise.allSettled([
-      apiRequest("/api/v1/pulse"),
-      apiRequest("/api/v1/pulse/market"),
-      apiRequest("/api/v1/pulse/dev-wallet-pnl"),
+      apiRequest("/api/v1/pulse", { cache: "no-store" }),
+      apiRequest("/api/v1/pulse/market", { cache: "no-store" }),
+      apiRequest("/api/v1/pulse/dev-wallet-pnl", { cache: "no-store" }),
     ]);
     if (pulseResult.status === "rejected") throw pulseResult.reason;
     const payload = pulseResult.value;
@@ -2580,6 +2580,22 @@ window.addEventListener("hashchange", () => {
   renderCurrentView();
   if (state.view === "pulse") loadPulse();
   if (state.view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
+});
+
+// Pulse is a live data surface. Refresh while it is visible and immediately
+// after the user returns to a backgrounded tab so an hours-old in-memory
+// snapshot is never mistaken for the current public API value.
+const pulseRefreshIntervalMs = 5 * 60 * 1000;
+window.setInterval(() => {
+  if (state.view === "pulse" && document.visibilityState === "visible") {
+    void loadPulse();
+  }
+}, pulseRefreshIntervalMs);
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.view === "pulse") {
+    void loadPulse();
+  }
 });
 
 let resizeTimer;
