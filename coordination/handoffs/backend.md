@@ -1,5 +1,24 @@
 # Backend handoff
 
+## 2026-07-30 Pulse narrative discovery Phase 3
+
+- Migration `019_pulse_narrative_user_state.sql` adds private per-user
+  `seen/dismissed/used` state storage and durable source snapshots.
+- Anonymous `GET /api/v1/pulse/narratives` remains publicly cacheable. For a
+  valid Web3 session it becomes private/no-store and excludes that user's
+  dismissed and used narrative IDs.
+- Added authenticated `POST /api/v1/pulse/narratives/state` with
+  `{ narrative_id, state: "dismissed" | "used" }`.
+- `dismissed` writes only private state. `used` invokes an atomic database
+  function that copies the current original-source card into a private snapshot
+  before marking it used.
+- The snapshot survives expiry and deletion from the 30-minute public pool. It
+  contains source material only and no AI-generated explanation or score.
+- Frontend integration should replace local-only dismiss/use state with this
+  endpoint and pass returned `snapshot.snapshot_id` into the next Go contract.
+- Hosted rollout requires migration `019`; unauthenticated state writes fail
+  with `AUTHENTICATION_REQUIRED`.
+
 ## 2026-07-30 Pulse narrative discovery Phase 2
 
 - Migration `018_pulse_narrative_pool.sql` adds a private, short-lived

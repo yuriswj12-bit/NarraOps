@@ -193,6 +193,38 @@ columns rather than substituting data.
 - empty and not-ready states remain honest;
 - no synthetic cards or synthetic history are created.
 
+## Phase 3 private user state
+
+Authenticated users can persist card decisions through:
+
+```text
+POST /api/v1/pulse/narratives/state
+```
+
+Dismiss request:
+
+```json
+{
+  "narrative_id": "nar_...",
+  "state": "dismissed"
+}
+```
+
+Use request:
+
+```json
+{
+  "narrative_id": "nar_...",
+  "state": "used"
+}
+```
+
+`used` atomically copies the original source fields into a private
+`pulse_narrative_snapshots` row before hiding the public card for that user.
+The public candidate may expire normally without interrupting the user's Go
+workflow. Anonymous readers do not receive user-specific filtering and cannot
+write state.
+
 ## Phase 1 acceptance
 
 - deterministic source and card contracts exist;

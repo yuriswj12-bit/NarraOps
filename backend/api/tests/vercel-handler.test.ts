@@ -165,6 +165,29 @@ test("Pulse narratives returns only unexpired real source cards by category", ()
   assert.deepEqual(response.columns.ai_tech, []);
 });
 
+test("Pulse narratives hides dismissed or used cards for a signed-in user", () => {
+  const now = new Date("2026-07-30T09:00:00.000Z");
+  const rows = ["visible", "dismissed", "used"].map((id, index) => ({
+    narrative_id: id,
+    category: "events",
+    platform: "news",
+    source_type: "public_feed",
+    author_name: "source",
+    original_text: `Source ${id}`,
+    source_url: `https://example.com/${id}`,
+    media_urls: [],
+    published_at: `2026-07-30T08:${40 + index}:00.000Z`,
+    expires_at: "2026-07-30T09:15:00.000Z",
+  }));
+  const response = buildPulseNarrativesResponse(
+    rows,
+    now,
+    new Set(["dismissed", "used"]),
+  );
+  assert.equal(response.total, 1);
+  assert.equal(response.columns.events[0].narrative_id, "visible");
+});
+
 function responseRecorder() {
   const headers = new Map<string, unknown>();
   let body = "";

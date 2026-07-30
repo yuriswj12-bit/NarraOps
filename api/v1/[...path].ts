@@ -8,7 +8,11 @@ import { REVIEWED_PULSE_SNAPSHOT } from "./pulse-snapshot";
 import { buildPulsePlanResponse } from "./go/pulse-plan";
 import { loadPulseMarketResponse } from "./pulse-market";
 import { loadPulseDevWalletPnlResponse } from "./pulse-dev-wallet-pnl";
-import { loadPulseNarrativesResponse } from "./pulse-narratives";
+import {
+  dismissPulseNarrative,
+  loadPulseNarrativesResponse,
+  usePulseNarrative,
+} from "./pulse-narratives";
 
 const COOKIE_NAME = "narraops_session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -204,7 +208,7 @@ function authenticatedUserId(session) {
   const userId = session?.user?.userId;
   if (!userId) {
     throw Object.assign(
-      new Error("Sign in with a Web3 wallet to use Assets"),
+      new Error("Sign in with a Web3 wallet to continue"),
       { status: 401, code: "AUTHENTICATION_REQUIRED" },
     );
   }
@@ -799,13 +803,23 @@ export default async function handler(request, response) {
     );
   }
   if (request.method === "GET" && path === "/api/v1/pulse/narratives") {
+    const narrativeSupabase = serverSupabase();
+    const narrativeSession = narrativeSupabase
+      ? await loadSession(narrativeSupabase, request)
+      : null;
     return sendJson(
       response,
       200,
-      await loadPulseNarrativesResponse(serverSupabase()),
+      await loadPulseNarrativesResponse(
+        narrativeSupabase,
+        new Date(),
+        narrativeSession?.user?.userId || null,
+      ),
       {
         "cache-control":
-          "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
+          narrativeSession
+            ? "private, no-store"
+            : "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
       },
     );
   }
@@ -858,6 +872,38 @@ export default async function handler(request, response) {
     }
     if (request.method === "POST" && path === "/api/v1/auth/logout") {
       return await logout(supabase, request, response);
+    }
+    if (
+      request.method === "POST" &&
+      path === "/api/v1/pulse/narratives/state"
+    ) {
+      const session = await loadSession(supabase, request);
+      const userId = authenticatedUserId(session);
+      const body = await readBody(request);
+      const narrativeId = String(body.narrative_id || "").trim();
+      const state = String(body.state || "").trim();
+      if (!narrativeId || !["dismissed", "used"].includes(state)) {
+        return apiError(
+          response,
+          400,
+          "INVALID_NARRATIVE_STATE",
+          "narrative_id and state (dismissed or used) are required",
+        );
+      }
+      if (state === "dismissed") {
+        return sendJson(
+          response,
+          200,
+          await dismissPulseNarrative(supabase, userId, narrativeId),
+          { "cache-control": "private, no-store" },
+        );
+      }
+      return sendJson(
+        response,
+        201,
+        { snapshot: await usePulseNarrative(supabase, userId, narrativeId) },
+        { "cache-control": "private, no-store" },
+      );
     }
     if (
       path === "/api/v1/wallet-groups" ||
