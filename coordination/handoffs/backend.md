@@ -15,9 +15,12 @@
 - The previous GitHub workflow remains available for manual fallback but no
   longer has a production schedule.
 - Hosted rollout completed: the Edge function is deployed, migration `020` is
-  applied, Vault secrets are configured, and the first manual production run
-  inserted 38 real candidates. Automatic cron completion still requires final
-  post-deployment observation.
+  applied, and Vault secrets are configured. The first manual production run
+  inserted 38 real candidates. The first post-fix automatic run started at
+  13:30 UTC, completed in about 6.4 seconds, and inserted 13 real candidates.
+  Google News and Know Your Meme were unavailable from the scheduled Edge
+  egress, while BBC, NPR, The Verge, TechCrunch, Cointelegraph, and Decrypt
+  continued independently; the run correctly reported `partial`.
 
 ## 2026-07-30 Pulse narrative discovery Phase 3
 
