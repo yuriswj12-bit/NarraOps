@@ -104,10 +104,12 @@ const state = {
     narrativesError: null,
     narrativeRefreshMinutes: 5,
     dismissedNarratives: new Set(),
+    narrativeActionsBusy: new Set(),
   },
   go: {
     pendingOpportunityId: null,
     pendingNarrative: null,
+    pendingNarrativeSnapshot: null,
     busy: false,
   },
   assets: {
@@ -587,6 +589,24 @@ function findNarrativeById(narrativeId) {
     if (match) return match;
   }
   return null;
+}
+
+async function persistNarrativeState(narrativeId, action) {
+  return apiRequest("/api/v1/pulse/narratives/state", {
+    method: "POST",
+    cache: "no-store",
+    body: JSON.stringify({
+      narrative_id: narrativeId,
+      state: action,
+    }),
+  });
+}
+
+function handleUnavailableNarrative(narrativeId) {
+  state.pulse.dismissedNarratives.add(narrativeId);
+  if (state.view === "pulse") renderPulseConnected();
+  void loadPulse();
+  showToast(t("这条叙事已过期，正在刷新实时卡片。", "This narrative expired. Refreshing the live feed."));
 }
 
 function renderNarrativeDiscovery() {
@@ -2261,24 +2281,65 @@ languageMenu.addEventListener("click", (event) => {
 viewRoot.addEventListener("click", async (event) => {
   const refreshNarrativeId = event.target.closest("[data-refresh-narrative]")?.dataset.refreshNarrative;
   if (refreshNarrativeId) {
-    state.pulse.dismissedNarratives.add(refreshNarrativeId);
-    renderPulseConnected();
+    if (state.pulse.narrativeActionsBusy.has(refreshNarrativeId)) return;
+    state.pulse.narrativeActionsBusy.add(refreshNarrativeId);
+    try {
+      if (state.auth.session) {
+        await persistNarrativeState(refreshNarrativeId, "dismissed");
+      } else {
+        showToast(t("已在本次浏览中隐藏；连接钱包后可跨设备同步。", "Hidden for this session. Connect a wallet to sync across devices."));
+      }
+      state.pulse.dismissedNarratives.add(refreshNarrativeId);
+      renderPulseConnected();
+    } catch (error) {
+      if (error instanceof NarraOpsApiError && error.status === 404) {
+        handleUnavailableNarrative(refreshNarrativeId);
+      } else {
+        showToast(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      state.pulse.narrativeActionsBusy.delete(refreshNarrativeId);
+    }
     return;
   }
 
   const useNarrativeId = event.target.closest("[data-use-narrative]")?.dataset.useNarrative;
   if (useNarrativeId) {
+    if (!state.auth.session) {
+      showToast(t("连接钱包后可保存并使用这条叙事。", "Connect a wallet to save and use this narrative."));
+      await openAuth("web3");
+      return;
+    }
+    if (state.pulse.narrativeActionsBusy.has(useNarrativeId)) return;
     const narrative = findNarrativeById(useNarrativeId);
     if (!narrative) return;
-    state.pulse.dismissedNarratives.add(useNarrativeId);
-    state.go.pendingNarrative = { ...narrative };
-    switchView("go");
-    window.setTimeout(() => {
-      const input = document.querySelector("#agentInput");
-      if (!input) return;
-      input.value = `/analyze-meme ${narrative.source_url}`;
-      input.focus();
-    }, 0);
+    state.pulse.narrativeActionsBusy.add(useNarrativeId);
+    try {
+      const result = await persistNarrativeState(useNarrativeId, "used");
+      state.pulse.dismissedNarratives.add(useNarrativeId);
+      state.go.pendingNarrative = { ...narrative };
+      state.go.pendingNarrativeSnapshot = result.snapshot || null;
+      switchView("go");
+      window.setTimeout(() => {
+        const input = document.querySelector("#agentInput");
+        if (!input) return;
+        input.value = `/analyze-meme ${narrative.source_url}`;
+        input.focus();
+      }, 0);
+    } catch (error) {
+      if (error instanceof NarraOpsApiError && error.status === 404) {
+        handleUnavailableNarrative(useNarrativeId);
+      } else if (error instanceof NarraOpsApiError && error.status === 401) {
+        state.auth.session = null;
+        updateAuthButtons();
+        showToast(t("登录已过期，请重新连接钱包。", "Your session expired. Reconnect your wallet."));
+        await openAuth("web3");
+      } else {
+        showToast(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      state.pulse.narrativeActionsBusy.delete(useNarrativeId);
+    }
     return;
   }
 

@@ -2,6 +2,22 @@
 
 > Current rule (2026-07-22): the first-level product surfaces are Go, Pulse, and Assets. The Launch and Invite sections below are historical implementation records, not current navigation requirements.
 
+## 2026-07-30 Pulse narrative private state
+
+- Connected narrative card actions to the authenticated
+  `POST /api/v1/pulse/narratives/state` boundary.
+- Individual refresh remains usable without authentication and hides only the
+  selected card for the current browser session. Authenticated refreshes are
+  persisted as `dismissed` and therefore remain hidden across devices.
+- `Use` now requires wallet authentication. A successful request creates the
+  private server snapshot before the card is removed and Go is opened.
+- Go retains both the original narrative and the returned snapshot metadata,
+  while the current command continues to analyze the immutable original source
+  URL. Direct snapshot consumption by the Agent remains a separate backend
+  contract task.
+- Expired cards are removed locally and trigger a real feed refresh. Failed
+  persistence never reports success and does not generate replacement data.
+
 ## 2026-07-30 Pulse Narrative Discovery grid
 
 - Replaced the legacy Reviewed Opportunities and Data Boundaries sections with
