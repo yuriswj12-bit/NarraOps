@@ -37,7 +37,10 @@ def supabase(path: str, method: str = "GET", body=None, prefer: str = "return=re
 
 
 def candidate_row(item, collected_at: datetime) -> dict:
-    card = item.to_card(route_category(item.original_text), collected_at)
+    card = item.to_card(
+        route_category(item.original_text, getattr(item, "category_hint", None)),
+        collected_at,
+    )
     return {
         "narrative_id": card["narrative_id"],
         "category": card["category"],

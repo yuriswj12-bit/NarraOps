@@ -631,12 +631,14 @@ function renderNarrativeDiscovery() {
     `;
   }).join("");
   const status = state.pulse.narrativesError
-    ? t("数据源暂时不可用", "Source temporarily unavailable")
+    ? t("????????", "Source temporarily unavailable")
     : state.pulse.loading
-      ? t("正在更新", "Updating")
+      ? t("????", "Updating")
       : total
-        ? t("实时", "Live")
-        : t("等待新信号", "Waiting for signals");
+        ? t("??", "Live")
+        : state.pulse.narratives?.data_status === "collector_stale"
+          ? t("????", "Collector delayed")
+          : t("?????", "Waiting for signals");
   return `
     <section class="section-block narrative-discovery">
       <div class="narrative-discovery-header">

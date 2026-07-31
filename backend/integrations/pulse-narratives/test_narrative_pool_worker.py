@@ -13,6 +13,10 @@ class NarrativePoolWorkerTests(unittest.TestCase):
         self.assertEqual(feed.route_category("A rescued raccoon goes viral"), "animals_characters")
         self.assertEqual(feed.route_category("President announces election plan"), "politics_satire")
         self.assertEqual(feed.route_category("Unexpected city event"), "events")
+        self.assertEqual(
+            feed.route_category("Unexpected city event", "crypto_native"),
+            "crypto_native",
+        )
 
     def test_candidate_expiry_never_exceeds_source_hour(self):
         item = feed.SourceItem.from_dict(

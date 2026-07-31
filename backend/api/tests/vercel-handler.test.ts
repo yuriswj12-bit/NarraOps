@@ -201,6 +201,28 @@ test("Pulse narratives returns only unexpired real source cards by category", ()
   assert.equal(response.columns.ai_tech, undefined);
 });
 
+
+test("Pulse narratives marks collector_stale when no fresh cards and last run is old", () => {
+  const now = new Date("2026-07-30T09:00:00.000Z");
+  const response = buildPulseNarrativesResponse(
+    [],
+    now,
+    new Set(),
+    {
+      started_at: "2026-07-30T08:40:00.000Z",
+      completed_at: "2026-07-30T08:40:12.000Z",
+      status: "completed",
+      source_count: 40,
+      successful_source_count: 38,
+      collected_item_count: 0,
+      eligible_item_count: 0,
+    },
+  );
+  assert.equal(response.data_status, "collector_stale");
+  assert.equal(response.collector.stale, true);
+  assert.equal(response.collector.source_count, 40);
+});
+
 test("Pulse narratives hides dismissed or used cards for a signed-in user", () => {
   const now = new Date("2026-07-30T09:00:00.000Z");
   const rows = ["visible", "dismissed", "used"].map((id, index) => ({

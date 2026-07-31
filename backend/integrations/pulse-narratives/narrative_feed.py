@@ -31,16 +31,70 @@ SOURCE_WINDOW = timedelta(hours=1)
 MAX_DISPLAY_LIFETIME = timedelta(minutes=30)
 CATEGORY_TERMS = {
     "politics_satire": frozenset(
-        {"president", "election", "government", "trump", "congress", "minister", "politic"}
+        {
+            "president",
+            "election",
+            "government",
+            "trump",
+            "congress",
+            "minister",
+            "politic",
+            "satire",
+            "senator",
+            "parliament",
+            "white house",
+            "campaign",
+        }
     ),
     "animals_characters": frozenset(
-        {"cat", "dog", "raccoon", "penguin", "animal", "mascot", "character"}
+        {
+            "cat",
+            "dog",
+            "raccoon",
+            "penguin",
+            "animal",
+            "mascot",
+            "character",
+            "zoo",
+            "puppy",
+            "kitten",
+            "frog",
+            "bear",
+            "otter",
+        }
     ),
     "internet_culture": frozenset(
-        {"viral", "meme", "internet", "creator", "streamer", "celebrity", "trend"}
+        {
+            "viral",
+            "meme",
+            "internet",
+            "creator",
+            "streamer",
+            "celebrity",
+            "trend",
+            "tiktok",
+            "youtube",
+            "influencer",
+            "fandom",
+            "cosplay",
+        }
     ),
     "crypto_native": frozenset(
-        {"crypto", "bitcoin", "ethereum", "solana", "token", "defi", "blockchain"}
+        {
+            "crypto",
+            "bitcoin",
+            "ethereum",
+            "solana",
+            "token",
+            "defi",
+            "blockchain",
+            "memecoin",
+            "airdrop",
+            "nft",
+            "web3",
+            "wallet",
+            "pump",
+        }
     ),
 }
 
@@ -74,7 +128,7 @@ def is_source_eligible(published_at: datetime, now: datetime | None = None) -> b
     return timedelta(0) <= age < SOURCE_WINDOW
 
 
-def route_category(original_text: str) -> str:
+def route_category(original_text: str, category_hint: str | None = None) -> str:
     """Route source text deterministically; events is the honest fallback."""
     text = original_text.casefold()
     matches = {
@@ -85,7 +139,11 @@ def route_category(original_text: str) -> str:
         for category, terms in CATEGORY_TERMS.items()
     }
     category, count = max(matches.items(), key=lambda item: item[1])
-    return category if count else "events"
+    if count:
+        return category
+    if category_hint in CATEGORIES and category_hint != "events":
+        return category_hint
+    return "events"
 
 
 def content_fingerprint(platform: str, source_id: str, original_text: str) -> str:
@@ -108,6 +166,7 @@ class SourceItem:
     video_thumbnail_url: str | None
     published_at: str
     collected_at: str
+    category_hint: str | None = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "SourceItem":
@@ -136,6 +195,11 @@ class SourceItem:
         parse_timestamp(str(value["published_at"]))
         parse_timestamp(str(value["collected_at"]))
         media_urls = tuple(str(url) for url in value.get("media_urls") or ())
+        category_hint = value.get("category_hint")
+        if category_hint is not None:
+            category_hint = str(category_hint)
+            if category_hint not in CATEGORIES:
+                raise ValueError("unsupported category_hint")
         return cls(
             source_id=str(value["source_id"]),
             platform=str(value["platform"]),
@@ -149,6 +213,7 @@ class SourceItem:
             video_thumbnail_url=value.get("video_thumbnail_url"),
             published_at=str(value["published_at"]),
             collected_at=str(value["collected_at"]),
+            category_hint=category_hint,
         )
 
     def to_card(

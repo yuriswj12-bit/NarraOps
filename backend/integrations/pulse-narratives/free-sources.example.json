@@ -1,9 +1,10 @@
-[
+﻿[
   {
     "id": "opennews-web3-meme",
     "type": "opennews_free_hot",
     "category": "web3",
     "subcategory": "meme",
+    "category_hint": "crypto_native",
     "enabled": true
   },
   {
@@ -11,6 +12,39 @@
     "type": "rss",
     "name": "Google News - politics and satire",
     "url": "https://news.google.com/rss/search?q=politics%20satire%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "politics_satire",
+    "enabled": true
+  },
+  {
+    "id": "google-news-trump-viral",
+    "type": "rss",
+    "name": "Google News - Trump viral",
+    "url": "https://news.google.com/rss/search?q=Trump%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "politics_satire",
+    "enabled": true
+  },
+  {
+    "id": "google-news-president-controversy",
+    "type": "rss",
+    "name": "Google News - president controversy",
+    "url": "https://news.google.com/rss/search?q=president%20controversy%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "politics_satire",
+    "enabled": true
+  },
+  {
+    "id": "google-news-election-meme",
+    "type": "rss",
+    "name": "Google News - election meme",
+    "url": "https://news.google.com/rss/search?q=election%20meme%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "politics_satire",
+    "enabled": true
+  },
+  {
+    "id": "google-news-politician-bizarre",
+    "type": "rss",
+    "name": "Google News - politician bizarre moment",
+    "url": "https://news.google.com/rss/search?q=politician%20bizarre%20moment%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "politics_satire",
     "enabled": true
   },
   {
@@ -18,6 +52,39 @@
     "type": "rss",
     "name": "Google News - breaking viral events",
     "url": "https://news.google.com/rss/search?q=breaking%20viral%20event%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "events",
+    "enabled": true
+  },
+  {
+    "id": "google-news-unusual-incident",
+    "type": "rss",
+    "name": "Google News - unusual incident",
+    "url": "https://news.google.com/rss/search?q=unusual%20incident%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "events",
+    "enabled": true
+  },
+  {
+    "id": "google-news-bizarre-news",
+    "type": "rss",
+    "name": "Google News - bizarre news",
+    "url": "https://news.google.com/rss/search?q=bizarre%20news%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "events",
+    "enabled": true
+  },
+  {
+    "id": "google-news-public-protest",
+    "type": "rss",
+    "name": "Google News - public protest",
+    "url": "https://news.google.com/rss/search?q=public%20protest%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "events",
+    "enabled": true
+  },
+  {
+    "id": "google-news-unexpected-announcement",
+    "type": "rss",
+    "name": "Google News - unexpected announcement",
+    "url": "https://news.google.com/rss/search?q=unexpected%20announcement%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "events",
     "enabled": true
   },
   {
@@ -25,6 +92,47 @@
     "type": "rss",
     "name": "Google News - viral animals and characters",
     "url": "https://news.google.com/rss/search?q=animal%20character%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "animals_characters",
+    "enabled": true
+  },
+  {
+    "id": "google-news-funny-cat",
+    "type": "rss",
+    "name": "Google News - funny cat",
+    "url": "https://news.google.com/rss/search?q=funny%20cat%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "animals_characters",
+    "enabled": true
+  },
+  {
+    "id": "google-news-unusual-dog",
+    "type": "rss",
+    "name": "Google News - unusual dog",
+    "url": "https://news.google.com/rss/search?q=unusual%20dog%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "animals_characters",
+    "enabled": true
+  },
+  {
+    "id": "google-news-zoo-viral",
+    "type": "rss",
+    "name": "Google News - zoo viral",
+    "url": "https://news.google.com/rss/search?q=zoo%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "animals_characters",
+    "enabled": true
+  },
+  {
+    "id": "google-news-new-mascot",
+    "type": "rss",
+    "name": "Google News - new mascot",
+    "url": "https://news.google.com/rss/search?q=new%20mascot%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "animals_characters",
+    "enabled": true
+  },
+  {
+    "id": "google-news-cartoon-character",
+    "type": "rss",
+    "name": "Google News - cartoon character viral",
+    "url": "https://news.google.com/rss/search?q=cartoon%20character%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "animals_characters",
     "enabled": true
   },
   {
@@ -32,13 +140,39 @@
     "type": "rss",
     "name": "Google News - internet memes",
     "url": "https://news.google.com/rss/search?q=internet%20meme%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "internet_culture",
     "enabled": true
   },
   {
-    "id": "google-news-ai-tech",
+    "id": "google-news-social-media-trend",
     "type": "rss",
-    "name": "Google News - viral AI and technology",
-    "url": "https://news.google.com/rss/search?q=AI%20technology%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "name": "Google News - social media trend",
+    "url": "https://news.google.com/rss/search?q=social%20media%20trend%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "internet_culture",
+    "enabled": true
+  },
+  {
+    "id": "google-news-celebrity-viral",
+    "type": "rss",
+    "name": "Google News - celebrity viral moment",
+    "url": "https://news.google.com/rss/search?q=celebrity%20viral%20moment%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "internet_culture",
+    "enabled": true
+  },
+  {
+    "id": "google-news-streamer-controversy",
+    "type": "rss",
+    "name": "Google News - streamer controversy",
+    "url": "https://news.google.com/rss/search?q=streamer%20controversy%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "internet_culture",
+    "enabled": true
+  },
+  {
+    "id": "google-news-new-meme",
+    "type": "rss",
+    "name": "Google News - new meme",
+    "url": "https://news.google.com/rss/search?q=new%20meme%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "internet_culture",
     "enabled": true
   },
   {
@@ -46,6 +180,151 @@
     "type": "rss",
     "name": "Google News - crypto memes",
     "url": "https://news.google.com/rss/search?q=crypto%20meme%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "crypto_native",
+    "enabled": true
+  },
+  {
+    "id": "google-news-solana-meme",
+    "type": "rss",
+    "name": "Google News - Solana meme",
+    "url": "https://news.google.com/rss/search?q=Solana%20meme%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "crypto_native",
+    "enabled": true
+  },
+  {
+    "id": "google-news-crypto-controversy",
+    "type": "rss",
+    "name": "Google News - crypto controversy",
+    "url": "https://news.google.com/rss/search?q=crypto%20controversy%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "crypto_native",
+    "enabled": true
+  },
+  {
+    "id": "google-news-bitcoin-meme",
+    "type": "rss",
+    "name": "Google News - Bitcoin meme",
+    "url": "https://news.google.com/rss/search?q=Bitcoin%20meme%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "crypto_native",
+    "enabled": true
+  },
+  {
+    "id": "google-news-token-launch",
+    "type": "rss",
+    "name": "Google News - token launch",
+    "url": "https://news.google.com/rss/search?q=token%20launch%20crypto%20when%3A1h&hl=en-US&gl=US&ceid=US:en",
+    "category_hint": "crypto_native",
+    "enabled": true
+  },
+  {
+    "id": "bbc-world",
+    "type": "rss",
+    "name": "BBC News",
+    "url": "https://feeds.bbci.co.uk/news/rss.xml",
+    "category_hint": "events",
+    "enabled": true
+  },
+  {
+    "id": "npr-news",
+    "type": "rss",
+    "name": "NPR",
+    "url": "https://feeds.npr.org/1001/rss.xml",
+    "category_hint": "events",
+    "enabled": true
+  },
+  {
+    "id": "reuters-world",
+    "type": "rss",
+    "name": "Reuters World",
+    "url": "https://www.reutersagency.com/feed/?taxonomy=best-topics&post_type=best",
+    "category_hint": "events",
+    "enabled": true
+  },
+  {
+    "id": "ap-top",
+    "type": "rss",
+    "name": "Associated Press",
+    "url": "https://rsshub.app/apnews/topics/apf-topnews",
+    "category_hint": "events",
+    "enabled": true
+  },
+  {
+    "id": "know-your-meme",
+    "type": "rss",
+    "name": "Know Your Meme",
+    "url": "https://knowyourmeme.com/newsfeed.rss",
+    "category_hint": "internet_culture",
+    "enabled": true
+  },
+  {
+    "id": "meme-center",
+    "type": "rss",
+    "name": "Meme Center",
+    "url": "https://www.memecenter.com/feed",
+    "category_hint": "internet_culture",
+    "enabled": true
+  },
+  {
+    "id": "polygon-culture",
+    "type": "rss",
+    "name": "Polygon Culture",
+    "url": "https://www.polygon.com/rss/index.xml",
+    "category_hint": "internet_culture",
+    "enabled": true
+  },
+  {
+    "id": "the-onion",
+    "type": "rss",
+    "name": "The Onion",
+    "url": "https://www.theonion.com/rss",
+    "category_hint": "politics_satire",
+    "enabled": true
+  },
+  {
+    "id": "babylon-bee",
+    "type": "rss",
+    "name": "Babylon Bee",
+    "url": "https://babylonbee.com/feed",
+    "category_hint": "politics_satire",
+    "enabled": true
+  },
+  {
+    "id": "cointelegraph",
+    "type": "rss",
+    "name": "Cointelegraph",
+    "url": "https://cointelegraph.com/rss",
+    "category_hint": "crypto_native",
+    "enabled": true
+  },
+  {
+    "id": "decrypt",
+    "type": "rss",
+    "name": "Decrypt",
+    "url": "https://decrypt.co/feed",
+    "category_hint": "crypto_native",
+    "enabled": true
+  },
+  {
+    "id": "coindesk",
+    "type": "rss",
+    "name": "CoinDesk",
+    "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    "category_hint": "crypto_native",
+    "enabled": true
+  },
+  {
+    "id": "the-block",
+    "type": "rss",
+    "name": "The Block",
+    "url": "https://www.theblock.co/rss.xml",
+    "category_hint": "crypto_native",
+    "enabled": true
+  },
+  {
+    "id": "solana-floor",
+    "type": "rss",
+    "name": "SolanaFloor",
+    "url": "https://solanafloor.com/news/rss.xml",
+    "category_hint": "crypto_native",
     "enabled": true
   }
 ]

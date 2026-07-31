@@ -154,10 +154,11 @@ pulse_narrative_candidates
 pulse_narrative_collection_runs
 ```
 
-The five-minute worker collects the credential-free OpenNews and RSS sources,
-applies the existing one-hour source window, routes each item into one of the
-six product categories, and removes expired rows. Provider failures are
-recorded per run and do not create replacement content.
+The five-minute worker collects the credential-free OpenNews and expanded free
+RSS / Google News sources, applies the existing one-hour source window, routes
+each item into one of the five product categories with optional source-level
+category hints, and removes expired rows. Provider failures are recorded per
+run and do not create replacement content.
 
 The frontend contract is:
 
@@ -177,6 +178,10 @@ It returns category columns containing only:
 It does not return AI explanations, opportunity scores, risk scores, token
 recommendations, provider trading signals, or fabricated empty-state cards.
 
+The response also includes collector health from the latest private collection
+run. When no fresh cards exist and the latest successful run is older than ten
+minutes, `data_status` becomes `collector_stale`.
+
 Hosted activation requires migration `018_pulse_narrative_pool.sql` and the
 existing Supabase server credentials in GitHub Actions. Until the migration is
 available, the API returns `data_status = persistence_not_ready` with empty
@@ -187,7 +192,7 @@ columns rather than substituting data.
 - short-lived candidates and collection runs are persisted privately;
 - the collector is scheduled every five minutes and supports manual runs;
 - exact source rows are upserted idempotently and expired rows are removed;
-- deterministic category routing covers all six V1 columns;
+- deterministic category routing covers all five V1 columns;
 - the read API filters expired rows again at request time;
 - empty and not-ready states remain honest;
 - no synthetic cards or synthetic history are created.
