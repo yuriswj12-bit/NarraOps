@@ -124,6 +124,32 @@ class FreeSourceCollectorTests(unittest.TestCase):
         self.assertEqual(items, [])
         self.assertEqual(statuses[0]["status"], "unavailable")
 
+    def test_remote_disconnect_is_treated_as_source_unavailable(self):
+        class Boom(Exception):
+            pass
+
+        def boom(*_args, **_kwargs):
+            raise ConnectionResetError("Remote end closed connection without response")
+
+        original = collectors.fetch_rss
+        collectors.fetch_rss = boom
+        try:
+            items, statuses = collectors.collect_free_sources(
+                [{
+                    "id": "flaky",
+                    "type": "rss",
+                    "name": "Flaky",
+                    "url": "https://example.com/feed",
+                    "enabled": True,
+                }],
+                now=NOW,
+            )
+        finally:
+            collectors.fetch_rss = original
+        self.assertEqual(items, [])
+        self.assertEqual(statuses[0]["status"], "unavailable")
+        self.assertEqual(statuses[0]["error_type"], "ConnectionResetError")
+
 
 if __name__ == "__main__":
     unittest.main()

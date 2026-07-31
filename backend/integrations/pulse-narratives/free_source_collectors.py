@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import html
+import http.client
 import json
 import re
 import urllib.error
@@ -280,12 +281,16 @@ def collect_free_sources(
             ValueError,
             json.JSONDecodeError,
             urllib.error.URLError,
+            ConnectionError,
+            OSError,
+            http.client.HTTPException,
         ) as error:
             statuses.append(
                 {
                     "source_id": source_id,
                     "status": "unavailable",
                     "error_type": type(error).__name__,
+                    "error_message": str(error)[:160],
                     "items": 0,
                 }
             )
