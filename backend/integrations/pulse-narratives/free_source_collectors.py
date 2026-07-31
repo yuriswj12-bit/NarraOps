@@ -65,6 +65,7 @@ def _bounded_get(url: str, timeout: float = 15.0) -> bytes:
 def normalize_opennews_item(
     value: dict[str, Any],
     collected_at: datetime,
+    category_hint: str | None = None,
 ) -> SourceItem:
     source_url = str(value.get("link") or "").strip()
     published = parse_source_timestamp(
@@ -77,27 +78,29 @@ def normalize_opennews_item(
         "www.x.com",
         "www.twitter.com",
     } else "news"
-    return SourceItem.from_dict(
-        {
-            "source_id": f"opennews:{value['id']}",
-            "platform": platform,
-            "source_type": "trend_discovery",
-            "author_id": source_name,
-            "author_name": source_name,
-            "original_text": clean_text(str(value.get("title") or "")),
-            "source_url": source_url,
-            "media_type": None,
-            "media_urls": [],
-            "video_thumbnail_url": None,
-            "published_at": iso(published),
-            "collected_at": iso(collected_at),
-        }
-    )
+    payload = {
+        "source_id": f"opennews:{value['id']}",
+        "platform": platform,
+        "source_type": "trend_discovery",
+        "author_id": source_name,
+        "author_name": source_name,
+        "original_text": clean_text(str(value.get("title") or "")),
+        "source_url": source_url,
+        "media_type": None,
+        "media_urls": [],
+        "video_thumbnail_url": None,
+        "published_at": iso(published),
+        "collected_at": iso(collected_at),
+    }
+    if category_hint:
+        payload["category_hint"] = category_hint
+    return SourceItem.from_dict(payload)
 
 
 def parse_opennews_payload(
     payload: dict[str, Any],
     collected_at: datetime,
+    category_hint: str | None = None,
 ) -> list[SourceItem]:
     if payload.get("success") is not True:
         raise ValueError("OpenNews response is not successful")
@@ -111,7 +114,7 @@ def parse_opennews_payload(
     normalized: list[SourceItem] = []
     for row in rows:
         try:
-            item = normalize_opennews_item(row, collected_at)
+            item = normalize_opennews_item(row, collected_at, category_hint)
         except (KeyError, TypeError, ValueError):
             continue
         if is_source_eligible(parse_source_timestamp(item.published_at), collected_at):
@@ -123,6 +126,7 @@ def fetch_opennews_hot(
     category: str,
     subcategory: str = "",
     *,
+    category_hint: str | None = None,
     now: datetime | None = None,
     timeout: float = 15.0,
 ) -> list[SourceItem]:
@@ -131,7 +135,11 @@ def fetch_opennews_hot(
         params["subcategory"] = subcategory
     url = f"{OPENNEWS_BASE_URL}/open/free_hot?{urllib.parse.urlencode(params)}"
     payload = json.loads(_bounded_get(url, timeout).decode("utf-8"))
-    return parse_opennews_payload(payload, now or datetime.now(timezone.utc))
+    return parse_opennews_payload(
+        payload,
+        now or datetime.now(timezone.utc),
+        category_hint=category_hint,
+    )
 
 
 def _local_name(tag: str) -> str:
@@ -200,24 +208,24 @@ def parse_feed_payload(
         media_urls = _entry_media(entry, source["url"])
         source_id = _first_text(entry, {"guid", "id"}) or source_url
         source_name = str(source.get("name") or urllib.parse.urlparse(source["url"]).netloc)
-        items.append(
-            SourceItem.from_dict(
-                {
-                    "source_id": f"rss:{source_id}",
-                    "platform": "rss",
-                    "source_type": "public_feed",
-                    "author_id": source_name,
-                    "author_name": source_name,
-                    "original_text": original_text,
-                    "source_url": source_url,
-                    "media_type": "image" if media_urls else None,
-                    "media_urls": media_urls,
-                    "video_thumbnail_url": None,
-                    "published_at": iso(published),
-                    "collected_at": iso(collected_at),
-                }
-            )
-        )
+        payload = {
+            "source_id": f"rss:{source_id}",
+            "platform": "rss",
+            "source_type": "public_feed",
+            "author_id": source_name,
+            "author_name": source_name,
+            "original_text": original_text,
+            "source_url": source_url,
+            "media_type": "image" if media_urls else None,
+            "media_urls": media_urls,
+            "video_thumbnail_url": None,
+            "published_at": iso(published),
+            "collected_at": iso(collected_at),
+        }
+        category_hint = source.get("category_hint")
+        if category_hint:
+            payload["category_hint"] = str(category_hint)
+        items.append(SourceItem.from_dict(payload))
     return exact_dedupe(items)
 
 
@@ -248,10 +256,14 @@ def collect_free_sources(
             continue
         source_id = str(source.get("id") or source.get("name") or source.get("type"))
         try:
+            category_hint = source.get("category_hint")
+            if category_hint is not None:
+                category_hint = str(category_hint)
             if source.get("type") == "opennews_free_hot":
                 rows = fetch_opennews_hot(
                     str(source["category"]),
                     str(source.get("subcategory") or ""),
+                    category_hint=category_hint,
                     now=collected_at,
                 )
             elif source.get("type") == "rss":

@@ -6,19 +6,53 @@ const BUCKET_MS = 5 * 60 * 1000;
 const MAX_ITEMS_PER_SOURCE = 100;
 
 const rssSources = [
-  ["google-live", "Google News", "https://news.google.com/rss/search?q=%28viral%20OR%20meme%20OR%20satire%20OR%20%22artificial%20intelligence%22%20OR%20crypto%29%20when%3A1h&hl=en-US&gl=US&ceid=US%3Aen", "events"],
+  ["google-news-politics-satire", "Google News - politics and satire", "https://news.google.com/rss/search?q=politics%20satire%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "politics_satire"],
+  ["google-news-trump-viral", "Google News - Trump viral", "https://news.google.com/rss/search?q=Trump%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "politics_satire"],
+  ["google-news-president-controversy", "Google News - president controversy", "https://news.google.com/rss/search?q=president%20controversy%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "politics_satire"],
+  ["google-news-election-meme", "Google News - election meme", "https://news.google.com/rss/search?q=election%20meme%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "politics_satire"],
+  ["google-news-politician-bizarre", "Google News - politician bizarre moment", "https://news.google.com/rss/search?q=politician%20bizarre%20moment%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "politics_satire"],
+  ["google-news-breaking-events", "Google News - breaking viral events", "https://news.google.com/rss/search?q=breaking%20viral%20event%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "events"],
+  ["google-news-unusual-incident", "Google News - unusual incident", "https://news.google.com/rss/search?q=unusual%20incident%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "events"],
+  ["google-news-bizarre-news", "Google News - bizarre news", "https://news.google.com/rss/search?q=bizarre%20news%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "events"],
+  ["google-news-public-protest", "Google News - public protest", "https://news.google.com/rss/search?q=public%20protest%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "events"],
+  ["google-news-unexpected-announcement", "Google News - unexpected announcement", "https://news.google.com/rss/search?q=unexpected%20announcement%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "events"],
+  ["google-news-animals-characters", "Google News - viral animals and characters", "https://news.google.com/rss/search?q=animal%20character%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "animals_characters"],
+  ["google-news-funny-cat", "Google News - funny cat", "https://news.google.com/rss/search?q=funny%20cat%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "animals_characters"],
+  ["google-news-unusual-dog", "Google News - unusual dog", "https://news.google.com/rss/search?q=unusual%20dog%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "animals_characters"],
+  ["google-news-zoo-viral", "Google News - zoo viral", "https://news.google.com/rss/search?q=zoo%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "animals_characters"],
+  ["google-news-new-mascot", "Google News - new mascot", "https://news.google.com/rss/search?q=new%20mascot%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "animals_characters"],
+  ["google-news-cartoon-character", "Google News - cartoon character viral", "https://news.google.com/rss/search?q=cartoon%20character%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "animals_characters"],
+  ["google-news-internet-culture", "Google News - internet memes", "https://news.google.com/rss/search?q=internet%20meme%20viral%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "internet_culture"],
+  ["google-news-social-media-trend", "Google News - social media trend", "https://news.google.com/rss/search?q=social%20media%20trend%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "internet_culture"],
+  ["google-news-celebrity-viral", "Google News - celebrity viral moment", "https://news.google.com/rss/search?q=celebrity%20viral%20moment%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "internet_culture"],
+  ["google-news-streamer-controversy", "Google News - streamer controversy", "https://news.google.com/rss/search?q=streamer%20controversy%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "internet_culture"],
+  ["google-news-new-meme", "Google News - new meme", "https://news.google.com/rss/search?q=new%20meme%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "internet_culture"],
+  ["google-news-crypto-native", "Google News - crypto memes", "https://news.google.com/rss/search?q=crypto%20meme%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "crypto_native"],
+  ["google-news-solana-meme", "Google News - Solana meme", "https://news.google.com/rss/search?q=Solana%20meme%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "crypto_native"],
+  ["google-news-crypto-controversy", "Google News - crypto controversy", "https://news.google.com/rss/search?q=crypto%20controversy%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "crypto_native"],
+  ["google-news-bitcoin-meme", "Google News - Bitcoin meme", "https://news.google.com/rss/search?q=Bitcoin%20meme%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "crypto_native"],
+  ["google-news-token-launch", "Google News - token launch", "https://news.google.com/rss/search?q=token%20launch%20crypto%20when%3A1h&hl=en-US&gl=US&ceid=US:en", "crypto_native"],
   ["bbc-world", "BBC News", "https://feeds.bbci.co.uk/news/rss.xml", "events"],
   ["npr-news", "NPR", "https://feeds.npr.org/1001/rss.xml", "events"],
+  ["reuters-world", "Reuters World", "https://www.reutersagency.com/feed/?taxonomy=best-topics&post_type=best", "events"],
+  ["ap-top", "Associated Press", "https://rsshub.app/apnews/topics/apf-topnews", "events"],
   ["know-your-meme", "Know Your Meme", "https://knowyourmeme.com/newsfeed.rss", "internet_culture"],
+  ["meme-center", "Meme Center", "https://www.memecenter.com/feed", "internet_culture"],
+  ["polygon-culture", "Polygon Culture", "https://www.polygon.com/rss/index.xml", "internet_culture"],
+  ["the-onion", "The Onion", "https://www.theonion.com/rss", "politics_satire"],
+  ["babylon-bee", "Babylon Bee", "https://babylonbee.com/feed", "politics_satire"],
   ["cointelegraph", "Cointelegraph", "https://cointelegraph.com/rss", "crypto_native"],
   ["decrypt", "Decrypt", "https://decrypt.co/feed", "crypto_native"],
+  ["coindesk", "CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/", "crypto_native"],
+  ["the-block", "The Block", "https://www.theblock.co/rss.xml", "crypto_native"],
+  ["solana-floor", "SolanaFloor", "https://solanafloor.com/news/rss.xml", "crypto_native"],
 ] as const;
 
 const categoryTerms = {
-  politics_satire: ["president", "election", "government", "trump", "congress", "minister", "politic", "satire"],
-  animals_characters: ["cat", "dog", "raccoon", "penguin", "animal", "mascot", "character"],
-  internet_culture: ["viral", "meme", "internet", "creator", "streamer", "celebrity", "trend"],
-  crypto_native: ["crypto", "bitcoin", "ethereum", "solana", "token", "defi", "blockchain"],
+  politics_satire: ["president", "election", "government", "trump", "congress", "minister", "politic", "satire", "senator", "parliament", "white house", "campaign"],
+  animals_characters: ["cat", "dog", "raccoon", "penguin", "animal", "mascot", "character", "zoo", "puppy", "kitten", "frog", "bear", "otter"],
+  internet_culture: ["viral", "meme", "internet", "creator", "streamer", "celebrity", "trend", "tiktok", "youtube", "influencer", "fandom", "cosplay"],
+  crypto_native: ["crypto", "bitcoin", "ethereum", "solana", "token", "defi", "blockchain", "memecoin", "airdrop", "nft", "web3", "wallet", "pump"],
 } as const;
 
 function decodeXml(value: string) {
@@ -46,15 +80,16 @@ function routeCategory(text: string, fallback: string) {
   let selectedCount = 0;
   for (const [category, terms] of Object.entries(categoryTerms)) {
     const count = terms.reduce((sum, term) => {
-      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return sum + (new RegExp(`(^|\\W)${escaped}(?=\\W|$)`, "i").test(normalized) ? 1 : 0);
+      const escaped = term.replace(/[.*+?^${}()|[\]\]/g, "\$&");
+      return sum + (new RegExp(`(^|\W)${escaped}(?=\W|$)`, "i").test(normalized) ? 1 : 0);
     }, 0);
     if (count > selectedCount) {
       selected = category;
       selectedCount = count;
     }
   }
-  return selected;
+  if (selectedCount > 0) return selected;
+  return fallback || "events";
 }
 
 async function sha256(value: string) {
@@ -201,11 +236,21 @@ Deno.serve(async (request) => {
     source_status: statuses,
   });
 
+  const categoryCounts = uniqueRows.reduce((acc, row) => {
+    acc[row.category] = (acc[row.category] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
   return Response.json({
     status: runStatus,
     collected_item_count: uniqueRows.length,
+    eligible_item_count: uniqueRows.length,
+    source_count: statuses.length,
+    successful_source_count: successful,
+    category_counts: categoryCounts,
     source_status: statuses,
     started_at: startedAt.toISOString(),
     completed_at: completedAt.toISOString(),
+    next_due_at: new Date(startedAt.getTime() + BUCKET_MS).toISOString(),
   });
 });
