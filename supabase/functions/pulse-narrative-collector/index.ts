@@ -10,8 +10,6 @@ const rssSources = [
   ["bbc-world", "BBC News", "https://feeds.bbci.co.uk/news/rss.xml", "events"],
   ["npr-news", "NPR", "https://feeds.npr.org/1001/rss.xml", "events"],
   ["know-your-meme", "Know Your Meme", "https://knowyourmeme.com/newsfeed.rss", "internet_culture"],
-  ["the-verge", "The Verge", "https://www.theverge.com/rss/index.xml", "ai_tech"],
-  ["techcrunch", "TechCrunch", "https://techcrunch.com/feed/", "ai_tech"],
   ["cointelegraph", "Cointelegraph", "https://cointelegraph.com/rss", "crypto_native"],
   ["decrypt", "Decrypt", "https://decrypt.co/feed", "crypto_native"],
 ] as const;
@@ -20,7 +18,6 @@ const categoryTerms = {
   politics_satire: ["president", "election", "government", "trump", "congress", "minister", "politic", "satire"],
   animals_characters: ["cat", "dog", "raccoon", "penguin", "animal", "mascot", "character"],
   internet_culture: ["viral", "meme", "internet", "creator", "streamer", "celebrity", "trend"],
-  ai_tech: ["ai", "artificial intelligence", "robot", "agent", "grok", "openai", "model"],
   crypto_native: ["crypto", "bitcoin", "ethereum", "solana", "token", "defi", "blockchain"],
 } as const;
 

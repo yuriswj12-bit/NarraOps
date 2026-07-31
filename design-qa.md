@@ -69,3 +69,23 @@ No actionable P0, P1, or P2 differences remain for the requested overflow and
 desktop-density correction.
 
 final result: passed
+
+## 2026-07-31 Five-category Narrative Discovery
+
+- Source visual truth:
+  `C:\Users\hek\AppData\Local\Temp\codex-clipboard-8d6c4543-8ff9-446b-9349-da9986f46e39.png`
+- Removed the sixth `AI / Tech` column from the rendered category contract.
+- `Crypto Native / 加密原生` is now the fifth and final column.
+- The existing five-column desktop grid, 12 px gaps, independent vertical
+  feeds, and horizontal-overflow fix remain unchanged.
+- The compiled Vercel preview contains `Crypto Native` and no `AI / Tech`
+  category.
+- The real-source card stream remains intact: original media, source metadata,
+  original text, external source link, per-card refresh, and `Use` action are
+  still rendered by the existing `narrativeCard` path.
+- No placeholder narratives or synthetic source data were introduced.
+- The connected browser preview loaded successfully, but detailed DOM capture
+  was unavailable during this pass; compiled output, API tests, TypeScript, and
+  Vercel deployment were used as the verification evidence.
+
+final result: passed

@@ -521,7 +521,6 @@ const narrativeCategories = Object.freeze([
   ["events", "Events", "事件"],
   ["animals_characters", "Animals / Characters", "动物 / 角色"],
   ["internet_culture", "Internet Culture", "互联网文化"],
-  ["ai_tech", "AI / Tech", "AI / 科技"],
   ["crypto_native", "Crypto Native", "加密原生"],
 ]);
 

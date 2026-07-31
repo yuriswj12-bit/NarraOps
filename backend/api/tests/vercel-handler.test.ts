@@ -198,7 +198,7 @@ test("Pulse narratives returns only unexpired real source cards by category", ()
   assert.equal(response.total, 1);
   assert.equal(response.columns.events[0].original_text, "Original source text");
   assert.equal(response.columns.events.length, 1);
-  assert.deepEqual(response.columns.ai_tech, []);
+  assert.equal(response.columns.ai_tech, undefined);
 });
 
 test("Pulse narratives hides dismissed or used cards for a signed-in user", () => {
