@@ -60,20 +60,61 @@ def candidate_row(item, collected_at: datetime) -> dict:
     }
 
 
+def dedupe_candidate_rows(rows: list[dict]) -> list[dict]:
+    """Prefer the first row per narrative_id and source_url to avoid 409 conflicts."""
+    unique_by_id: dict[str, dict] = {}
+    seen_urls: set[str] = set()
+    for row in rows:
+        narrative_id = str(row.get("narrative_id") or "")
+        source_url = str(row.get("source_url") or "").casefold().rstrip("/")
+        if not narrative_id or not source_url:
+            continue
+        if narrative_id in unique_by_id or source_url in seen_urls:
+            continue
+        unique_by_id[narrative_id] = row
+        seen_urls.add(source_url)
+    return list(unique_by_id.values())
+
+
+def upsert_candidates(rows: list[dict]) -> None:
+    """Upsert in small batches so one conflict cannot drop the entire run."""
+    batch_size = 50
+    for index in range(0, len(rows), batch_size):
+        batch = rows[index:index + batch_size]
+        try:
+            supabase(
+                "pulse_narrative_candidates?on_conflict=narrative_id",
+                "POST",
+                batch,
+                "return=minimal,resolution=merge-duplicates",
+            )
+        except urllib.error.HTTPError as error:
+            # Fallback to single-row upserts when a batch hits source_url uniqueness.
+            if error.code not in {409, 400}:
+                raise
+            for row in batch:
+                try:
+                    supabase(
+                        "pulse_narrative_candidates?on_conflict=narrative_id",
+                        "POST",
+                        [row],
+                        "return=minimal,resolution=merge-duplicates",
+                    )
+                except urllib.error.HTTPError as row_error:
+                    if row_error.code in {409, 400}:
+                        continue
+                    raise
+
+
 def run(config_path: Path | None = None) -> dict:
     started_at = datetime.now(timezone.utc)
     config = json.loads(
         (config_path or HERE / "free-sources.example.json").read_text(encoding="utf-8-sig")
     )
     items, statuses = collect_free_sources(config, now=started_at)
-    rows = [candidate_row(item, started_at) for item in items]
+    rows = dedupe_candidate_rows([candidate_row(item, started_at) for item in items])
     if rows:
-        supabase(
-            "pulse_narrative_candidates?on_conflict=narrative_id",
-            "POST",
-            rows,
-            "return=minimal,resolution=merge-duplicates",
-        )
+        upsert_candidates(rows)
     cutoff = urllib.parse.quote(iso(started_at), safe=":-TZ.")
     supabase(
         f"pulse_narrative_candidates?expires_at=lt.{cutoff}",
