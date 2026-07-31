@@ -40,7 +40,6 @@ Supported categories:
 - `events`
 - `animals_characters`
 - `internet_culture`
-- `ai_tech`
 - `crypto_native`
 
 ## Lifecycle

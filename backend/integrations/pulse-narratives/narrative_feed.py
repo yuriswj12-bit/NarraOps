@@ -23,7 +23,6 @@ CATEGORIES = frozenset(
         "events",
         "animals_characters",
         "internet_culture",
-        "ai_tech",
         "crypto_native",
     }
 )
@@ -39,9 +38,6 @@ CATEGORY_TERMS = {
     ),
     "internet_culture": frozenset(
         {"viral", "meme", "internet", "creator", "streamer", "celebrity", "trend"}
-    ),
-    "ai_tech": frozenset(
-        {"ai", "artificial intelligence", "robot", "agent", "grok", "openai", "model"}
     ),
     "crypto_native": frozenset(
         {"crypto", "bitcoin", "ethereum", "solana", "token", "defi", "blockchain"}
