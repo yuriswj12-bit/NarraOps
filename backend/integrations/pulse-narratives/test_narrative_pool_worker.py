@@ -37,5 +37,19 @@ class NarrativePoolWorkerTests(unittest.TestCase):
         self.assertEqual(row["category"], "animals_characters")
 
 
+    def test_dedupe_candidate_rows_keeps_unique_url_and_id(self):
+        rows = [
+            {"narrative_id": "a", "source_url": "https://example.com/one"},
+            {"narrative_id": "b", "source_url": "https://example.com/one"},
+            {"narrative_id": "a", "source_url": "https://example.com/two"},
+            {"narrative_id": "c", "source_url": "https://example.com/three"},
+        ]
+        deduped = worker.dedupe_candidate_rows(rows)
+        self.assertEqual(
+            [(row["narrative_id"], row["source_url"]) for row in deduped],
+            [("a", "https://example.com/one"), ("c", "https://example.com/three")],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
