@@ -1018,19 +1018,17 @@ button {
 
 .narrative-columns {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(300px, calc((100% - 54px) / 4));
-  gap: 18px;
-  padding-bottom: 12px;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  scroll-snap-type: x proximity;
-  scrollbar-color: var(--border-strong) transparent;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .narrative-column {
+  width: 100%;
   min-width: 0;
-  scroll-snap-align: start;
+  overflow-x: hidden;
 }
 
 .narrative-column > header {
@@ -1061,9 +1059,10 @@ button {
   display: grid;
   align-content: start;
   gap: 12px;
-  max-height: 760px;
+  height: clamp(520px, 62vh, 680px);
   padding-right: 3px;
   overflow-y: auto;
+  overflow-x: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
@@ -2224,7 +2223,7 @@ select:focus-visible {
   }
 
   .narrative-columns {
-    grid-auto-columns: minmax(300px, calc((100% - 18px) / 2));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2263,7 +2262,7 @@ select:focus-visible {
   }
 
   .narrative-columns {
-    grid-auto-columns: minmax(280px, 86%);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .narrative-column-feed {
@@ -2363,7 +2362,7 @@ select:focus-visible {
   }
 
   .narrative-columns {
-    grid-auto-columns: 92%;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .heading-actions button {
