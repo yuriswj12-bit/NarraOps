@@ -1,4 +1,4 @@
-﻿[
+[
   {
     "id": "opennews-web3-meme",
     "type": "opennews_free_hot",
@@ -237,7 +237,7 @@
     "name": "Reuters World",
     "url": "https://www.reutersagency.com/feed/?taxonomy=best-topics&post_type=best",
     "category_hint": "events",
-    "enabled": true
+    "enabled": false
   },
   {
     "id": "ap-top",
@@ -245,7 +245,7 @@
     "name": "Associated Press",
     "url": "https://rsshub.app/apnews/topics/apf-topnews",
     "category_hint": "events",
-    "enabled": true
+    "enabled": false
   },
   {
     "id": "know-your-meme",
@@ -261,7 +261,7 @@
     "name": "Meme Center",
     "url": "https://www.memecenter.com/feed",
     "category_hint": "internet_culture",
-    "enabled": true
+    "enabled": false
   },
   {
     "id": "polygon-culture",
@@ -325,6 +325,6 @@
     "name": "SolanaFloor",
     "url": "https://solanafloor.com/news/rss.xml",
     "category_hint": "crypto_native",
-    "enabled": true
+    "enabled": false
   }
 ]
