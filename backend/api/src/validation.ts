@@ -246,7 +246,7 @@ export function validateConversationCreate(body) {
   const context = isObject(body.context) ? body.context : {};
   base(context);
   return {
-    language: context.language === "en" ? "en" : "zh",
+    language: context.language === "zh" ? "zh" : "en",
     currentView: string(context.currentView, "context.currentView", { max: 50 }) || "go",
     projectId: string(context.projectId, "context.projectId", { max: 100 }),
   };
@@ -262,7 +262,7 @@ export function validateConversationMessage(body) {
     message,
     command,
     context: {
-      language: context.language === "en" ? "en" : "zh",
+      language: context.language === "zh" ? "zh" : "en",
       currentView: string(context.currentView, "context.currentView", { max: 50 }) || "go",
       projectId: string(context.projectId, "context.projectId", { max: 100 }),
     },
