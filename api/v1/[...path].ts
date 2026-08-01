@@ -14,6 +14,13 @@ import {
   loadPulseNarrativesResponse,
   usePulseNarrative,
 } from "./pulse-narratives";
+import {
+  createAgentConversation,
+  createAgentTask,
+  getAgentConversation,
+  handleTelegramWebhook,
+  postAgentConversationMessage,
+} from "./agent/runtime";
 
 const COOKIE_NAME = "narraops_session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -823,6 +830,96 @@ export default async function handler(request, response) {
             : "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
       },
     );
+  }
+
+
+  if (request.method === "POST" && path === "/api/v1/agent/conversations") {
+    try {
+      const body = await readBody(request);
+      const conversation = await createAgentConversation(body);
+      return sendJson(response, 201, conversation, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "INTERNAL_ERROR",
+        error.message || "Unable to create agent conversation",
+      );
+    }
+  }
+
+  if (request.method === "GET" && path.startsWith("/api/v1/agent/conversations/")) {
+    const conversationId = path.slice("/api/v1/agent/conversations/".length);
+    if (!conversationId || conversationId.includes("/")) {
+      // allow message subpath to fall through if needed
+    }
+    if (conversationId && !conversationId.includes("/")) {
+      const conversation = await getAgentConversation(conversationId);
+      if (!conversation) {
+        return apiError(response, 404, "CONVERSATION_NOT_FOUND", "Agent conversation was not found");
+      }
+      return sendJson(response, 200, conversation, { "cache-control": "private, no-store" });
+    }
+  }
+
+  if (request.method === "POST" && /^\/api\/v1\/agent\/conversations\/[^/]+\/messages$/.test(path)) {
+    try {
+      const conversationId = path.split("/")[5];
+      const body = await readBody(request);
+      const result = await postAgentConversationMessage(conversationId, {
+        ...body,
+        channel: body.channel || "web",
+        wait: body.wait !== false,
+      });
+      return sendJson(response, 200, result, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "INTERNAL_ERROR",
+        error.message || "Unable to process agent message",
+      );
+    }
+  }
+
+  if (request.method === "POST" && path === "/api/v1/agent/tasks") {
+    try {
+      const body = await readBody(request);
+      const result = await createAgentTask(body);
+      return sendJson(response, 202, result, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "INTERNAL_ERROR",
+        error.message || "Unable to create agent task",
+      );
+    }
+  }
+
+  if (request.method === "POST" && path === "/api/v1/telegram/webhook") {
+    try {
+      const secret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+      if (secret) {
+        const provided =
+          request.headers["x-telegram-bot-api-secret-token"] ||
+          request.headers["x-narraops-telegram-secret"] ||
+          "";
+        if (provided !== secret) {
+          return apiError(response, 401, "TELEGRAM_WEBHOOK_UNAUTHORIZED", "Invalid Telegram webhook secret");
+        }
+      }
+      const body = await readBody(request);
+      const result = await handleTelegramWebhook(body);
+      return sendJson(response, 200, result, { "cache-control": "no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "INTERNAL_ERROR",
+        error.message || "Unable to handle Telegram webhook",
+      );
+    }
   }
 
   if (request.method === "POST" && path === "/api/v1/go/plan") {

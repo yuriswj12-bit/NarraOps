@@ -2142,6 +2142,61 @@ function getAgentResponse(command) {
   };
 }
 
+
+async function ensureGoConversation() {
+  if (state.agent.conversationId) return state.agent.conversationId;
+  if (state.agent.conversationPromise) return state.agent.conversationPromise;
+  state.agent.conversationPromise = (async () => {
+    const payload = await apiRequest("/api/v1/agent/conversations", {
+      method: "POST",
+      body: JSON.stringify({
+        channel: "web",
+        context: {
+          language: state.language,
+          currentView: state.view || "go",
+        },
+      }),
+    });
+    state.agent.conversationId = payload.conversationId || payload.conversation_id;
+    return state.agent.conversationId;
+  })();
+  try {
+    return await state.agent.conversationPromise;
+  } finally {
+    state.agent.conversationPromise = null;
+  }
+}
+
+function cardFromRuntimeResult(result) {
+  if (result?.cards?.length) return result.cards[0];
+  if (result?.task?.result?.card) return result.task.result.card;
+  if (result?.card) return result.card;
+  return null;
+}
+
+function agentMessageFromRuntime(result, fallbackCommand = "") {
+  const card = cardFromRuntimeResult(result);
+  const content =
+    result?.message?.content ||
+    (state.language === "zh" ? "任务已完成。" : "Task completed.");
+  const suggestion =
+    result?.message?.suggestion ||
+    (state.language === "zh"
+      ? "可以继续补充参数，或要求生成发射预案。"
+      : "You can refine parameters or ask for a launch draft.");
+  return {
+    role: "agent",
+    timestamp: getMessageTime(),
+    contentZh: content,
+    contentEn: content,
+    suggestionZh: suggestion,
+    suggestionEn: suggestion,
+    card: card || undefined,
+    taskId: result?.task_id || result?.task?.task_id || null,
+    status: result?.status || result?.task?.status || null,
+  };
+}
+
 function shouldUsePulsePlan(command) {
   if (state.go.pendingOpportunityId || state.go.pendingNarrativeSnapshot?.snapshot_id) {
     return true;
@@ -2207,9 +2262,9 @@ async function submitPulsePlan(command, pendingId) {
   }
 }
 
-function submitAgentCommand(value) {
+async function submitAgentCommand(value) {
   const command = value.trim();
-  if (!command || state.go.busy) return;
+  if (!command || state.go.busy || state.agent.submitting) return;
   const pendingId = `pending-${Date.now()}`;
   state.conversation.push({ role: "user", content: command, timestamp: getMessageTime() });
   state.conversation.push({ role: "agent", pending: true, pendingId, timestamp: getMessageTime() });
@@ -2220,14 +2275,46 @@ function submitAgentCommand(value) {
     input.style.height = "";
   }
 
+  // Pulse snapshot/opportunity path remains specialized.
   if (shouldUsePulsePlan(command)) {
     void submitPulsePlan(command, pendingId);
     return;
   }
 
-  window.setTimeout(() => {
-    replacePendingMessage(pendingId, getAgentResponse(command));
-  }, 0);
+  state.go.busy = true;
+  state.agent.submitting = true;
+  state.agent.retryCommand = command;
+  try {
+    const conversationId = await ensureGoConversation();
+    const payload = await apiRequest(`/api/v1/agent/conversations/${conversationId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({
+        message: command,
+        command: command.startsWith("/") ? command : undefined,
+        channel: "web",
+        wait: true,
+        context: {
+          language: state.language,
+          currentView: state.view || "go",
+        },
+      }),
+    });
+    state.agent.activeTaskId = payload.task_id || payload.taskId || null;
+    replacePendingMessage(pendingId, agentMessageFromRuntime(payload, command));
+  } catch (error) {
+    replacePendingMessage(pendingId, {
+      role: "agent",
+      timestamp: getMessageTime(),
+      contentZh: `Agent 处理失败：${error instanceof Error ? error.message : String(error)}`,
+      contentEn: `Agent request failed: ${error instanceof Error ? error.message : String(error)}`,
+      suggestionZh: "可点击重试，或改用更明确的 / 命令。",
+      suggestionEn: "Retry, or use a more explicit slash command.",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    state.go.busy = false;
+    state.agent.submitting = false;
+  }
 }
 
 function switchView(view) {
