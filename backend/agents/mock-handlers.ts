@@ -2,6 +2,7 @@
 import { simulateExecution } from "./execution-simulator.ts";
 import { resolveLaunchPlatform } from "../integrations/launch-platform-registry.ts";
 import { buildDraftMetadata, prepareNarrativeLink } from "../integrations/narrative-link-adapter.ts";
+import { generateStructuredLaunchContent } from "./llm-provider.ts";
 
 function slug(value, fallback) {
   const result = String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32);
@@ -107,12 +108,37 @@ export function createMockHandlers(integrations, services = {}) {
       const platform = resolveLaunchPlatform({ chain, platform: input.platform });
       const narrativeUrl = input.narrative_url || extractPublicUrl(input.prompt);
       const narrative = prepareNarrativeLink(narrativeUrl);
-      const token = buildDraftMetadata({ narrative, token: input.token || {} });
+      const language = input?.context?.language === "zh" ? "zh" : "en";
+      const sourceText = [
+        narrative?.title,
+        narrative?.summary,
+        input.source_text,
+        input.prompt,
+      ].filter(Boolean).join("\n");
+      const generated = await generateStructuredLaunchContent({
+        prompt: input.prompt || "",
+        sourceText,
+        language,
+      });
+      const token = buildDraftMetadata({
+        narrative,
+        token: {
+          name: generated.content.name,
+          symbol: generated.content.symbol,
+          description: generated.content.description,
+          ...(input.token || {}),
+        },
+      });
+      if (!token.image_url) token.image_url = null;
       const missingFields = ["name", "symbol", "description", "image_url"].filter((field) => !token[field]);
-      const draft = services.launchDraftRepository?.create({
+      const draftInput = {
         chain,
         platform,
-        narrative,
+        narrative: {
+          ...narrative,
+          thesis: generated.content.narrative_thesis,
+          risk_notes: generated.content.risk_notes,
+        },
         source_prompt: input.prompt || null,
         token,
         dev_wallet_id: input.dev_wallet_id || null,
@@ -120,18 +146,31 @@ export function createMockHandlers(integrations, services = {}) {
         preparation_status: missingFields.length ? "requires_enrichment" : "ready_for_user_review",
         missing_fields: missingFields,
         requires_user_confirmation: true,
-      }) || {
-        chain,
-        platform,
-        narrative,
-        token,
-        preparation_status: "repository_unavailable",
-        missing_fields: missingFields,
-        requires_user_confirmation: true,
-        execution_mode: "disabled",
+        conversation_id: context.conversationId || input?.context?.conversation_id || null,
+        user_id: input?.context?.user_id || null,
+        metadata: {
+          content_provider: generated.provider,
+          used_llm: Boolean(generated.used_llm),
+        },
       };
+      const draft = services.launchDraftRepository?.create
+        ? await services.launchDraftRepository.create(draftInput)
+        : {
+            launch_draft_id: null,
+            ...draftInput,
+            preparation_status: "repository_unavailable",
+            execution_mode: "disabled",
+          };
       const execution = simulateExecution("launch_simulation", input);
-      const result = { ...execution, ...draft, executable: false, submitted: false, reason: "real_execution_disabled" };
+      const result = {
+        ...execution,
+        ...draft,
+        executable: false,
+        submitted: false,
+        reason: "real_execution_disabled",
+        content_provider: generated.provider,
+        used_llm: Boolean(generated.used_llm),
+      };
       context.emitEvent("launch_plan_ready", { launch_draft_id: result.launch_draft_id, executable: false });
       context.emitEvent("execution_disabled", { action: "launch", reason: "real_execution_disabled" });
       return { ...result, card: { type: "launch_draft", data: result } };
@@ -217,7 +256,9 @@ export function createMockHandlers(integrations, services = {}) {
     },
 
     async "account.recent-summary"(input, context) {
-      const drafts = services.launchDraftRepository?.list() || [];
+      const drafts = services.launchDraftRepository?.list
+        ? await services.launchDraftRepository.list()
+        : [];
       const devWallets = services.devWalletRepository?.list() || [];
       const result = {
         mode: "repository_snapshot",

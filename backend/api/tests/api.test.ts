@@ -446,6 +446,32 @@ test("launch drafts map Solana, BSC, and Robinhood to the required platforms", a
     assert.equal(draft.execution_mode, "disabled");
     assert.equal(draft.signing_status, "signing_disabled");
     assert.equal(draft.broadcasting_status, "broadcasting_disabled");
+
+    const updateResponse = await fetch(`${baseUrl}/api/v1/go/launch-drafts/${draft.launch_draft_id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        token: {
+          name: "Updated Example",
+          symbol: "UPDATED",
+          description: "Updated review-only narrative",
+          image_url: "https://example.com/updated.png",
+        },
+      }),
+    });
+    assert.equal(updateResponse.status, 200);
+    const updated = await updateResponse.json();
+    assert.equal(updated.card.type, "launch_draft");
+    assert.equal(updated.draft.token.symbol, "UPDATED");
+
+    const reviewResponse = await fetch(`${baseUrl}/api/v1/go/launch-drafts/${draft.launch_draft_id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "mark_reviewed" }),
+    });
+    assert.equal(reviewResponse.status, 200);
+    const reviewed = await reviewResponse.json();
+    assert.equal(reviewed.draft.metadata.review_status, "reviewed");
   }
 });
 

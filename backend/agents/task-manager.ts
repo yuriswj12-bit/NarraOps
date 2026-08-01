@@ -38,9 +38,9 @@ export class TaskManager extends EventEmitter {
     this.#stepDelayMs = stepDelayMs;
   }
 
-  create(type, input, requestId, metadata = {}) {
+  async create(type, input, requestId, metadata = {}) {
     const now = new Date().toISOString();
-    const task = this.#repository.create({
+    const task = await this.#repository.create({
       taskId: randomUUID(),
       type,
       status: "queued",
@@ -52,6 +52,8 @@ export class TaskManager extends EventEmitter {
       requiresConfirmation: Boolean(metadata.requires_confirmation),
       executionMode: metadata.execution_mode || "mock",
       parsedInput: metadata,
+      conversationId: metadata.conversation_id || null,
+      channel: metadata.channel || null,
     });
     this.#emit("task.created", task);
     this.#emitDomain("agent_task_created", task, {
@@ -61,8 +63,8 @@ export class TaskManager extends EventEmitter {
     return this.publicTask(task);
   }
 
-  get(taskId) {
-    const task = this.#repository.get(taskId);
+  async get(taskId) {
+    const task = await this.#repository.get(taskId);
     return task ? this.publicTask(task, { includeResult: true }) : null;
   }
 
@@ -108,7 +110,7 @@ export class TaskManager extends EventEmitter {
   }
 
   async #run(taskId) {
-    let task = this.#repository.update(taskId, { status: "running", progress: 20, updatedAt: new Date().toISOString() });
+    let task = await this.#repository.update(taskId, { status: "running", progress: 20, updatedAt: new Date().toISOString() });
     if (!task || TERMINAL.has(task.status)) return;
     this.#emit("task.progress", task);
     this.#emitDomain("agent.started", task, { progress: task.progress });
@@ -116,7 +118,7 @@ export class TaskManager extends EventEmitter {
     try {
       const handler = this.#handlers[task.type];
       if (!handler) throw new Error(`No handler registered for ${task.type}`);
-      task = this.#repository.update(taskId, { progress: 65, updatedAt: new Date().toISOString() });
+      task = await this.#repository.update(taskId, { progress: 65, updatedAt: new Date().toISOString() });
       this.#emit("task.progress", task);
       if (task.parsedInput?.raw_input) {
         this.#emitDomain("command_parsed", task, {
@@ -129,12 +131,14 @@ export class TaskManager extends EventEmitter {
         taskId,
         requestId: task.requestId,
         executionMode: task.executionMode,
+        conversationId: task.conversationId || task.parsedInput?.conversation_id || null,
+        channel: task.channel || task.parsedInput?.channel || null,
         emitEvent: (type, payload = {}) => this.#emitDomain(type, task, payload),
       });
       if (result?.card) {
         this.#emitDomain("agent.card", task, { card: result.card });
       }
-      task = this.#repository.update(taskId, {
+      task = await this.#repository.update(taskId, {
         status: "succeeded",
         progress: 100,
         result,
@@ -144,10 +148,13 @@ export class TaskManager extends EventEmitter {
       this.#emit("task.completed", task);
       this.#emitDomain("agent.completed", task, { progress: 100, result });
     } catch (error) {
-      task = this.#repository.update(taskId, {
+      task = await this.#repository.update(taskId, {
         status: "failed",
         progress: 100,
-        failure: { code: "AGENT_TASK_FAILED", message: "The mock agent task failed" },
+        failure: {
+          code: "AGENT_TASK_FAILED",
+          message: error instanceof Error ? error.message : "The agent task failed",
+        },
         updatedAt: new Date().toISOString(),
         completedAt: new Date().toISOString(),
       });

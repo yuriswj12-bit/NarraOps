@@ -20,6 +20,7 @@ import {
   getAgentConversation,
   handleTelegramWebhook,
   postAgentConversationMessage,
+  updateAgentLaunchDraft,
 } from "./agent/runtime";
 
 const COOKIE_NAME = "narraops_session";
@@ -893,6 +894,25 @@ export default async function handler(request, response) {
         error.status || 500,
         error.code || "INTERNAL_ERROR",
         error.message || "Unable to create agent task",
+      );
+    }
+  }
+
+  if (request.method === "PATCH" && path.startsWith("/api/v1/go/launch-drafts/")) {
+    try {
+      const draftId = path.slice("/api/v1/go/launch-drafts/".length);
+      if (!draftId) {
+        return apiError(response, 400, "VALIDATION_ERROR", "launch draft id is required");
+      }
+      const body = await readBody(request);
+      const result = await updateAgentLaunchDraft(draftId, body);
+      return sendJson(response, 200, result, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "INTERNAL_ERROR",
+        error.message || "Unable to update launch draft",
       );
     }
   }

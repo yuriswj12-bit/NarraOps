@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 /**
  * Channel-agnostic Agent Runtime.
  * Web Go and Telegram share this entrypoint so product logic stays in one place.
@@ -11,6 +11,12 @@ import { InMemoryConversationRepository } from "../api/src/repositories/in-memor
 import { InMemoryTaskRepository } from "../api/src/repositories/in-memory-task-repository.ts";
 import { InMemoryLaunchDraftRepository } from "../api/src/repositories/in-memory-launch-draft-repository.ts";
 import { InMemoryDevWalletRepository } from "../api/src/repositories/in-memory-dev-wallet-repository.ts";
+import { containsForbiddenSecret } from "../api/src/security.ts";
+import {
+  SupabaseConversationRepository,
+  SupabaseLaunchDraftRepository,
+  SupabaseTaskRepository,
+} from "../api/src/repositories/supabase-agent-repositories.ts";
 import {
   validateAgentTask,
   validateConversationCreate,
@@ -81,21 +87,103 @@ function messageFromTask(task, language = "en") {
     role: "assistant",
     content: labels[cardType] || (zh ? "任务已完成。" : "Task completed."),
     suggestion: zh
-      ? "可以继续修改参数，或要求生成发射预案。"
-      : "You can refine parameters or ask for a launch draft next.",
+      ? "可以继续修改参数，或要求生成/更新发射预案。"
+      : "You can refine parameters or ask to create/update a launch draft.",
   };
+}
+
+const LAUNCH_DRAFT_TOKEN_FIELDS = Object.freeze([
+  "name",
+  "symbol",
+  "description",
+  "image_url",
+  "x_url",
+  "website_url",
+]);
+
+export function normalizeLaunchDraftPatch(patch = {}) {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    throw Object.assign(new Error("Launch draft patch must be a JSON object"), {
+      status: 400,
+      code: "VALIDATION_ERROR",
+    });
+  }
+  if (containsForbiddenSecret(patch)) {
+    throw Object.assign(new Error("Private keys, seed phrases, tokens, cookies, and API keys are not accepted"), {
+      status: 400,
+      code: "SENSITIVE_INPUT_REJECTED",
+    });
+  }
+
+  const normalized = {};
+  if (patch.token !== undefined) {
+    if (!patch.token || typeof patch.token !== "object" || Array.isArray(patch.token)) {
+      throw Object.assign(new Error("token must be an object"), {
+        status: 400,
+        code: "VALIDATION_ERROR",
+      });
+    }
+    const token = {};
+    for (const field of LAUNCH_DRAFT_TOKEN_FIELDS) {
+      if (patch.token[field] === undefined) continue;
+      if (patch.token[field] !== null && typeof patch.token[field] !== "string") {
+        throw Object.assign(new Error(`token.${field} must be a string or null`), {
+          status: 400,
+          code: "VALIDATION_ERROR",
+        });
+      }
+      const value = patch.token[field];
+      const max = field === "symbol" ? 13 : field === "name" ? 64 : field === "description" ? 2_000 : 2_000;
+      token[field] = value == null ? null : value.trim().slice(0, max);
+    }
+    if (!Object.keys(token).length) {
+      throw Object.assign(new Error("token must include at least one editable field"), {
+        status: 400,
+        code: "VALIDATION_ERROR",
+      });
+    }
+    normalized.token = token;
+  }
+
+  if (patch.action !== undefined) {
+    if (patch.action !== "mark_reviewed") {
+      throw Object.assign(new Error("Unsupported launch draft action"), {
+        status: 400,
+        code: "VALIDATION_ERROR",
+      });
+    }
+    normalized.metadata = {
+      review_status: "reviewed",
+      reviewed_at: new Date().toISOString(),
+    };
+  }
+
+  if (!Object.keys(normalized).length) {
+    throw Object.assign(new Error("Launch draft patch is empty"), {
+      status: 400,
+      code: "VALIDATION_ERROR",
+    });
+  }
+  return normalized;
 }
 
 export function createAgentRuntime(options = {}) {
   const config = options.config || {};
   const integrations = options.integrations || createIntegrationRegistry(config);
+  const supabase = options.supabase || null;
+
   const conversations =
-    options.conversationRepository || new InMemoryConversationRepository();
-  const tasks = options.taskRepository || new InMemoryTaskRepository();
+    options.conversationRepository ||
+    (supabase ? new SupabaseConversationRepository(supabase) : new InMemoryConversationRepository());
+  const tasks =
+    options.taskRepository ||
+    (supabase ? new SupabaseTaskRepository(supabase) : new InMemoryTaskRepository());
   const launchDrafts =
-    options.launchDraftRepository || new InMemoryLaunchDraftRepository();
+    options.launchDraftRepository ||
+    (supabase ? new SupabaseLaunchDraftRepository(supabase) : new InMemoryLaunchDraftRepository());
   const devWallets =
     options.devWalletRepository || new InMemoryDevWalletRepository();
+
   const manager =
     options.taskManager ||
     new TaskManager({
@@ -108,25 +196,24 @@ export function createAgentRuntime(options = {}) {
     });
 
   manager.on("taskEvent", (event) => {
-    if (event.type !== "task.completed" && event.type !== "task.failed") return;
-    const task = event.task;
-    const conversationId = conversations.conversationIdForTask(task?.taskId);
-    if (!conversationId) return;
-    conversations.addMessage(conversationId, {
-      role: "assistant",
-      taskId: task.taskId,
-      status: event.type === "task.completed" ? "completed" : "failed",
-      blocks: assistantBlocksFromTask(task),
-    });
+    void (async () => {
+      if (event.type !== "task.completed" && event.type !== "task.failed") return;
+      const task = event.task;
+      const conversationId = await conversations.conversationIdForTask(task?.taskId);
+      if (!conversationId) return;
+      await conversations.addMessage(conversationId, {
+        role: "assistant",
+        taskId: task.taskId,
+        status: event.type === "task.completed" ? "completed" : "failed",
+        blocks: assistantBlocksFromTask(task),
+      });
+    })();
   });
 
-  async function waitForTask(taskId, {
-    timeoutMs = 8_000,
-    pollMs = 40,
-  } = {}) {
+  async function waitForTask(taskId, { timeoutMs = 8_000, pollMs = 40 } = {}) {
     const started = Date.now();
     while (Date.now() - started < timeoutMs) {
-      const task = manager.get(taskId);
+      const task = await manager.get(taskId);
       if (!task) return null;
       if (["succeeded", "failed", "cancelled"].includes(task.status)) return task;
       await sleep(pollMs);
@@ -134,7 +221,7 @@ export function createAgentRuntime(options = {}) {
     return manager.get(taskId);
   }
 
-  function createConversation(rawContext = {}, channel = "web") {
+  async function createConversation(rawContext = {}, channel = "web") {
     if (!SUPPORTED_CHANNELS.has(channel)) {
       throw Object.assign(new Error(`Unsupported agent channel: ${channel}`), {
         status: 400,
@@ -151,11 +238,42 @@ export function createAgentRuntime(options = {}) {
       ...context,
       channel,
       channel_user_id: rawContext.channelUserId || rawContext.channel_user_id || null,
+      user_id: rawContext.userId || rawContext.user_id || null,
     });
   }
 
-  function getConversation(conversationId) {
+  async function getConversation(conversationId) {
     return conversations.get(conversationId);
+  }
+
+  async function updateLaunchDraft(draftId, patch = {}) {
+    if (!launchDrafts?.update) {
+      throw Object.assign(new Error("Launch draft updates are unavailable"), {
+        status: 503,
+        code: "LAUNCH_DRAFT_UPDATE_UNAVAILABLE",
+      });
+    }
+    const updated = await launchDrafts.update(draftId, normalizeLaunchDraftPatch(patch));
+    if (!updated) {
+      throw Object.assign(new Error("Launch draft was not found"), {
+        status: 404,
+        code: "LAUNCH_DRAFT_NOT_FOUND",
+      });
+    }
+    return {
+      schema_version: "go.launch_draft.v1",
+      draft: updated,
+      card: {
+        type: "launch_draft",
+        status: updated.preparation_status,
+        data: {
+          ...updated,
+          executable: false,
+          submitted: false,
+          reason: "real_execution_disabled",
+        },
+      },
+    };
   }
 
   async function handleMessage({
@@ -174,9 +292,9 @@ export function createAgentRuntime(options = {}) {
       });
     }
 
-    let conversation = conversationId ? conversations.get(conversationId) : null;
+    let conversation = conversationId ? await conversations.get(conversationId) : null;
     if (!conversation) {
-      conversation = createConversation(context, channel);
+      conversation = await createConversation(context, channel);
     }
 
     const validated = validateConversationMessage({
@@ -189,7 +307,7 @@ export function createAgentRuntime(options = {}) {
       },
     });
 
-    conversations.addMessage(conversation.conversationId, {
+    await conversations.addMessage(conversation.conversationId, {
       role: "user",
       content: validated.message,
       command: validated.command,
@@ -204,22 +322,30 @@ export function createAgentRuntime(options = {}) {
         context: {
           ...validated.context,
           channel,
+          conversation_id: conversation.conversationId,
           channel_user_id:
             context.channelUserId ||
             context.channel_user_id ||
+            conversation.channelUserId ||
             conversation.context?.channel_user_id ||
+            null,
+          user_id:
+            context.userId ||
+            context.user_id ||
+            conversation.userId ||
+            conversation.context?.user_id ||
             null,
         },
       },
     });
 
     const requestId = context.requestId || randomUUID();
-    const task = manager.create(parsed.type, parsed.input, requestId, {
+    const task = await manager.create(parsed.type, parsed.input, requestId, {
       ...parsed.metadata,
       conversation_id: conversation.conversationId,
       channel,
     });
-    conversations.bindTask(conversation.conversationId, task.taskId);
+    await conversations.bindTask(conversation.conversationId, task.taskId);
 
     let finalTask = publicTask(task);
     let assistantMessage = null;
@@ -243,15 +369,18 @@ export function createAgentRuntime(options = {}) {
         : Array.isArray(finalTask?.result?.cards)
           ? finalTask.result.cards
           : [],
+      persistence: supabase ? "supabase" : "memory",
     };
   }
 
   return {
     manager,
     conversations,
+    launchDrafts,
     createConversation,
     getConversation,
     handleMessage,
+    updateLaunchDraft,
     waitForTask,
     publicTask,
   };

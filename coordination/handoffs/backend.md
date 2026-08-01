@@ -1,5 +1,35 @@
 # Backend handoff
 
+## 2026-08-02 Go Agent core continuation
+
+- Completed the channel-agnostic Go Agent runtime for web/API and future
+  Telegram entry points.
+- Added durable Supabase repositories and migration `021_go_agent_core.sql`
+  for conversations, messages, tasks, and review-only launch drafts. The
+  runtime falls back to in-memory repositories when server Supabase
+  credentials are absent.
+- Added optional OpenAI-compatible structured launch-content generation with a
+  deterministic template fallback. No signing, broadcasting, or real-fund
+  execution is enabled.
+- Restored Go conversations from local storage, connected Launch Draft cards to
+  safe PATCH updates, and wired edit/review actions in the frontend.
+- Fixed all async repository awaits in TaskManager and the local API, including
+  SSE completion/replay and conversation assistant-message persistence.
+- Launch Draft PATCH accepts only editable token fields or `mark_reviewed` and
+  rejects secret-shaped fields.
+
+Verification: backend API `71/71`, Agent runtime `5/5`, TypeScript typecheck,
+frontend build, backend bundle, Node syntax checks, and `git diff --check` all
+pass.
+
+Files intentionally not part of this handoff: untracked `app-20260729-pulse-
+market-history.js` and `app-20260729-pulse-market-history-v2.js`.
+
+Remaining blockers: apply migration `021` in hosted Supabase, configure server-
+only Supabase credentials if durable persistence is needed, and optionally
+configure an OpenAI-compatible provider. Telegram rollout still requires bot
+credentials and webhook deployment.
+
 ## 2026-07-30 Pulse production narrative schedule
 
 - Replaced the unreliable production dependency on GitHub scheduled workflows
