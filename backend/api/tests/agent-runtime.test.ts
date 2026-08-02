@@ -122,8 +122,21 @@ test("launch draft can be created and patched through runtime", async () => {
   });
   assert.equal(updated.card.type, "launch_draft");
   assert.equal(updated.draft.token.symbol, "RACC");
-  assert.equal(updated.draft.preparation_status, "ready_for_user_review");
+  assert.equal(updated.draft.preparation_status, "requires_wallet_selection");
   assert.deepEqual(updated.draft.missing_fields, []);
+  assert.deepEqual(updated.draft.required_user_selections, [
+    "cooking_wallet_group_id",
+    "bundled_wallet_group_id",
+  ]);
+
+  const walletReady = await runtime.updateLaunchDraft(draftId, {
+    cooking_wallet_group_id: "cook-group",
+    bundled_wallet_group_id: "bundle-group",
+  });
+  assert.equal(walletReady.draft.cooking_wallet_group_id, "cook-group");
+  assert.equal(walletReady.draft.bundled_wallet_group_id, "bundle-group");
+  assert.equal(walletReady.draft.preparation_status, "ready_for_user_review");
+  assert.deepEqual(walletReady.draft.required_user_selections, []);
 
   const reviewed = await runtime.updateLaunchDraft(draftId, { action: "mark_reviewed" });
   assert.equal(reviewed.draft.metadata.review_status, "reviewed");
@@ -132,6 +145,62 @@ test("launch draft can be created and patched through runtime", async () => {
     () => runtime.updateLaunchDraft(draftId, { token: { private_key: "never-store-this" } }),
     (error) => error.code === "SENSITIVE_INPUT_REJECTED",
   );
+});
+
+test("a follow-up launch request reuses the link-derived draft from the same conversation", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /^https:\/\/publish\.twitter\.com\/oembed\?/);
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
+      async text() {
+        return JSON.stringify({
+          author_name: "Paul",
+          author_url: "https://x.com/coolish",
+          html: "<blockquote><p>Decoy alpha is the meme narrative for today.</p></blockquote>",
+        });
+      },
+    };
+  };
+
+  try {
+    const runtime = createAgentRuntime({ stepDelayMs: 1 });
+    const first = await runtime.handleMessage({
+      channel: "web",
+      message: "https://x.com/coolish/status/2083800621321535680?s=20",
+      context: { language: "zh", currentView: "go" },
+      wait: true,
+      timeoutMs: 3000,
+    });
+    assert.equal(first.status, "succeeded");
+    assert.equal(first.task.type, "launch.meme");
+    assert.equal(first.cards[0]?.type, "launch_draft");
+    const firstDraftId = first.cards[0]?.data?.launch_draft_id;
+    assert.ok(firstDraftId);
+
+    const second = await runtime.handleMessage({
+      channel: "web",
+      conversationId: first.conversation_id,
+      message: "给我生成发射草案",
+      context: { language: "zh", currentView: "go" },
+      wait: true,
+      timeoutMs: 3000,
+    });
+    assert.equal(second.status, "succeeded");
+    assert.equal(second.task.type, "launch.meme");
+    assert.equal(second.cards[0]?.type, "launch_draft");
+    assert.equal(second.cards[0]?.data?.launch_draft_id, firstDraftId);
+    assert.equal(second.cards[0]?.data?.reused_existing_draft, true);
+    assert.equal(
+      second.cards[0]?.data?.launch_parameters?.source_url,
+      "https://x.com/coolish/status/2083800621321535680?s=20",
+    );
+    assert.match(second.message.content, /发射预案/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("conversation messages are restored after create", async () => {

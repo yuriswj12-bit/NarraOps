@@ -114,6 +114,10 @@ const LAUNCH_DRAFT_TOKEN_FIELDS = Object.freeze([
   "x_url",
   "website_url",
 ]);
+const LAUNCH_DRAFT_SELECTION_FIELDS = Object.freeze([
+  "cooking_wallet_group_id",
+  "bundled_wallet_group_id",
+]);
 
 export function normalizeLaunchDraftPatch(patch = {}) {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
@@ -167,8 +171,25 @@ export function normalizeLaunchDraftPatch(patch = {}) {
       });
     }
     normalized.metadata = {
+      ...(normalized.metadata || {}),
       review_status: "reviewed",
       reviewed_at: new Date().toISOString(),
+    };
+  }
+
+  for (const field of LAUNCH_DRAFT_SELECTION_FIELDS) {
+    if (patch[field] === undefined) continue;
+    if (patch[field] !== null && typeof patch[field] !== "string") {
+      throw Object.assign(new Error(`${field} must be a string or null`), {
+        status: 400,
+        code: "VALIDATION_ERROR",
+      });
+    }
+    const value = patch[field] == null ? null : patch[field].trim().slice(0, 100);
+    normalized[field] = value || null;
+    normalized.metadata = {
+      ...(normalized.metadata || {}),
+      [field]: value || null,
     };
   }
 
@@ -205,6 +226,7 @@ export function createAgentRuntime(options = {}) {
       handlers: createMockHandlers(integrations, {
         devWalletRepository: devWallets,
         launchDraftRepository: launchDrafts,
+        conversationRepository: conversations,
       }),
       stepDelayMs: options.stepDelayMs ?? config.taskStepDelayMs ?? 20,
     });

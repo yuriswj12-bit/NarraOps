@@ -64,7 +64,7 @@ export async function postAgentConversationMessage(conversationId, body = {}) {
     command: body.command || null,
     context: body.context || {},
     wait,
-    timeoutMs: Number(body.timeoutMs || 8000),
+    timeoutMs: Number(body.timeoutMs || 20_000),
   });
 }
 
@@ -80,7 +80,7 @@ export async function createAgentTask(body = {}) {
     command: body.command || null,
     context: body.context || body.parameters?.context || {},
     wait: body.wait === true,
-    timeoutMs: Number(body.timeoutMs || 8000),
+    timeoutMs: Number(body.timeoutMs || 20_000),
   });
   return {
     task_id: result.task_id,

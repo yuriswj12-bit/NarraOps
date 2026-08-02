@@ -1,5 +1,41 @@
 # Backend handoff
 
+## 2026-08-02 Conversation-aware launch-draft continuation
+
+- Reproduced the production failure with the exact two-turn flow: send a
+  public X link, then ask `给我生成发射草案`. The first request could return
+  `running` before the link reader plus structured model completed, and the
+  second request did not inherit the prior source.
+- Increased the synchronous Agent wait budget to 20 seconds, reduced bounded
+  launch-content generation to 8 seconds, and stopped doing a second model
+  call merely to narrate an already structured card. X oEmbed failure now
+  returns its explicit data gap instead of starting a second full-page fetch.
+- `launch.meme` now resolves context in this order: current public link,
+  existing launch draft in the same conversation, then the latest public link
+  in that conversation's user messages. Repeating the same link or asking for
+  a launch draft reuses the existing draft instead of producing an unrelated
+  result.
+- Launch drafts now expose safe user selections for
+  `cooking_wallet_group_id` and `bundled_wallet_group_id`. Both can be patched
+  together with existing editable token fields. A complete token draft remains
+  `requires_wallet_selection` until both Assets-owned groups are selected;
+  real signing, broadcasting, launch, and fund movement remain disabled.
+- Repository list queries can be scoped by conversation/user, preventing
+  cross-conversation draft reuse. The hosted Supabase schema requires no new
+  columns because wallet selections are stored in the existing private
+  metadata JSON and surfaced through the server-owned read model.
+
+Verification: Agent/API tests `80/80`, TypeScript typecheck, Vercel build,
+frontend/backend checks, and `git diff --check` pass. A dedicated regression
+test covers the exact link -> natural-language launch request and confirms
+that the second response returns the same populated `launch_draft`.
+
+Frontend handoff: replace the current prompt-based token editor with an inline
+launch-parameter form, load authenticated Assets wallet groups, filter the
+Cooking selector to `purpose=cooking` and the bundled-buy selector to a
+same-network non-Cooking group, then PATCH both IDs through the existing
+`/api/v1/go/launch-drafts/{id}` route.
+
 ## 2026-08-02 Public-link to launch-draft workflow
 
 - Fixed the broken bare-link path shown in the Go screenshot. A bare public

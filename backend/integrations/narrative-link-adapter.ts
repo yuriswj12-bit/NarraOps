@@ -48,6 +48,7 @@ export async function fetchNarrativeLink(rawUrl, { fetchImpl = globalThis.fetch,
     if (isXUrl(currentUrl)) {
       const xResult = await fetchXPost(currentUrl, { fetchImpl, timeoutMs });
       if (xResult.status === "live") return { ...prepared, ...xResult, url: currentUrl };
+      return { ...prepared, ...xResult, url: currentUrl };
     }
     const page = await fetchPublicPage(currentUrl, { fetchImpl, timeoutMs });
     if (page.status !== "live") return { ...prepared, ...page, url: currentUrl };

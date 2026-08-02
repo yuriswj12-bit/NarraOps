@@ -229,7 +229,13 @@ export class SupabaseLaunchDraftRepository {
       source_prompt: input.source_prompt || null,
       missing_fields: input.missing_fields || [],
       requires_user_confirmation: input.requires_user_confirmation !== false,
-      metadata: input.metadata || {},
+      metadata: {
+        ...(input.metadata || {}),
+        cooking_wallet_group_id:
+          input.cooking_wallet_group_id || input.metadata?.cooking_wallet_group_id || null,
+        bundled_wallet_group_id:
+          input.bundled_wallet_group_id || input.metadata?.bundled_wallet_group_id || null,
+      },
       created_at: now,
       updated_at: now,
     };
@@ -256,15 +262,43 @@ export class SupabaseLaunchDraftRepository {
       ...(patch.token || {}),
     };
     const missing = ["name", "symbol", "description", "image_url"].filter((field) => !token[field]);
+    const cookingWalletGroupId =
+      patch.cooking_wallet_group_id ??
+      patch.metadata?.cooking_wallet_group_id ??
+      current.cooking_wallet_group_id ??
+      current.metadata?.cooking_wallet_group_id ??
+      null;
+    const bundledWalletGroupId =
+      patch.bundled_wallet_group_id ??
+      patch.metadata?.bundled_wallet_group_id ??
+      current.bundled_wallet_group_id ??
+      current.metadata?.bundled_wallet_group_id ??
+      null;
+    const requiredUserSelections = [
+      ...(!cookingWalletGroupId ? ["cooking_wallet_group_id"] : []),
+      ...(!bundledWalletGroupId ? ["bundled_wallet_group_id"] : []),
+    ];
     const next = {
       ...current,
       ...patch,
       token,
       platform: patch.platform || current.platform || {},
       narrative: patch.narrative || current.narrative || {},
-      metadata: { ...(current.metadata || {}), ...(patch.metadata || {}) },
+      metadata: {
+        ...(current.metadata || {}),
+        ...(patch.metadata || {}),
+        cooking_wallet_group_id: cookingWalletGroupId,
+        bundled_wallet_group_id: bundledWalletGroupId,
+      },
+      cooking_wallet_group_id: cookingWalletGroupId,
+      bundled_wallet_group_id: bundledWalletGroupId,
       missing_fields: missing,
-      preparation_status: missing.length ? "requires_enrichment" : "ready_for_user_review",
+      required_user_selections: requiredUserSelections,
+      preparation_status: missing.length
+        ? "requires_enrichment"
+        : requiredUserSelections.length
+          ? "requires_wallet_selection"
+          : "ready_for_user_review",
       updated_at: new Date().toISOString(),
     };
     const row = {
@@ -295,12 +329,15 @@ export class SupabaseLaunchDraftRepository {
     return this.#public(row);
   }
 
-  async list() {
-    const { data, error } = await this.#supabase
+  async list({ conversationId = null, userId = null } = {}) {
+    let query = this.#supabase
       .from("go_launch_drafts")
       .select("*")
       .order("updated_at", { ascending: false })
       .limit(100);
+    if (conversationId) query = query.eq("conversation_id", conversationId);
+    if (userId) query = query.eq("user_id", userId);
+    const { data, error } = await query;
     if (error) throw error;
     return (data || []).map((row) => this.#public(row));
   }
@@ -324,6 +361,12 @@ export class SupabaseLaunchDraftRepository {
       missing_fields: row.missing_fields || [],
       requires_user_confirmation: row.requires_user_confirmation,
       metadata: row.metadata || {},
+      cooking_wallet_group_id: row.metadata?.cooking_wallet_group_id || null,
+      bundled_wallet_group_id: row.metadata?.bundled_wallet_group_id || null,
+      required_user_selections: [
+        ...(!row.metadata?.cooking_wallet_group_id ? ["cooking_wallet_group_id"] : []),
+        ...(!row.metadata?.bundled_wallet_group_id ? ["bundled_wallet_group_id"] : []),
+      ],
       created_at: row.created_at,
       updated_at: row.updated_at,
     };

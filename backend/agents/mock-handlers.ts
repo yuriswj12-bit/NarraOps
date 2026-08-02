@@ -111,9 +111,22 @@ export function createMockHandlers(integrations, services = {}) {
     },
 
     async "launch.meme"(input, context) {
-      const narrativeUrl = input.narrative_url || extractPublicUrl(input.prompt);
+      const launchContext = await resolveLaunchContext(input, context, services);
+      if (launchContext.existingDraft) {
+        const result = launchResultFromDraft(launchContext.existingDraft, {
+          reusedExistingDraft: true,
+        });
+        context.emitEvent("launch_plan_ready", {
+          launch_draft_id: result.launch_draft_id,
+          executable: false,
+          reused_existing_draft: true,
+        });
+        context.emitEvent("execution_disabled", { action: "launch", reason: "real_execution_disabled" });
+        return { ...result, card: { type: "launch_draft", data: result } };
+      }
+      const narrativeUrl = launchContext.narrativeUrl;
       const narrative = await fetchNarrativeLink(narrativeUrl, {
-        timeoutMs: Number(input.link_timeout_ms || 8_000),
+        timeoutMs: Number(input.link_timeout_ms || 6_000),
       });
       const language = input?.context?.language === "zh" ? "zh" : "en";
       const sourceText = [
@@ -154,8 +167,11 @@ export function createMockHandlers(integrations, services = {}) {
         token,
         dev_wallet_id: input.dev_wallet_id || null,
         wallet_group_id: input.wallet_group_id || null,
-        preparation_status: missingFields.length ? "requires_enrichment" : "ready_for_user_review",
+        cooking_wallet_group_id: input.cooking_wallet_group_id || null,
+        bundled_wallet_group_id: input.bundled_wallet_group_id || input.wallet_group_id || null,
+        preparation_status: missingFields.length ? "requires_enrichment" : "requires_wallet_selection",
         missing_fields: missingFields,
+        required_user_selections: ["cooking_wallet_group_id", "bundled_wallet_group_id"],
         requires_user_confirmation: true,
         conversation_id: context.conversationId || input?.context?.conversation_id || null,
         user_id: input?.context?.user_id || null,
@@ -196,6 +212,7 @@ export function createMockHandlers(integrations, services = {}) {
             website_url: token.website_url,
           },
           missing_fields: missingFields,
+          required_user_selections: ["cooking_wallet_group_id", "bundled_wallet_group_id"],
         },
       };
       context.emitEvent("launch_plan_ready", { launch_draft_id: result.launch_draft_id, executable: false });
@@ -423,6 +440,89 @@ function extractContractAddress(value) {
 
 function extractPublicUrl(value) {
   return String(value || "").match(/https?:\/\/[^\s]+/i)?.[0] || null;
+}
+
+async function resolveLaunchContext(input, context, services) {
+  const conversationId = context.conversationId || input?.context?.conversation_id || null;
+  const directUrl = input.narrative_url || extractPublicUrl(input.prompt);
+  const drafts = services.launchDraftRepository?.list
+    ? await services.launchDraftRepository.list({ conversationId })
+    : [];
+  const conversationDrafts = (Array.isArray(drafts) ? drafts : [])
+    .filter((draft) => !conversationId || draft.conversation_id === conversationId)
+    .sort((left, right) => String(right.updated_at || "").localeCompare(String(left.updated_at || "")));
+
+  if (directUrl) {
+    const existingDraft = conversationDrafts.find((draft) => {
+      const sourceUrl = draft?.narrative?.url || draft?.narrative?.canonical_url || draft?.source_prompt;
+      return samePublicUrl(sourceUrl, directUrl);
+    });
+    return { narrativeUrl: directUrl, existingDraft: existingDraft || null };
+  }
+
+  if (conversationDrafts.length) {
+    return {
+      narrativeUrl:
+        conversationDrafts[0]?.narrative?.url ||
+        conversationDrafts[0]?.narrative?.canonical_url ||
+        extractPublicUrl(conversationDrafts[0]?.source_prompt),
+      existingDraft: conversationDrafts[0],
+    };
+  }
+
+  if (conversationId && services.conversationRepository?.get) {
+    const conversation = await services.conversationRepository.get(conversationId);
+    const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role !== "user") continue;
+      const historicalUrl = extractPublicUrl(messages[index]?.content || messages[index]?.command);
+      if (historicalUrl) return { narrativeUrl: historicalUrl, existingDraft: null };
+    }
+  }
+
+  return { narrativeUrl: null, existingDraft: null };
+}
+
+function samePublicUrl(left, right) {
+  try {
+    const normalize = (value) => {
+      const parsed = new URL(value);
+      parsed.hash = "";
+      return parsed.toString();
+    };
+    return normalize(left) === normalize(right);
+  } catch {
+    return String(left || "") === String(right || "");
+  }
+}
+
+function launchResultFromDraft(draft, { reusedExistingDraft = false } = {}) {
+  const platformId = typeof draft.platform === "string" ? draft.platform : draft.platform?.id || null;
+  const requiredUserSelections = [
+    ...(!draft.cooking_wallet_group_id ? ["cooking_wallet_group_id"] : []),
+    ...(!draft.bundled_wallet_group_id ? ["bundled_wallet_group_id"] : []),
+  ];
+  return {
+    ...draft,
+    mode: "review-only",
+    executable: false,
+    submitted: false,
+    reason: "real_execution_disabled",
+    reused_existing_draft: reusedExistingDraft,
+    required_user_selections: requiredUserSelections,
+    launch_parameters: {
+      chain: draft.chain || "solana",
+      platform: platformId,
+      source_url: draft?.narrative?.url || draft?.narrative?.canonical_url || extractPublicUrl(draft.source_prompt),
+      source_status: draft?.narrative?.status || "not_provided",
+      source_fetched: Boolean(draft?.narrative?.fetched),
+      token: draft.token || {},
+      cooking_wallet_group_id: draft.cooking_wallet_group_id || null,
+      bundled_wallet_group_id: draft.bundled_wallet_group_id || null,
+      missing_fields: draft.missing_fields || [],
+      required_user_selections: requiredUserSelections,
+    },
+  };
 }
 
 function normalizeLaunchChain(value) {

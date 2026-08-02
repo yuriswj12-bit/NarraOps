@@ -50,7 +50,7 @@ export async function generateStructuredLaunchContent({
           { role: "user", content: user },
         ],
       }),
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(8_000),
     });
     if (!response.ok) {
       return {
@@ -108,6 +108,15 @@ export async function generateAgentReply({
   capabilities = DEFAULT_AGENT_CAPABILITIES,
 } = {}) {
   const status = getLlmProviderStatus();
+  if (task?.status === "succeeded" && (task?.result?.card || task?.result?.cards)) {
+    return {
+      provider: "structured_result",
+      used_llm: false,
+      configured: status.configured,
+      fallback_reason: "structured_task_reply",
+      ...fallbackAgentReply({ message, language, task, capabilities }),
+    };
+  }
   if (!status.configured) {
     return {
       provider: "fallback",
