@@ -83,6 +83,9 @@ export async function createAgentTask(body = {}) {
     task_id: result.task_id,
     conversation_id: result.conversation_id,
     status: result.status,
+    ...(result.message ? { message: result.message } : {}),
+    ...(result.cards ? { cards: result.cards } : {}),
+    ...(result.agent ? { agent: result.agent } : {}),
     ...(result.task || {}),
   };
 }

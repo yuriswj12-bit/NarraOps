@@ -1,7 +1,7 @@
 ﻿// @ts-nocheck
 /**
- * Optional OpenAI-compatible LLM provider for Go Agent content generation.
- * Never executes funds. Fail closed to deterministic templates.
+ * OpenAI-compatible provider for Go Agent conversation and content generation.
+ * Never executes funds. Fail closed to an explicit safe fallback.
  */
 export async function generateStructuredLaunchContent({
   prompt,
@@ -80,6 +80,178 @@ export async function generateStructuredLaunchContent({
   }
 }
 
+const DEFAULT_AGENT_CAPABILITIES = Object.freeze([
+  "解释 NarraOps 能力和当前工作区状态",
+  "根据公开叙事生成可审阅的 narrative / meme 草案",
+  "读取已接入的只读行情、开发者钱包和 Meme 分析工具结果",
+  "生成 review-only launch draft 和风险清单",
+  "模拟交易、转账和提现计划，但不签名、不广播、不动用资金",
+]);
+
+export function getLlmProviderStatus() {
+  const apiKey = process.env.OPENAI_API_KEY || process.env.LLM_API_KEY || "";
+  const baseUrl = (process.env.OPENAI_BASE_URL || process.env.LLM_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+  const model = process.env.OPENAI_MODEL || process.env.LLM_MODEL || "gpt-4o-mini";
+  return {
+    configured: Boolean(apiKey),
+    provider: apiKey ? "openai_compatible" : "fallback",
+    base_url: baseUrl,
+    model,
+  };
+}
+
+export async function generateAgentReply({
+  message = "",
+  language = "en",
+  history = [],
+  task = null,
+  capabilities = DEFAULT_AGENT_CAPABILITIES,
+} = {}) {
+  const status = getLlmProviderStatus();
+  if (!status.configured) {
+    return {
+      provider: "fallback",
+      used_llm: false,
+      configured: false,
+      fallback_reason: "missing_provider_key",
+      ...fallbackAgentReply({ message, language, task, capabilities }),
+    };
+  }
+
+  const system = [
+    "You are the NarraOps Agent, a Chinese-first AI assistant for meme narrative research and review-only launch planning.",
+    "Answer naturally and directly. Use the task result as the only source of current workspace data.",
+    "Never invent live prices, wallet balances, social evidence, or completed actions.",
+    "If a result says mock, data-gap, disabled, or review-only, say that clearly.",
+    "Real signing, broadcasting, fund movement, and token launch are disabled. Never claim they happened.",
+    "Return ONLY valid JSON with exactly two string keys: content and suggestion.",
+    "Keep content under 1,200 characters and suggestion under 240 characters.",
+  ].join(" ");
+  const context = JSON.stringify({
+    language: language === "zh" ? "zh" : "en",
+    user_message: String(message).slice(0, 8_000),
+    capabilities,
+    task: task ? sanitizeAgentTask(task) : null,
+  });
+  const prior = (Array.isArray(history) ? history : [])
+    .filter((entry) => entry?.role === "user" || entry?.role === "assistant")
+    .map((entry) => ({
+      role: entry.role,
+      content: String(entry.content || "").slice(0, 2_000),
+    }))
+    .filter((entry) => entry.content)
+    .slice(-8);
+  if (!prior.length || prior.at(-1)?.role !== "user" || prior.at(-1)?.content !== message) {
+    prior.push({ role: "user", content: String(message).slice(0, 8_000) });
+  }
+
+  try {
+    const response = await fetch(`${status.base_url}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${process.env.OPENAI_API_KEY || process.env.LLM_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: status.model,
+        temperature: 0.35,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          ...prior,
+          { role: "user", content: `Use this NarraOps context to answer the latest user message:\n${context}` },
+        ],
+      }),
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!response.ok) {
+      return {
+        provider: "fallback",
+        used_llm: false,
+        configured: true,
+        model: status.model,
+        fallback_reason: `llm_http_${response.status}`,
+        ...fallbackAgentReply({ message, language, task, capabilities }),
+      };
+    }
+    const payload = await response.json();
+    const parsed = parseJsonObject(payload?.choices?.[0]?.message?.content);
+    return {
+      provider: "openai_compatible",
+      used_llm: true,
+      configured: true,
+      model: status.model,
+      content: normalizeReplyText(parsed?.content, fallbackAgentReply({ message, language, task, capabilities }).content, 1_200),
+      suggestion: normalizeReplyText(parsed?.suggestion, fallbackAgentReply({ message, language, task, capabilities }).suggestion, 240),
+    };
+  } catch (error) {
+    return {
+      provider: "fallback",
+      used_llm: false,
+      configured: true,
+      model: status.model,
+      fallback_reason: error instanceof Error ? error.name : "llm_error",
+      ...fallbackAgentReply({ message, language, task, capabilities }),
+    };
+  }
+}
+
+function sanitizeAgentTask(task) {
+  return {
+    type: task?.type || null,
+    status: task?.status || null,
+    execution_mode: task?.execution_mode || task?.executionMode || null,
+    result: task?.result ? boundedJsonValue(task.result, 12_000) : null,
+    failure: task?.failure || null,
+  };
+}
+
+function boundedJsonValue(value, maxChars) {
+  const raw = JSON.stringify(value);
+  if (raw.length <= maxChars) return value;
+  return {
+    truncated: true,
+    summary: raw.slice(0, maxChars),
+  };
+}
+
+function parseJsonObject(value) {
+  if (value && typeof value === "object") return value;
+  const raw = String(value || "{}").trim();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const match = raw.match(/\{[\s\S]*\}/);
+    try { return match ? JSON.parse(match[0]) : {}; } catch { return {}; }
+  }
+}
+
+function normalizeReplyText(value, fallback, max) {
+  const text = String(value || "").trim();
+  return (text || fallback).slice(0, max);
+}
+
+function fallbackAgentReply({ message, language, task, capabilities }) {
+  const zh = language === "zh";
+  const input = String(message || "").toLowerCase();
+  const capabilityQuestion = /你可以做什么|你能做什么|能做什么|有什么功能|help|what can you do|capabilit/.test(input);
+  if (capabilityQuestion || task?.type === "agent.chat") {
+    return {
+      content: zh
+        ? `我是 NarraOps Agent，可以帮你做叙事发现、Meme 草案、只读行情/开发者钱包分析、风险整理和 review-only 发射预案。当前部署还没有配置真实模型密钥，所以这条回复使用了安全降级；配置 OPENAI_API_KEY 或 LLM_API_KEY 后才会启用真实大模型对话。`
+        : `I’m the NarraOps Agent. I can help with narrative discovery, meme drafts, read-only market and developer-wallet analysis, risk review, and review-only launch plans. This deployment has no model key configured yet, so this is the safe fallback; set OPENAI_API_KEY or LLM_API_KEY to enable real LLM conversation.`,
+      suggestion: zh ? "先配置服务端模型密钥，再发送“你可以做什么”验证真实对话。" : "Configure a server-side model key, then ask “what can you do?” to verify the live conversation.",
+    };
+  }
+  const mode = task?.execution_mode || task?.executionMode || "fallback";
+  return {
+    content: zh
+      ? `我已按受控流程处理这条请求，但当前没有可用的真实模型。结果模式：${mode}。不会执行签名、广播或资金操作。`
+      : `I processed this request through the controlled workflow, but no live model is available yet. Result mode: ${mode}. No signing, broadcasting, or fund movement was performed.`,
+    suggestion: zh ? "配置 OPENAI_API_KEY 或 LLM_API_KEY 后重试，可获得自然语言分析。" : "Configure OPENAI_API_KEY or LLM_API_KEY and retry for a natural-language analysis.",
+  };
+}
+
 function templateLaunchContent({ prompt, sourceText, language }) {
   const base = String(sourceText || prompt || "Narra meme").trim();
   const words = base
@@ -123,4 +295,6 @@ function normalizeLaunchContent(value, fallbackInput) {
 
 export default {
   generateStructuredLaunchContent,
+  generateAgentReply,
+  getLlmProviderStatus,
 };

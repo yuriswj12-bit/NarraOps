@@ -3,6 +3,7 @@ import { ApiError } from "../api/src/errors.ts";
 import { commandForName, policyForType } from "./go-command-catalog.ts";
 
 const NATURAL_RULES = [
+  { pattern: /(你可以做什么|你能做什么|能做什么|有什么功能|介绍.*功能|介绍.*能力|help|what can you do|capabilities?)/i, type: "agent.chat" },
   { pattern: /(链上行情|dev\s*market|developer\s*market|onchain\s*market)/i, type: "dev.market.scan" },
   { pattern: /(近期总结|recent\s*summary|account\s*summary)/i, type: "account.recent-summary" },
   { pattern: /(分析.*meme|meme.*分析|analy[sz]e\s*meme|合约.*分析)/i, type: "meme.analyze" },
@@ -38,7 +39,7 @@ export function parseGoInput(text) {
   }
 
   const matched = NATURAL_RULES.find((rule) => rule.pattern.test(normalized));
-  const type = matched?.type || "narrative.recommend";
+  const type = matched?.type || "agent.chat";
   const policy = policyForType(type);
   return {
     type,

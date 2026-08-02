@@ -22,8 +22,16 @@ import {
   validateConversationCreate,
   validateConversationMessage,
 } from "../api/src/validation.ts";
+import { generateAgentReply } from "./llm-provider.ts";
 
 const SUPPORTED_CHANNELS = new Set(["web", "telegram", "api"]);
+const AGENT_CAPABILITIES = Object.freeze([
+  "解释 NarraOps 能力和当前工作区状态",
+  "根据公开叙事生成可审阅的 narrative / meme 草案",
+  "读取已接入的只读行情、开发者钱包和 Meme 分析工具结果",
+  "生成 review-only launch draft 和风险清单",
+  "模拟交易、转账和提现计划，但不签名、不广播、不动用资金",
+]);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -195,10 +203,12 @@ export function createAgentRuntime(options = {}) {
       stepDelayMs: options.stepDelayMs ?? config.taskStepDelayMs ?? 20,
     });
 
+  const waitingTaskIds = new Set();
   manager.on("taskEvent", (event) => {
     void (async () => {
       if (event.type !== "task.completed" && event.type !== "task.failed") return;
       const task = event.task;
+      if (waitingTaskIds.has(task?.taskId)) return;
       const conversationId = await conversations.conversationIdForTask(task?.taskId);
       if (!conversationId) return;
       await conversations.addMessage(conversationId, {
@@ -346,13 +356,39 @@ export function createAgentRuntime(options = {}) {
       channel,
     });
     await conversations.bindTask(conversation.conversationId, task.taskId);
+    if (wait) waitingTaskIds.add(task.taskId);
 
     let finalTask = publicTask(task);
     let assistantMessage = null;
+    let agentReply = null;
     if (wait) {
       const completed = await waitForTask(task.taskId, { timeoutMs });
+      waitingTaskIds.delete(task.taskId);
       finalTask = publicTask(completed);
-      assistantMessage = messageFromTask(completed, validated.context.language);
+      const restoredConversation = await conversations.get(conversation.conversationId);
+      agentReply = await generateAgentReply({
+        message: validated.message,
+        language: validated.context.language,
+        history: restoredConversation?.messages || [],
+        task: finalTask,
+        capabilities: AGENT_CAPABILITIES,
+      });
+      assistantMessage = {
+        role: "assistant",
+        content: agentReply.content,
+        suggestion: agentReply.suggestion,
+        provider: agentReply.provider,
+        used_llm: Boolean(agentReply.used_llm),
+        ...(agentReply.model ? { model: agentReply.model } : {}),
+      };
+      await conversations.addMessage(conversation.conversationId, {
+        role: "assistant",
+        content: agentReply.content,
+        taskId: completed?.taskId || task.taskId,
+        status: completed?.status || task.status,
+        channel,
+        blocks: assistantBlocksFromTask(completed),
+      });
     }
 
     return {
@@ -369,6 +405,15 @@ export function createAgentRuntime(options = {}) {
         : Array.isArray(finalTask?.result?.cards)
           ? finalTask.result.cards
           : [],
+      agent: agentReply
+        ? {
+            provider: agentReply.provider,
+            used_llm: Boolean(agentReply.used_llm),
+            configured: Boolean(agentReply.configured),
+            ...(agentReply.model ? { model: agentReply.model } : {}),
+            ...(agentReply.fallback_reason ? { fallback_reason: agentReply.fallback_reason } : {}),
+          }
+        : null,
       persistence: supabase ? "supabase" : "memory",
     };
   }

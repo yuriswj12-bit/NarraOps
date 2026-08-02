@@ -11,6 +11,13 @@ export const GO_CATEGORIES = Object.freeze([
   "summary",
 ]);
 
+export const AGENT_CHAT_POLICY = Object.freeze({
+  type: "agent.chat",
+  category: "assistant",
+  requires_confirmation: false,
+  execution_mode: "assistant",
+});
+
 export const GO_COMMANDS = Object.freeze([
   {
     command: "/dev-market",
@@ -152,5 +159,6 @@ export function policyForType(type) {
   if (type === "launch.package") {
     return { type, category: "launch", requires_confirmation: true, execution_mode: "disabled" };
   }
+  if (type === "agent.chat") return AGENT_CHAT_POLICY;
   return null;
 }

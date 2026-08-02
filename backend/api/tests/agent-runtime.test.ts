@@ -25,6 +25,60 @@ test("agent runtime turns a slash command into a structured card", async () => {
   assert.equal(result.persistence, "memory");
 });
 
+test("agent runtime uses an OpenAI-compatible model for general conversation", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.OPENAI_API_KEY;
+  const originalModel = process.env.OPENAI_MODEL;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  process.env.OPENAI_MODEL = "test-model";
+  globalThis.fetch = async (_url, options) => {
+    const request = JSON.parse(options.body);
+    assert.equal(request.model, "test-model");
+    assert.equal(request.messages[0].role, "system");
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                content: "真实模型已接入：我可以帮助你发现叙事、分析风险并生成 review-only 方案。",
+                suggestion: "告诉我你想研究的叙事或贴一条公开链接。",
+              }),
+            },
+          }],
+        };
+      },
+    };
+  };
+
+  try {
+    const runtime = createAgentRuntime({ stepDelayMs: 1 });
+    const result = await runtime.handleMessage({
+      channel: "web",
+      message: "介绍下你可以做什么",
+      context: { language: "zh", currentView: "go" },
+      wait: true,
+      timeoutMs: 3000,
+    });
+    assert.equal(result.status, "succeeded");
+    assert.equal(result.task.execution_mode, "assistant");
+    assert.equal(result.agent.provider, "openai_compatible");
+    assert.equal(result.agent.used_llm, true);
+    assert.equal(result.message.content, "真实模型已接入：我可以帮助你发现叙事、分析风险并生成 review-only 方案。");
+    assert.equal(result.cards.length, 0);
+    const conversation = await runtime.getConversation(result.conversation_id);
+    assert.equal(conversation.messages.at(-1).content, result.message.content);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
+    if (originalModel === undefined) delete process.env.OPENAI_MODEL;
+    else process.env.OPENAI_MODEL = originalModel;
+  }
+});
+
 test("launch draft can be created and patched through runtime", async () => {
   const runtime = createAgentRuntime({ stepDelayMs: 1 });
   const created = await runtime.handleMessage({

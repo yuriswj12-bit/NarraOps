@@ -11,6 +11,13 @@ function slug(value, fallback) {
 
 export function createMockHandlers(integrations, services = {}) {
   return {
+    async "agent.chat"(input) {
+      return {
+        mode: "assistant",
+        request: String(input.prompt || input.agent_input?.arguments || "").slice(0, 8_000),
+      };
+    },
+
     async "narrative.scan"(input, context) {
       const sources = input.sources?.length ? input.sources : [{ platform: "X", handle: input.query || "market pulse" }];
       const observations = await Promise.all(

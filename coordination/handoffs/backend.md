@@ -1,5 +1,27 @@
 # Backend handoff
 
+## 2026-08-02 Conversational LLM Agent integration
+
+- Added an OpenAI-compatible conversational response layer to the Go Agent.
+  General capability questions route to `agent.chat` and no longer create a
+  misleading `mock` narrative card.
+- Completed controlled tasks now pass bounded task results and recent
+  conversation history to the server-side model provider. The response and
+  provider metadata are persisted with the assistant message.
+- Accepted server-only configuration: `OPENAI_API_KEY` or `LLM_API_KEY`, with
+  `OPENAI_BASE_URL` / `LLM_BASE_URL` and `OPENAI_MODEL` / `LLM_MODEL` aliases.
+  Missing or failed providers explicitly return `fallback` metadata; no model
+  result is presented as live data.
+- Real signing, broadcasting, fund movement, and token launch remain disabled.
+
+Verification: Agent/API tests `72/72`, TypeScript typecheck, frontend/backend
+checks, Agent bundle build, Node syntax check, and `git diff --check` pass.
+
+Remaining production blocker: Vercel `hek/narra-ops` currently has only the
+Supabase variables (`SUPABASE_SECRET_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, and
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`). A server-side OpenAI-compatible model
+key must be added before production can produce real LLM replies.
+
 ## 2026-08-02 Vercel Agent Runtime bundle fix
 
 - Fixed the Vercel runtime failure caused by `api/v1/agent/runtime.ts`
@@ -16,8 +38,10 @@ Verification: API/Agent/Vercel handler tests `71/71`, TypeScript typecheck,
 frontend/backend checks, full `npm run build`, `node --check` on the generated
 bundle, and Vercel CLI local build all pass.
 
-Remaining blocker: deploy the fix through the existing `narra-ops` Vercel
-project; no push or production deployment was performed in this worktree.
+Production verification completed after the fix: the existing `narra-ops`
+Vercel project serves the Agent catch-all successfully. The remaining Agent
+blocker is provider configuration described in the conversational LLM section
+above.
 
 ## 2026-08-02 Go Agent core continuation
 

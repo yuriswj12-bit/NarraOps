@@ -5,6 +5,7 @@ import { parseGoInput } from "../../agents/go-command-parser.ts";
 import { policyForType } from "../../agents/go-command-catalog.ts";
 
 const TASK_TYPES = new Set([
+  "agent.chat",
   "narrative.scan",
   "narrative.generate",
   "narrative.recommend",
