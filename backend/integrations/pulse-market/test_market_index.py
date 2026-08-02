@@ -44,7 +44,15 @@ class MarketIndexTests(unittest.TestCase):
     def test_warming_up_uses_available_real_history(self):
         result = calculate_index(row(100), [row(index) for index in range(24)])
         self.assertEqual(result["history_status"], "warming_up")
-        self.assertEqual(result["market_activity_index_display"], 100)
+        self.assertEqual(result["market_activity_index_display"], 98)
+
+    def test_single_sparse_sample_is_smoothed_by_trailing_median(self):
+        history = [row(index) for index in range(1, 25)]
+        result = calculate_index(row(0), history)
+        component = result["components"]["graduated_tokens_24h"]
+        self.assertEqual(component["raw_value"], "0")
+        self.assertEqual(component["normalized_value"], "23")
+        self.assertGreater(float(component["score"]), 80)
 
     def test_duplicate_values_use_mid_rank(self):
         self.assertEqual(str(percentile_score(5, [1, 5, 5, 9])), "50.0")

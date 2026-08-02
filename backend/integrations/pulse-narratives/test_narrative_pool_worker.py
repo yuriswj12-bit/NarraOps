@@ -18,7 +18,7 @@ class NarrativePoolWorkerTests(unittest.TestCase):
             "crypto_native",
         )
 
-    def test_candidate_expiry_never_exceeds_source_hour(self):
+    def test_candidate_expiry_never_exceeds_source_window(self):
         item = feed.SourceItem.from_dict(
             {
                 "source_id": "one",
@@ -28,7 +28,7 @@ class NarrativePoolWorkerTests(unittest.TestCase):
                 "author_name": "source",
                 "original_text": "A rescued raccoon becomes viral",
                 "source_url": "https://example.com/one",
-                "published_at": feed.iso(NOW - timedelta(minutes=50)),
+                "published_at": feed.iso(NOW - timedelta(hours=3, minutes=50)),
                 "collected_at": feed.iso(NOW),
             }
         )

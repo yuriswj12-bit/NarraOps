@@ -29,7 +29,8 @@ import { InMemoryLaunchDraftRepository } from "./repositories/in-memory-launch-d
 import { InMemoryWalletGroupRepository } from "./repositories/in-memory-wallet-group-repository.ts";
 import { InMemoryTransferRepository } from "./repositories/in-memory-transfer-repository.ts";
 import { TaskManager } from "../../agents/task-manager.ts";
-import { normalizeLaunchDraftPatch } from "../../agents/agent-runtime.ts";
+import { AGENT_CAPABILITIES, normalizeLaunchDraftPatch } from "../../agents/agent-runtime.ts";
+import { generateAgentReply } from "../../agents/llm-provider.ts";
 import { createMockHandlers } from "../../agents/mock-handlers.ts";
 import { createIntegrationRegistry } from "../../integrations/registry.ts";
 import { mockInviteSummary, mockPulse, mockSettings } from "../../integrations/mock-product-data.ts";
@@ -92,6 +93,16 @@ function readJson(req, limit) {
     });
     req.on("error", reject);
   });
+}
+
+async function waitForTaskCompletion(manager, taskId, timeoutMs = 8_000) {
+  const deadline = Date.now() + timeoutMs;
+  let task = await manager.get(taskId);
+  while (task && !["succeeded", "failed"].includes(task.status) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    task = await manager.get(taskId);
+  }
+  return task;
 }
 
 function startSse(req, res, manager, config, requestId, taskIdFilter) {
@@ -203,11 +214,13 @@ export function createApplication({ config, logger, repository, conversationRepo
     }),
     stepDelayMs: config.taskStepDelayMs,
   });
+  const inlineWaitingTaskIds = new Set();
 
   manager.on("taskEvent", (event) => {
     void (async () => {
     if (event.type !== "task.completed" && event.type !== "task.failed") return;
     const task = event.task;
+    if (inlineWaitingTaskIds.has(task?.taskId)) return;
     const conversationId = await conversations.conversationIdForTask(task?.taskId);
     if (!conversationId) return;
     if (event.type === "task.completed") {
@@ -689,11 +702,47 @@ export function createApplication({ config, logger, repository, conversationRepo
             ...parsed.metadata,
             conversation_id: conversation.conversationId,
           });
+          if (message.wait) inlineWaitingTaskIds.add(task.taskId);
           await conversations.bindTask(conversation.conversationId, task.taskId);
-          sendJson(res, 202, {
-            taskId: task.taskId,
+          const resultTask = message.wait
+            ? await waitForTaskCompletion(manager, task.taskId, message.timeout_ms)
+            : task;
+          inlineWaitingTaskIds.delete(task.taskId);
+          let assistantMessage = null;
+          if (message.wait) {
+            const restoredConversation = await conversations.get(conversation.conversationId);
+            const reply = await generateAgentReply({
+              message: message.message,
+              language: message.context.language,
+              history: restoredConversation?.messages || [],
+              task: resultTask,
+              capabilities: AGENT_CAPABILITIES,
+            });
+            assistantMessage = {
+              role: "assistant",
+              content: reply.content,
+              suggestion: reply.suggestion,
+              provider: reply.provider,
+              used_llm: Boolean(reply.used_llm),
+              ...(reply.model ? { model: reply.model } : {}),
+            };
+            await conversations.addMessage(conversation.conversationId, {
+              role: "assistant",
+              content: reply.content,
+              taskId: resultTask?.taskId || task.taskId,
+              status: resultTask?.status || task.status,
+              blocks: resultTask?.result?.card
+                ? [resultTask.result.card]
+                : [{ type: "text", text: reply.content }],
+            });
+          }
+          sendJson(res, message.wait && resultTask?.status === "succeeded" ? 200 : 202, {
+            taskId: resultTask?.taskId || task.taskId,
             conversationId: conversation.conversationId,
-            status: task.status,
+            status: resultTask?.status || task.status,
+            task: resultTask,
+            message: assistantMessage,
+            cards: resultTask?.result?.card ? [resultTask.result.card] : [],
           }, requestId);
           return;
         }

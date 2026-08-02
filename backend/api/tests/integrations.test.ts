@@ -154,6 +154,47 @@ test("public X links are fetched and become review-only launch parameters", asyn
   }
 });
 
+test("X links use the full public post body and media thumbnail when oEmbed is truncated", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("publish.twitter.com/oembed")) {
+      return {
+        status: 200,
+        ok: true,
+        headers: { get: () => "application/json" },
+        async text() {
+          return JSON.stringify({
+            author_name: "Rothmus",
+            html: "<blockquote><p>Short public preview… <a href=\"https://t.co/media\">pic.twitter.com/media</a></p></blockquote>",
+          });
+        },
+      };
+    }
+    assert.match(String(url), /api\.fxtwitter\.com\/status\/2083629332816429240/);
+    return {
+      status: 200,
+      ok: true,
+      headers: { get: () => "application/json" },
+      async text() {
+        return JSON.stringify({
+          tweet: {
+            text: "The full public post body used by the launch draft.",
+            media: { all: [{ type: "video", thumbnail_url: "https://pbs.twimg.com/video-thumb.jpg" }] },
+          },
+        });
+      },
+    };
+  };
+  try {
+    const narrative = await fetchNarrativeLink("https://x.com/Rothmus/status/2083629332816429240?s=20");
+    assert.equal(narrative.content, "The full public post body used by the launch draft.");
+    assert.equal(narrative.image_url, "https://pbs.twimg.com/video-thumb.jpg");
+    assert.equal(narrative.fetch_method, "twitter_oembed+fxtwitter");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("a bare public link routes to the launch draft workflow", () => {
   const parsed = parseGoInput("https://x.com/coolish/status/2083800621321535680?s=20");
   assert.equal(parsed.type, "launch.meme");

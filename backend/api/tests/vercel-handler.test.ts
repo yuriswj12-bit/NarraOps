@@ -192,7 +192,15 @@ test("Pulse narratives returns only unexpired real source cards by category", ()
       published_at: "2026-07-30T08:00:00.000Z",
       expires_at: "2026-07-30T08:30:00.000Z",
     },
-  ], now);
+  ], now, new Set(), {
+    started_at: "2026-07-30T08:59:00.000Z",
+    completed_at: "2026-07-30T08:59:20.000Z",
+    status: "completed",
+    source_count: 10,
+    successful_source_count: 10,
+    collected_item_count: 2,
+    eligible_item_count: 1,
+  });
   assert.equal(response.schema_version, "pulse.narratives.v1");
   assert.equal(response.data_status, "live");
   assert.equal(response.total, 1);

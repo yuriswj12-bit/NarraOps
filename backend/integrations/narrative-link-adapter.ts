@@ -36,7 +36,9 @@ export function buildDraftMetadata({ narrative, token = {} }) {
     description: token.description || null,
     image_url: token.image_url || narrative.image_url || null,
     x_url: token.x_url || (isSocial ? narrative.url : null),
+    telegram_url: token.telegram_url || null,
     website_url: token.website_url || (!isSocial ? narrative.url : null),
+    initial_buy: token.initial_buy || "0",
   };
 }
 
@@ -84,23 +86,55 @@ async function fetchXPost(url, { fetchImpl, timeoutMs }) {
   if (response.status !== "live") return response;
   let payload;
   try { payload = JSON.parse(response.body); } catch { return { status: "unavailable", reason: "x_oembed_invalid_json" }; }
-  const content = stripHtml(payload.html || "");
+  const content = stripXEmbedHtml(payload.html || "");
   if (!content) return { status: "unavailable", reason: "x_post_text_unavailable" };
   const author = String(payload.author_name || "").trim();
+  const enhanced = shouldEnhanceXPost(payload.html, content)
+    ? await fetchFxTwitterPost(url, { fetchImpl, timeoutMs }).catch(() => null)
+    : null;
   return {
     status: "live",
     fetched: true,
     fetched_at: new Date().toISOString(),
     title: author ? `X post by ${author}` : "X post",
-    summary: content.slice(0, 500),
-    content,
+    summary: String(enhanced?.content || content).slice(0, 500),
+    content: enhanced?.content || content,
     author_name: author || null,
     author_url: payload.author_url || null,
-    image_url: null,
+    image_url: enhanced?.image_url || null,
     canonical_url: url,
     content_type: "application/json+oembed",
-    fetch_method: "twitter_oembed",
+    fetch_method: enhanced ? "twitter_oembed+fxtwitter" : "twitter_oembed",
   };
+}
+
+async function fetchFxTwitterPost(url, { fetchImpl, timeoutMs }) {
+  const postId = new URL(url).pathname.match(/\/status\/(\d+)/)?.[1];
+  if (!postId) return null;
+  const response = await fetchPublicPage(`https://api.fxtwitter.com/status/${postId}`, {
+    fetchImpl,
+    timeoutMs,
+    accept: "application/json",
+  });
+  if (response.status !== "live") return null;
+  const payload = JSON.parse(response.body);
+  const tweet = payload?.tweet;
+  const content = String(tweet?.text || "").trim();
+  if (!content) return null;
+  const media = Array.isArray(tweet?.media?.all) ? tweet.media.all : [];
+  const image = media.find((item) => item?.type === "photo" && item?.url)?.url
+    || media.find((item) => item?.thumbnail_url)?.thumbnail_url
+    || tweet?.media?.mosaic?.formats?.jpeg
+    || tweet?.card?.image?.url;
+  return {
+    content,
+    image_url: absoluteUrl(image, url),
+  };
+}
+
+function shouldEnhanceXPost(html, content) {
+  return /pic\.twitter\.com|t\.co\//i.test(String(html || ""))
+    || /…|\.\.\.$/.test(String(content || "").trim());
 }
 
 async function fetchPublicPage(rawUrl, { fetchImpl, timeoutMs, accept = "text/html" } = {}) {
@@ -166,6 +200,12 @@ function stripHtml(value) {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim());
+}
+
+function stripXEmbedHtml(value) {
+  const html = String(value || "");
+  const postBody = html.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i)?.[1] || html;
+  return stripHtml(postBody);
 }
 
 function decodeEntities(value) {
