@@ -30,6 +30,13 @@ frontend/backend checks, and `git diff --check` pass. A dedicated regression
 test covers the exact link -> natural-language launch request and confirms
 that the second response returns the same populated `launch_draft`.
 
+Production deployment `https://www.narraops.xyz` was verified with the user's
+X URL. The first request completed with a live source and populated
+`Decoy Alpha / DECOYALPHA` Solana/Pump draft in about 18 seconds. A Chinese
+follow-up launch request completed in about 8.5 seconds, returned the same
+draft ID with `reused_existing_draft=true`, and preserved both required Assets
+wallet-group selections.
+
 Frontend handoff: replace the current prompt-based token editor with an inline
 launch-parameter form, load authenticated Assets wallet groups, filter the
 Cooking selector to `purpose=cooking` and the bundled-buy selector to a
