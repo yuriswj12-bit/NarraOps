@@ -34,6 +34,7 @@ test("agent runtime uses an OpenAI-compatible model for general conversation", a
   globalThis.fetch = async (_url, options) => {
     const request = JSON.parse(options.body);
     assert.equal(request.model, "test-model");
+    assert.equal(request.stream, false);
     assert.equal(request.messages[0].role, "system");
     return {
       ok: true,

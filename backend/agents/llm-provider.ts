@@ -155,6 +155,8 @@ export async function generateAgentReply({
       body: JSON.stringify({
         model: status.model,
         temperature: 0.35,
+        max_tokens: 1_200,
+        stream: false,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: system },
