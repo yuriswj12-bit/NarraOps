@@ -511,3 +511,24 @@ test("Go plan endpoint returns not found for unknown opportunity ids", async () 
   assert.equal(result.status, 404);
   assert.equal(result.body.error.code, "PULSE_OPPORTUNITY_NOT_FOUND");
 });
+
+test("Go plan keeps /analyze-meme on the Agent route", async () => {
+  const recorder = responseRecorder();
+  await goPlanHandler(
+    {
+      method: "POST",
+      url: "/api/v1/go/plan",
+      headers: { "content-type": "application/json" },
+      body: {
+        message: "/analyze-meme So11111111111111111111111111111111111111112",
+        command: "/analyze-meme So11111111111111111111111111111111111111112",
+        context: { language: "zh", currentView: "go" },
+      },
+    },
+    recorder.response,
+  );
+  const result = recorder.result();
+  assert.equal(result.status, 200);
+  assert.equal(result.body.task.type, "meme.analyze");
+  assert.equal(result.body.card.type, "meme_analysis");
+});

@@ -26,6 +26,8 @@ import { generateAgentReply } from "./llm-provider.ts";
 
 const SUPPORTED_CHANNELS = new Set(["web", "telegram", "api"]);
 const AGENT_CAPABILITIES = Object.freeze([
+  "Read-only GMGN market data: trending tokens, launchpad trenches, K-lines, token signals, and token due diligence",
+  "HertzFlow Solana meme forensics: concentration, MM/bot, distribution, cash-out, relationship clusters, and monitoring report",
   "解释 NarraOps 能力和当前工作区状态",
   "根据公开叙事生成可审阅的 narrative / meme 草案",
   "读取已接入的只读行情、开发者钱包和 Meme 分析工具结果",
@@ -89,6 +91,10 @@ function messageFromTask(task, language = "en") {
     dev_market: zh ? "已生成链上 Dev 行情摘要。" : "On-chain Dev market summary ready.",
     narrative_trends: zh ? "已生成叙事趋势摘要。" : "Narrative trend summary ready.",
     meme_analysis: zh ? "已生成 Meme 分析报告。" : "Meme analysis report ready.",
+    market_trending: zh ? "GMGN 热门代币排行已生成。" : "GMGN trending-token ranking ready.",
+    market_trenches: zh ? "GMGN 新币/发射榜已生成。" : "GMGN launchpad trenches report ready.",
+    market_kline: zh ? "GMGN K 线数据已生成。" : "GMGN K-line data ready.",
+    market_signal: zh ? "GMGN 市场信号已生成。" : "GMGN market signals ready.",
     recent_summary: zh ? "已生成近期总结。" : "Recent summary ready.",
   };
   return {

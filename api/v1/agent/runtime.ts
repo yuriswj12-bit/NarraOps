@@ -32,6 +32,9 @@ function getRuntime() {
       supabase: serverSupabase(),
       config: {
         gmgnLiveEnabled: process.env.GMGN_LIVE_ENABLED === "true",
+        gmgnCliPath: process.env.GMGN_CLI_PATH || undefined,
+        externalTimeoutMs: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS || 15_000),
+        externalMaxRetries: Number(process.env.EXTERNAL_REQUEST_MAX_RETRIES || 1),
         hertzflowLiveEnabled: process.env.HERTZFLOW_LIVE_ENABLED === "true",
       },
     });

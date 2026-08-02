@@ -25,6 +25,23 @@ test("agent runtime turns a slash command into a structured card", async () => {
   assert.equal(result.persistence, "memory");
 });
 
+test("agent runtime exposes GMGN read-only market tasks", async () => {
+  const runtime = createAgentRuntime({ stepDelayMs: 1 });
+  const result = await runtime.handleMessage({
+    channel: "web",
+    message: "/market-trending solana",
+    command: "/market-trending solana",
+    context: { language: "zh", currentView: "go" },
+    wait: true,
+    timeoutMs: 3000,
+  });
+  assert.equal(result.status, "succeeded");
+  assert.equal(result.task.type, "market.trending");
+  assert.equal(result.cards[0]?.type, "market_trending");
+  assert.equal(result.cards[0]?.data?.data_source, "gmgn");
+  assert.equal(result.cards[0]?.data?.data_source_status, "disabled");
+});
+
 test("agent runtime uses an OpenAI-compatible model for general conversation", async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.OPENAI_API_KEY;

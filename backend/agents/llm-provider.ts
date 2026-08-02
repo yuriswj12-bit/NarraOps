@@ -237,20 +237,51 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
   const zh = language === "zh";
   const input = String(message || "").toLowerCase();
   const capabilityQuestion = /你可以做什么|你能做什么|能做什么|有什么功能|help|what can you do|capabilit/.test(input);
+  const taskResult = task?.result || {};
+  const isLiveReport = taskResult?.mode === "live"
+    && (taskResult?.report || taskResult?.forensic_report || taskResult?.machine_report);
+  const isForensicReport = taskResult?.source === "hertzflow"
+    && (taskResult?.report || taskResult?.forensic_report || taskResult?.machine_report);
   if (capabilityQuestion || task?.type === "agent.chat") {
     return {
       content: zh
-        ? `我是 NarraOps Agent，可以帮你做叙事发现、Meme 草案、只读行情/开发者钱包分析、风险整理和 review-only 发射预案。当前部署还没有配置真实模型密钥，所以这条回复使用了安全降级；配置 OPENAI_API_KEY 或 LLM_API_KEY 后才会启用真实大模型对话。`
-        : `I’m the NarraOps Agent. I can help with narrative discovery, meme drafts, read-only market and developer-wallet analysis, risk review, and review-only launch plans. This deployment has no model key configured yet, so this is the safe fallback; set OPENAI_API_KEY or LLM_API_KEY to enable real LLM conversation.`,
-      suggestion: zh ? "先配置服务端模型密钥，再发送“你可以做什么”验证真实对话。" : "Configure a server-side model key, then ask “what can you do?” to verify the live conversation.",
+        ? `我是 NarraOps Agent，可以做叙事发现、GMGN 只读行情、HertzFlow SOL Meme 链上取证报告、开发者钱包分析、风险整理和 review-only 方案。${getLlmProviderStatus().configured ? "当前模型暂时未返回，已使用结构化结果安全降级。" : "当前部署没有配置真实模型密钥，已使用结构化结果安全降级。"}`
+        : `I’m the NarraOps Agent. I can do narrative discovery, read-only GMGN market research, HertzFlow Solana meme forensic reports, developer-wallet analysis, risk review, and review-only plans. ${getLlmProviderStatus().configured ? "The model did not return in time, so I used the structured result safely." : "No model key is configured, so I used the structured result safely."}`,
+      suggestion: zh ? "可以直接输入：分析某个 Solana Meme 地址，或继续追问主控集群、分发路径和优先监控地址。" : "Ask me to analyze a Solana meme address, or follow up on clusters, distribution paths, and watchlist addresses.",
     };
   }
-  const mode = task?.execution_mode || task?.executionMode || "fallback";
+  if (isLiveReport) {
+    const verdict = taskResult.verdict || {};
+    const metrics = taskResult.metrics || {};
+    return {
+      content: zh
+        ? `HertzFlow 报告已生成。已基于最新 GMGN 样本完成持仓集中度、MM/机器人命中、分发/套现关系、地址集群和监控清单分析。结论：${verdict.one_liner || "请查看下方报告卡。"} 当前仅执行只读分析，不会签名、广播或移动资金。`
+        : `The HertzFlow report is ready. It used a fresh GMGN sample to analyze concentration, MM/bot hits, distribution and cash-out relationships, address clusters, and a watchlist. Conclusion: ${verdict.one_liner || "See the report card below."} This was read-only; no signing, broadcasting, or fund movement occurred.`,
+      suggestion: zh
+        ? `可继续追问：主关系集群是谁？哪些地址优先监控？可见套现下限是多少？`
+        : "You can ask which cluster is dominant, which addresses are P0, or what the visible cash-out lower bound is.",
+    };
+  }
+  if (isForensicReport) {
+    const reason = taskResult?.data_gap || taskResult?.reason || "GMGN 没有返回足够的 holder/trader 样本";
+    return {
+      content: zh
+        ? `HertzFlow 已执行，但这次没有生成可下结论的链上报告：${reason}。报告卡已保留数据缺口和限制，不会编造风险分或地址关系。当前仅执行只读分析。`
+        : `HertzFlow ran, but this request did not return enough wallet evidence for a conclusion: ${reason}. The report card keeps the data gaps and limitations instead of inventing a risk score or wallet relationships. This was read-only.`,
+      suggestion: zh
+        ? "请确认合约地址正确，或换一个有活跃 holders/traders 的 Solana Meme 地址重试。"
+        : "Check the contract address, or retry with an active Solana meme that has holder/trader samples.",
+    };
+  }
+  const mode = taskResult?.mode || task?.execution_mode || task?.executionMode || "fallback";
+  const configuredMessage = getLlmProviderStatus().configured
+    ? (zh ? "模型暂时超时或返回错误，已保留结构化结果。" : "The configured model timed out or returned an error; the structured result is preserved.")
+    : (zh ? "当前没有配置真实模型密钥，已返回安全的结构化结果。" : "No model key is configured, so a safe structured result was returned.");
   return {
     content: zh
-      ? `我已按受控流程处理这条请求，但当前没有可用的真实模型。结果模式：${mode}。不会执行签名、广播或资金操作。`
-      : `I processed this request through the controlled workflow, but no live model is available yet. Result mode: ${mode}. No signing, broadcasting, or fund movement was performed.`,
-    suggestion: zh ? "配置 OPENAI_API_KEY 或 LLM_API_KEY 后重试，可获得自然语言分析。" : "Configure OPENAI_API_KEY or LLM_API_KEY and retry for a natural-language analysis.",
+      ? `我已按受控流程处理这条请求，但${configuredMessage}结果模式：${mode}。不会执行签名、广播或资金操作。`
+      : `I processed this request through the controlled workflow, but ${configuredMessage} Result mode: ${mode}. No signing, broadcasting, or fund movement was performed.`,
+    suggestion: zh ? "可以继续追问结构化结果中的风险、关系集群或监控地址。" : "You can follow up on the risks, relationship clusters, or watchlist in the structured result.",
   };
 }
 

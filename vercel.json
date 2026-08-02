@@ -11,7 +11,18 @@
     },
     {
       "src": "api/v1/**/*.ts",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "node_modules/gmgn-cli/**",
+          "node_modules/commander/**",
+          "node_modules/dotenv/**",
+          "node_modules/socks/**",
+          "node_modules/smart-buffer/**",
+          "node_modules/ip-address/**",
+          "node_modules/undici/**"
+        ]
+      }
     }
   ],
   "cleanUrls": true,

@@ -1,5 +1,66 @@
 # Backend handoff
 
+## 2026-08-02 HertzFlow Solana forensic report pipeline
+
+- Reviewed the public HertzFlow artifact repository and aligned the Agent's
+  `/analyze-meme <solana-mint>` path with the report shape: fresh GMGN token
+  evidence, holder/trader samples, concentration, MM/bot, distribution,
+  cash-out, relationship clusters, P0/P1 watchlist, deterministic verdict,
+  Markdown reports, and `hertzflow_sol_meme_forensic_v1` machine output.
+- Replaced the old Python-path-only `HertzFlowAdapter` with a deployable
+  read-only TypeScript pipeline. HertzFlow is now the primary meme-analysis
+  provider; the old `gmgn+hertzflow` result merge and misleading completed
+  status are removed. Missing holder/trader evidence returns `data-gap` with
+  explicit limitations instead of a fabricated conclusion.
+- GMGN holder/trader rows are fetched with bounded fan-out (three concurrent
+  requests, five base reads by default). Optional tag scans are off by default
+  because an 11-request fan-out triggered GMGN HTTP 429 temporary IP banning
+  during smoke testing. Existing row-level `tags` and `maker_token_tags` are
+  still used; rate-limit errors are not retried and surface as component gaps.
+- Added deterministic graph heuristics for shared native funders, token
+  distributors, collectors, concentration, MM/bot signals, distribution,
+  visible cash-out lower bounds, and monitoring targets. No signing,
+  broadcasting, trading, or fund movement was added.
+- Fixed LLM fallback wording: a live HertzFlow report no longer says that no
+  model exists or asks the user to configure a key. If the configured model
+  times out, the Agent explains that it preserved the structured report.
+- Added a compact `report_preview` card section so the current generic Go card
+  can expose the HertzFlow conclusion, key findings, sample counts, and
+  watchlist count immediately. A future frontend-owned card renderer can use
+  the existing `report` / `forensic_report` Markdown and `machine_report`
+  payload for a richer visual report without changing the backend contract.
+
+Verification: API/Agent/Vercel tests `77/77`, TypeScript typecheck, syntax and
+`git diff --check` pass. Real read-only smoke tests confirmed the report schema
+and populated relationship output on a public Solana meme sample; the user's
+current mint returned a truthful data gap because GMGN returned no wallet rows.
+
+## 2026-08-02 GMGN Agent capability expansion
+
+- Added Agent task routes for read-only GMGN `market.trending`,
+  `market.trenches`, `market.kline`, and `market.signal` capabilities, with
+  slash commands `/market-trending`, `/trenches`, `/kline`, and `/signals` plus
+  natural-language parsing.
+- `/analyze-meme <contract>` now stays on the Agent runtime even when the
+  legacy frontend submits it to `/api/v1/go/plan`; the response returns the
+  Agent card instead of requiring a reviewed Pulse opportunity.
+- Meme analysis now combines GMGN token info/security/pool and smart-money
+  holder/trader reads with the optional HertzFlow report. All external calls
+  are bounded, address-validated, and read-only. Trade, launch, transfer, and
+  withdrawal execution remain disabled.
+- Packaged `gmgn-cli` as a project dependency and made the adapter invoke its
+  Node entrypoint directly on Windows/serverless environments. Local GMGN
+  read-only smoke test returned a live response. Vercel's Node build config
+  explicitly includes the CLI and its runtime dependencies because the CLI is
+  launched as a child process rather than imported into the bundle.
+- Production Vercel environment now has server-only `GMGN_API_KEY` and
+  `GMGN_LIVE_ENABLED`; the key was written through stdin and is not in Git or
+  logs.
+
+Verification: API/Agent/Vercel tests `75/75`, TypeScript typecheck, frontend and
+backend checks, Agent bundle build, adapter-level live GMGN smoke test, and
+`git diff --check` pass.
+
 ## 2026-08-02 Conversational LLM Agent integration
 
 - Added an OpenAI-compatible conversational response layer to the Go Agent.

@@ -230,6 +230,68 @@ export function createMockHandlers(integrations, services = {}) {
       return { ...result, card: { type: "dev_market", data: result } };
     },
 
+    async "market.trending"(input, context) {
+      const chain = normalizeMarketChain(input.chain || input.prompt);
+      const scan = await integrations.marketTrending({
+        chain,
+        interval: input.interval || "1h",
+        limit: input.limit || 20,
+        orderBy: input.orderBy || input.order_by || "volume",
+        direction: input.direction || "desc",
+        filters: input.filters || [],
+        platforms: input.platforms || [],
+        requestId: context.requestId,
+      });
+      const result = marketReadOnlyResult(scan, { requested_chain: chain, interval: input.interval || "1h" });
+      return { ...result, card: { type: "market_trending", data: result } };
+    },
+
+    async "market.trenches"(input, context) {
+      const chain = normalizeMarketChain(input.chain || input.prompt);
+      const scan = await integrations.marketTrenches({
+        chain,
+        types: input.types || ["new_creation", "near_completion", "completed"],
+        limit: input.limit || 20,
+        launchpadPlatforms: input.launchpadPlatforms || input.launchpad_platforms || [],
+        filterPreset: input.filterPreset || input.filter_preset,
+        sortBy: input.sortBy || input.sort_by || "created_timestamp",
+        direction: input.direction || "desc",
+        requestId: context.requestId,
+      });
+      const result = marketReadOnlyResult(scan, { requested_chain: chain });
+      return { ...result, card: { type: "market_trenches", data: result } };
+    },
+
+    async "market.kline"(input, context) {
+      const contractAddress = input.contract_address || input.address || extractContractAddress(input.prompt);
+      const chain = normalizeAnalysisChain(input.chain || input.prompt, contractAddress);
+      const scan = await integrations.marketKline({
+        chain,
+        address: contractAddress,
+        resolution: input.resolution || "1h",
+        from: input.from,
+        to: input.to,
+        requestId: context.requestId,
+      });
+      const result = marketReadOnlyResult(scan, {
+        requested_chain: chain,
+        contract_address: contractAddress,
+        resolution: input.resolution || "1h",
+      });
+      return { ...result, card: { type: "market_kline", data: result } };
+    },
+
+    async "market.signal"(input, context) {
+      const chain = normalizeMarketChain(input.chain || input.prompt);
+      const scan = await integrations.marketSignals({
+        chain,
+        signalTypes: input.signalTypes || input.signal_types || [],
+        requestId: context.requestId,
+      });
+      const result = marketReadOnlyResult(scan, { requested_chain: chain });
+      return { ...result, card: { type: "market_signal", data: result } };
+    },
+
     async "narrative.trends"(input, context) {
       const scans = await Promise.all([
         integrations.scanDevWallets({ chain: "solana", limit: 40, requestId: context.requestId }),
@@ -257,8 +319,35 @@ export function createMockHandlers(integrations, services = {}) {
     async "meme.analyze"(input, context) {
       const contractAddress = input.contract_address || extractContractAddress(input.prompt);
       const chain = normalizeAnalysisChain(input.chain || input.prompt, contractAddress);
-      const analysis = await integrations.analyzeMeme({ chain, contractAddress });
-      const result = { mode: analysis.status === "completed" ? "live" : "data-gap", contract_address: contractAddress, analysis_status: analysis.status, ...analysis };
+      const analysis = await integrations.analyzeMeme({ chain, address: contractAddress, contractAddress, requestId: context.requestId });
+      const result = {
+        mode: analysis.status === "completed" ? "live" : "data-gap",
+        contract_address: contractAddress,
+        analysis_status: analysis.status,
+        report_status: analysis.status === "completed"
+          ? "completed"
+          : analysis.machine_report
+            ? "data_gap"
+            : "unavailable",
+        ...analysis,
+        source: analysis.status === "completed" ? "hertzflow" : analysis.source || "hertzflow",
+        ...(analysis.reason ? { data_gap: analysis.reason } : {}),
+      };
+      if (analysis.machine_report) {
+        result.report_preview = {
+          schema: analysis.machine_report.schema,
+          source: "GMGN fresh sample + HertzFlow",
+          risk_score: analysis.verdict?.risk_score ?? null,
+          risk_level: analysis.verdict?.risk_level || "data_gap",
+          chain_state: analysis.verdict?.chain_state || "DATA_GAP",
+          conclusion: analysis.verdict?.one_liner || null,
+          key_findings: analysis.verdict?.signals || [],
+          sampled_holders: analysis.metrics?.sampled_holder_count || 0,
+          sampled_traders: analysis.metrics?.sampled_trader_count || 0,
+          watchlist_count: Array.isArray(analysis.watchlist) ? analysis.watchlist.length : 0,
+          data_gaps: analysis.data_gaps || [],
+        };
+      }
       return { ...result, card: { type: "meme_analysis", data: result } };
     },
 
@@ -287,8 +376,22 @@ export function createMockHandlers(integrations, services = {}) {
 function normalizeMarketChain(value) {
   const text = String(value || "").toLowerCase();
   if (text.includes("bsc") || text.includes("bnb")) return "bsc";
+  if (text.includes("base")) return "base";
+  if (text.includes("eth") || text.includes("ethereum")) return "eth";
   if (text.includes("robinhood") || text.includes("hood")) return "robinhood";
   return "solana";
+}
+
+function marketReadOnlyResult(scan, extra = {}) {
+  return {
+    mode: scan.status === "live" ? "live" : "data-gap",
+    data_source: "gmgn",
+    data_source_status: scan.status,
+    ...extra,
+    ...(scan.data !== undefined ? { data: scan.data } : {}),
+    ...(scan.observed_at ? { observed_at: scan.observed_at } : {}),
+    ...(scan.reason ? { data_gap: scan.reason } : {}),
+  };
 }
 
 function extractContractAddress(value) {
@@ -312,6 +415,8 @@ function normalizeLaunchChain(value) {
 function normalizeAnalysisChain(value, contractAddress) {
   const text = String(value || "").toLowerCase();
   if (text.includes("robinhood")) return "robinhood";
+  if (text.includes("base")) return "base";
+  if (text.includes("eth") || text.includes("ethereum")) return "eth";
   if (text.includes("bsc") || String(contractAddress || "").startsWith("0x")) return "bsc";
   return "solana";
 }

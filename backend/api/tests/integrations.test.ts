@@ -20,6 +20,71 @@ test("GMGN adapter returns explicit disabled and unsupported states", async () =
   assert.deepEqual(unsupported.tokens, []);
 });
 
+test("GMGN adapter builds bounded read-only market commands", async () => {
+  const calls = [];
+  const adapter = new GmgnMarketAdapter({
+    enabled: true,
+    cliPath: "gmgn-cli",
+    execFileImpl: async (_file, args) => {
+      calls.push(args);
+      return { stdout: JSON.stringify({ data: [{ address: "TokenAddress" }] }) };
+    },
+  });
+
+  const trending = await adapter.marketTrending({ chain: "solana", limit: 12, requestId: "trending-test" });
+  assert.equal(trending.status, "live");
+  assert.equal(trending.chain, "solana");
+  const trendingStart = calls[0].indexOf("market");
+  assert.deepEqual(calls[0].slice(trendingStart, trendingStart + 6), ["market", "trending", "--chain", "sol", "--interval", "1h"]);
+  assert.ok(calls[0].includes("--raw"));
+
+  const kline = await adapter.marketKline({
+    chain: "solana",
+    address: "So11111111111111111111111111111111111111112",
+    resolution: "15m",
+  });
+  assert.equal(kline.status, "live");
+  const klineResolutionIndex = calls[1].indexOf("--resolution");
+  assert.ok(klineResolutionIndex >= 0);
+  assert.equal(calls[1][klineResolutionIndex + 1], "15m");
+
+  const unsupported = await adapter.marketSignals({ chain: "base" });
+  assert.equal(unsupported.status, "unsupported_chain");
+});
+
+test("GMGN Solana forensic research bounds fan-out and reuses wallet tags", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const adapter = new GmgnMarketAdapter({
+    enabled: true,
+    cliPath: "gmgn-cli",
+    maxRetries: 2,
+    execFileImpl: async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return {
+        stdout: JSON.stringify({
+          list: [{
+            address: "Wallet11111111111111111111111111111111111111",
+            amount_percentage: 0.25,
+            tags: ["smart_degen"],
+          }],
+        }),
+      };
+    },
+  });
+  const result = await adapter.fetchSolanaMemeResearch({
+    address: "So11111111111111111111111111111111111111112",
+    requestId: "hertzflow-test",
+  });
+  assert.equal(result.status, "live");
+  assert.equal(result.tag_scans_enabled, false);
+  assert.deepEqual(Object.keys(result.component_statuses), ["info", "security", "pool", "holders", "traders"]);
+  assert.ok(maxActive <= 3);
+});
+
 test("Dev wallet repository registers GMGN creator evidence", () => {
   const repository = new InMemoryDevWalletRepository();
   repository.registerFromTokens([{
@@ -65,4 +130,60 @@ test("HertzFlow is read-only, opt-in, and currently Solana-only", async () => {
   assert.equal(sol.status, "disabled");
   const bsc = await adapter.analyze({ chain: "bsc", contractAddress: "0x1111111111111111111111111111111111111111" });
   assert.equal(bsc.status, "unsupported_chain");
+});
+
+test("HertzFlow builds a live Solana forensic report from GMGN research", async () => {
+  const source = "Source11111111111111111111111111111111111111";
+  const funder = "Funder11111111111111111111111111111111111111";
+  const collector = "Collector111111111111111111111111111111111111";
+  const rows = [
+    {
+      address: "Wallet11111111111111111111111111111111111111",
+      amount_percentage: "58.66%",
+      tags: ["bundler"],
+      buy_volume_usd: "100000",
+      sell_volume_usd: "70000",
+      native_transfer: { from_address: funder },
+      token_transfer_in: { address: source },
+      token_transfer_out: { address: collector },
+    },
+    {
+      address: "Wallet22222222222222222222222222222222222222",
+      amount_percentage: "8%",
+      tags: ["dex_bot"],
+      buy_volume_usd: "50000",
+      sell_volume_usd: "90000",
+      native_transfer: { from_address: funder },
+      token_transfer_in: { address: source },
+    },
+  ];
+  const adapter = new HertzFlowAdapter({
+    enabled: true,
+    timeoutMs: 1_000,
+    marketAdapter: {
+      async fetchSolanaMemeResearch() {
+        return {
+          status: "live",
+          address: "So11111111111111111111111111111111111111112",
+          observed_at: "2026-08-02T00:00:00.000Z",
+          limit: 100,
+          component_statuses: { info: "live", pool: "live", holders: "live", traders: "live" },
+          data: {
+            info: { price_usd: 1.2, market_cap_usd: 1_000_000, holder_count: 100 },
+            pool: { liquidity_usd: 500_000 },
+            holders: rows,
+            traders: rows,
+          },
+        };
+      },
+    },
+  });
+  const result = await adapter.analyze({ chain: "solana", contractAddress: "So11111111111111111111111111111111111111112" });
+  assert.equal(result.status, "completed");
+  assert.equal(result.provider, "hertzflow");
+  assert.equal(result.machine_report.schema, "hertzflow_sol_meme_forensic_v1");
+  assert.equal(result.machine_report.metrics.top1_hold_rate, 0.5866);
+  assert.equal(result.machine_report.top_clusters.relationship[0].wallet_count, 2);
+  assert.ok(result.watchlist.length >= 2);
+  assert.match(result.forensic_report, /Relationship graph conclusion/);
 });
