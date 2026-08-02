@@ -2,6 +2,27 @@
 
 > Current rule (2026-07-22): the first-level product surfaces are Go, Pulse, and Assets. The Launch and Invite sections below are historical implementation records, not current navigation requirements.
 
+## 2026-08-02 Go launch draft form
+
+- Replaced the generic launch-draft metric/JSON dump with one editable form for
+  token image, name, symbol, X, website, description, detected network,
+  launchpad, Cooking wallet group, and bundled wallet group.
+- Launch links now stay on the Agent runtime route; `/launch` and
+  `/analyze-meme` are no longer incorrectly diverted into the Pulse plan API.
+- Wallet-group choices load from the authenticated relative
+  `/api/v1/wallet-groups` endpoint and are filtered by launch network and group
+  purpose. Missing authentication or groups sends the user to Assets.
+- Saving PATCHes the current draft and updates the existing card in place,
+  rather than appending duplicate technical responses.
+- Internal implementation fields and raw nested JSON are hidden from launch
+  users. The card communicates only editable product parameters and a concise
+  review-only safety note.
+- Added Vercel dynamic routes for launch-draft GET/PATCH; without these routes,
+  the implemented backend endpoint returned a production 404.
+- Verification: frontend TypeScript, Vercel build, 80/80 API tests, 1440 × 900
+  visual QA, public X link generation, and production PATCH save passed.
+- Production deployment: `https://www.narraops.xyz/app#go`.
+
 ## 2026-07-30 Pulse narrative private state
 
 - Connected narrative card actions to the authenticated

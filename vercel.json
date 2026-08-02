@@ -51,6 +51,14 @@
       "dest": "/api/v1/[...path].ts"
     },
     {
+      "src": "/api/v1/go/launch-drafts/([^/]+)",
+      "dest": "/api/v1/[...path].ts"
+    },
+    {
+      "src": "/api/v1/launch/drafts/([^/]+)",
+      "dest": "/api/v1/[...path].ts"
+    },
+    {
       "src": "/api/v1/telegram/webhook",
       "dest": "/api/v1/[...path].ts"
     },
