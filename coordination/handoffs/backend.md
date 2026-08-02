@@ -1,5 +1,24 @@
 # Backend handoff
 
+## 2026-08-02 Vercel Agent Runtime bundle fix
+
+- Fixed the Vercel runtime failure caused by `api/v1/agent/runtime.ts`
+  importing `backend/**/*.ts` directly. Vercel was emitting the API wrapper
+  but not compiling those backend TypeScript files into the function, causing
+  `Cannot find module '../../../backend/agents/agent-runtime.ts'`.
+- Added `scripts/build-agent-runtime.mjs` to bundle the Agent entrypoint into
+  the local `api/v1/agent/runtime.cjs` artifact during `build:vercel` and before
+  API tests. The Vercel catch-all now imports that local CJS bundle.
+- The generated bundle is ignored; the build command recreates it in every
+  checkout and deployment build.
+
+Verification: API/Agent/Vercel handler tests `71/71`, TypeScript typecheck,
+frontend/backend checks, full `npm run build`, `node --check` on the generated
+bundle, and Vercel CLI local build all pass.
+
+Remaining blocker: deploy the fix through the existing `narra-ops` Vercel
+project; no push or production deployment was performed in this worktree.
+
 ## 2026-08-02 Go Agent core continuation
 
 - Completed the channel-agnostic Go Agent runtime for web/API and future

@@ -6,14 +6,15 @@
   "scripts": {
     "build": "npm run build:vercel",
     "build:frontend": "node scripts/build-frontend.mjs",
-    "build:vercel": "npm run build:frontend && node scripts/deploy/prepare-vercel-static.mjs",
+    "build:agent-runtime": "node scripts/build-agent-runtime.mjs",
+    "build:vercel": "npm run build:frontend && npm run build:agent-runtime && node scripts/deploy/prepare-vercel-static.mjs",
     "start": "npm run build:frontend && powershell -ExecutionPolicy Bypass -File scripts/start-narraops.ps1",
     "start:frontend": "npm run build:frontend && node server.js",
     "start:api": "npm --prefix backend/api start",
     "build:api": "esbuild backend/api/src/server.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist/backend-api/server.mjs",
     "typecheck": "tsc -p shared/tsconfig.json && tsc -p frontend/tsconfig.json && tsc -p backend/api/tsconfig.json",
     "check": "npm run build:frontend && npm run build:api && node --check app.js && node --check server.js",
-    "test:api": "npm --prefix backend/api test",
+    "test:api": "npm run build:agent-runtime && npm --prefix backend/api test",
     "test:execution": "node --import tsx --test backend/execution/test/*.test.ts"
   },
   "dependencies": {
