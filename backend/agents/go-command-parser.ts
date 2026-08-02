@@ -43,6 +43,23 @@ export function parseGoInput(text) {
     };
   }
 
+  // A bare public link is a Go launch input, not a mock narrative query.
+  // This lets the Agent fetch the source, extract launch parameters, and
+  // create a review-only draft in one step.
+  if (/^https?:\/\/\S+$/i.test(normalized)) {
+    const policy = policyForType("launch.meme");
+    return {
+      type: "launch.meme",
+      category: policy.category,
+      command: "/launch",
+      raw_input: normalized,
+      arguments: normalized,
+      parsed_by: "public_link",
+      requires_confirmation: policy.requires_confirmation,
+      execution_mode: policy.execution_mode,
+    };
+  }
+
   const matched = NATURAL_RULES.find((rule) => rule.pattern.test(normalized));
   const type = matched?.type || "agent.chat";
   const policy = policyForType(type);

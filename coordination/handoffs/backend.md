@@ -1,5 +1,28 @@
 # Backend handoff
 
+## 2026-08-02 Public-link to launch-draft workflow
+
+- Fixed the broken bare-link path shown in the Go screenshot. A bare public
+  `http(s)` link now parses as `launch.meme` instead of matching the old
+  `narrative.recommend` mock rule.
+- Added a bounded public-link reader with redirect limits, private-host
+  rejection, response-size limits, timeout handling, HTML metadata extraction,
+  and X/Twitter public oEmbed support. It returns source text, author, title,
+  summary, image/canonical metadata, fetch status, and explicit data gaps.
+- `launch.meme` now reads the source before generating content, infers chain
+  and launchpad from the source text when the user did not specify them, and
+  returns `launch_parameters` containing chain, platform, token fields,
+  source status, source URL, and missing fields. The draft remains
+  review-only and execution-disabled.
+- Fixed the Agent fallback for launch drafts so a link-derived plan is
+  described as fetched/enriched or data-gap, rather than as a mock result.
+
+Production verification with the public X link used in the user report:
+`launch.meme` -> `launch_draft`, source `live`, author `paulwei`, chain
+`solana`, platform `pump`, generated token `Decoy Alpha (DECOY)`, and only
+`image_url` left as `requires_enrichment`. API/Agent tests `79/79`, typecheck,
+build/check, and Vercel production smoke passed.
+
 ## 2026-08-02 HertzFlow Solana forensic report pipeline
 
 - Reviewed the public HertzFlow artifact repository and aligned the Agent's

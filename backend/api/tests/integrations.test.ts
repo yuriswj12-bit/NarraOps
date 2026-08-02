@@ -3,9 +3,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { GmgnMarketAdapter } from "../../integrations/gmgn-market-adapter.ts";
 import { HertzFlowAdapter } from "../../integrations/hertzflow-adapter.ts";
-import { prepareNarrativeLink } from "../../integrations/narrative-link-adapter.ts";
+import { fetchNarrativeLink, prepareNarrativeLink } from "../../integrations/narrative-link-adapter.ts";
+import { createMockHandlers } from "../../agents/mock-handlers.ts";
+import { parseGoInput } from "../../agents/go-command-parser.ts";
 import { resolveLaunchPlatform } from "../../integrations/launch-platform-registry.ts";
 import { InMemoryDevWalletRepository } from "../src/repositories/in-memory-dev-wallet-repository.ts";
+import { InMemoryLaunchDraftRepository } from "../src/repositories/in-memory-launch-draft-repository.ts";
 
 test("GMGN adapter returns explicit disabled and unsupported states", async () => {
   const disabled = new GmgnMarketAdapter({ enabled: false });
@@ -111,6 +114,51 @@ test("narrative URLs reject private network targets", () => {
   assert.equal(prepareNarrativeLink("http://127.0.0.1/admin").status, "rejected");
   assert.equal(prepareNarrativeLink("http://192.168.1.5/private").status, "rejected");
   assert.equal(prepareNarrativeLink("https://example.com/story#fragment").status, "metadata_fetch_pending");
+});
+
+test("public X links are fetched and become review-only launch parameters", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => ({
+    status: 200,
+    ok: true,
+    headers: { get: () => "application/json" },
+    async text() {
+      assert.match(String(url), /publish\.twitter\.com\/oembed/);
+      return JSON.stringify({
+        author_name: "coolish",
+        author_url: "https://x.com/coolish",
+        html: "<blockquote><p lang=\"zh\">一个真实的公开叙事文本</p></blockquote>",
+      });
+    },
+  });
+  try {
+    const narrative = await fetchNarrativeLink("https://x.com/coolish/status/2083800621321535680?s=20");
+    assert.equal(narrative.status, "live");
+    assert.equal(narrative.fetched, true);
+    assert.match(narrative.content, /真实的公开叙事文本/);
+
+    const repository = new InMemoryLaunchDraftRepository();
+    const handlers = createMockHandlers({}, { launchDraftRepository: repository });
+    const result = await handlers["launch.meme"](
+      { prompt: "https://x.com/coolish/status/2083800621321535680?s=20", chain: "solana" },
+      { taskId: "task-link", requestId: "request-link", conversationId: "conversation-link", emitEvent() {} },
+    );
+    assert.equal(result.card.type, "launch_draft");
+    assert.equal(result.launch_parameters.source_status, "live");
+    assert.equal(result.launch_parameters.chain, "solana");
+    assert.equal(result.launch_parameters.platform, "pump");
+    assert.match(result.narrative.summary, /真实的公开叙事文本/);
+    assert.equal(result.executable, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a bare public link routes to the launch draft workflow", () => {
+  const parsed = parseGoInput("https://x.com/coolish/status/2083800621321535680?s=20");
+  assert.equal(parsed.type, "launch.meme");
+  assert.equal(parsed.parsed_by, "public_link");
+  assert.equal(parsed.execution_mode, "disabled");
 });
 
 test("launch platform mapping is fixed to the product chain choices", () => {

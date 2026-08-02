@@ -273,6 +273,19 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
         : "Check the contract address, or retry with an active Solana meme that has holder/trader samples.",
     };
   }
+  if (taskResult?.launch_parameters || taskResult?.card?.type === "launch_draft") {
+    const params = taskResult.launch_parameters || {};
+    const token = params.token || taskResult.token || {};
+    const sourceStatus = params.source_status === "live" ? "已读取公开来源" : "来源读取不完整，已保留数据缺口";
+    return {
+      content: zh
+        ? `已读取公开链接并生成 review-only 发射预案：${sourceStatus}。识别到链：${params.chain || taskResult.chain || "solana"}，平台：${params.platform || taskResult.platform || "待确认"}，代币：${token.name || "待补全"}（${token.symbol || "待补全"}）。预案不会签名、广播或移动资金。`
+        : `I read the public link and generated a review-only launch draft: ${sourceStatus}. Detected chain: ${params.chain || taskResult.chain || "solana"}; platform: ${params.platform || taskResult.platform || "needs confirmation"}; token: ${token.name || "needs enrichment"} (${token.symbol || "needs enrichment"}). No signing, broadcasting, or fund movement occurred.`,
+      suggestion: zh
+        ? "请展开下方发射预案，检查名称、ticker、描述、图片、链和 launchpad 后再人工审阅。"
+        : "Expand the launch draft and review the name, ticker, description, image, chain, and launchpad before any approval.",
+    };
+  }
   const mode = taskResult?.mode || task?.execution_mode || task?.executionMode || "fallback";
   const configuredMessage = getLlmProviderStatus().configured
     ? (zh ? "模型暂时超时或返回错误，已保留结构化结果。" : "The configured model timed out or returned an error; the structured result is preserved.")

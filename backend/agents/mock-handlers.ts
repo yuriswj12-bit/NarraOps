@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { simulateExecution } from "./execution-simulator.ts";
 import { resolveLaunchPlatform } from "../integrations/launch-platform-registry.ts";
-import { buildDraftMetadata, prepareNarrativeLink } from "../integrations/narrative-link-adapter.ts";
+import { buildDraftMetadata, fetchNarrativeLink } from "../integrations/narrative-link-adapter.ts";
 import { generateStructuredLaunchContent } from "./llm-provider.ts";
 
 function slug(value, fallback) {
@@ -111,17 +111,21 @@ export function createMockHandlers(integrations, services = {}) {
     },
 
     async "launch.meme"(input, context) {
-      const chain = normalizeLaunchChain(input.chain || input.prompt);
-      const platform = resolveLaunchPlatform({ chain, platform: input.platform });
       const narrativeUrl = input.narrative_url || extractPublicUrl(input.prompt);
-      const narrative = prepareNarrativeLink(narrativeUrl);
+      const narrative = await fetchNarrativeLink(narrativeUrl, {
+        timeoutMs: Number(input.link_timeout_ms || 8_000),
+      });
       const language = input?.context?.language === "zh" ? "zh" : "en";
       const sourceText = [
         narrative?.title,
         narrative?.summary,
+        narrative?.content,
+        narrative?.author_name ? `Author: ${narrative.author_name}` : null,
         input.source_text,
         input.prompt,
       ].filter(Boolean).join("\n");
+      const chain = normalizeLaunchChain(input.chain || sourceText || input.prompt);
+      const platform = resolveLaunchPlatform({ chain, platform: input.platform });
       const generated = await generateStructuredLaunchContent({
         prompt: input.prompt || "",
         sourceText,
@@ -177,6 +181,22 @@ export function createMockHandlers(integrations, services = {}) {
         reason: "real_execution_disabled",
         content_provider: generated.provider,
         used_llm: Boolean(generated.used_llm),
+        launch_parameters: {
+          chain,
+          platform: platform.id || input.platform || null,
+          source_url: narrative.url || narrativeUrl || null,
+          source_status: narrative.status,
+          source_fetched: Boolean(narrative.fetched),
+          token: {
+            name: token.name,
+            symbol: token.symbol,
+            description: token.description,
+            image_url: token.image_url,
+            x_url: token.x_url,
+            website_url: token.website_url,
+          },
+          missing_fields: missingFields,
+        },
       };
       context.emitEvent("launch_plan_ready", { launch_draft_id: result.launch_draft_id, executable: false });
       context.emitEvent("execution_disabled", { action: "launch", reason: "real_execution_disabled" });
