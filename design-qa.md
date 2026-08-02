@@ -70,6 +70,54 @@ desktop-density correction.
 
 final result: passed
 
+## 2026-08-02 Go Agent launch draft
+
+- Source visual truth:
+  `C:\Users\hek\AppData\Local\Temp\codex-clipboard-f791f768-3d02-48f5-a382-79268f06e90d.png`
+- Browser-rendered implementation:
+  `C:\Users\hek\Documents\SOL单兵\narraops-launch-draft-ui\qa\launch-draft-card-1440.png`
+- Side-by-side comparison:
+  `C:\Users\hek\Documents\SOL单兵\narraops-launch-draft-ui\qa\launch-draft-comparison.png`
+- Desktop viewport: 1440 × 900 CSS px.
+- Production target: `https://www.narraops.xyz/app#go`.
+
+### Visual comparison
+
+The launch draft keeps the reference form hierarchy for token name, symbol,
+X, and website while translating it into the existing NarraOps dark theme.
+The implementation adds the requested token image control, description,
+detected network and launchpad, Cooking wallet group, and bundled wallet group.
+
+The previous generic metric grid and raw JSON details are no longer used for
+launch drafts. Internal fields such as reason, transaction hash, user id,
+model flags, safety metadata, and nested backend objects are not exposed.
+
+### Interaction checks
+
+- A public X link generated a populated launch draft in the Go conversation.
+- Token name, symbol, description, image URL, X URL, and website are editable.
+- Name and symbol counters update while typing; symbols normalize to uppercase.
+- The token image preview updates from a valid public image URL.
+- Wallet-group selectors read the compatible Cooking and regular groups from
+  Assets after authentication.
+- The save action updates the existing card instead of adding a duplicate
+  Agent response.
+- Production PATCH verification returned the edited name, symbol, image URL,
+  and `requires_wallet_selection` status.
+- Saving remains review-only and does not sign, broadcast, or move funds.
+
+### Verification
+
+- Frontend TypeScript check: passed.
+- Frontend and Vercel production build: passed.
+- API regression suite: 80 / 80 passed.
+- Production dynamic route for launch draft PATCH: passed.
+
+No actionable P0, P1, or P2 differences remain for the requested launch-draft
+form and simplified Agent response.
+
+final result: passed
+
 ## 2026-07-31 Five-category Narrative Discovery
 
 - Source visual truth:

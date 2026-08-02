@@ -24,7 +24,7 @@ Agent Runtime
   - durable conversation/task/draft stores (Supabase when configured)
   - intent parser (/commands + natural language)
   - TaskManager + tool handlers
-  - optional LLM content generation (template fallback)
+  - conversational LLM response generation after controlled task execution
   - structured cards
         ↓
 SSE / sync response / Telegram reply
@@ -37,11 +37,13 @@ SSE / sync response / Telegram reply
 - Web path waits for task completion and returns cards immediately for serverless UX.
 - Conversations/messages/tasks/launch drafts persist to Supabase when server credentials exist; otherwise memory fallback.
 - Launch drafts support incremental token field updates.
-- Optional LLM:
+- Conversational LLM:
   - `OPENAI_API_KEY` or `LLM_API_KEY`
   - `OPENAI_BASE_URL` / `LLM_BASE_URL`
   - `OPENAI_MODEL` / `LLM_MODEL`
-  - on failure, deterministic template content is used
+  - `agent.chat` handles general conversation and capability questions without creating a mock card
+  - every task result is passed to the model as bounded context; the model cannot sign, broadcast, or move funds
+  - if the provider is not configured or fails, the response explicitly reports safe fallback mode
 
 ## Environment
 

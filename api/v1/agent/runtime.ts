@@ -32,6 +32,9 @@ function getRuntime() {
       supabase: serverSupabase(),
       config: {
         gmgnLiveEnabled: process.env.GMGN_LIVE_ENABLED === "true",
+        gmgnCliPath: process.env.GMGN_CLI_PATH || undefined,
+        externalTimeoutMs: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS || 15_000),
+        externalMaxRetries: Number(process.env.EXTERNAL_REQUEST_MAX_RETRIES || 1),
         hertzflowLiveEnabled: process.env.HERTZFLOW_LIVE_ENABLED === "true",
       },
     });
@@ -61,7 +64,7 @@ export async function postAgentConversationMessage(conversationId, body = {}) {
     command: body.command || null,
     context: body.context || {},
     wait,
-    timeoutMs: Number(body.timeoutMs || 8000),
+    timeoutMs: Number(body.timeoutMs || 20_000),
   });
 }
 
@@ -77,12 +80,15 @@ export async function createAgentTask(body = {}) {
     command: body.command || null,
     context: body.context || body.parameters?.context || {},
     wait: body.wait === true,
-    timeoutMs: Number(body.timeoutMs || 8000),
+    timeoutMs: Number(body.timeoutMs || 20_000),
   });
   return {
     task_id: result.task_id,
     conversation_id: result.conversation_id,
     status: result.status,
+    ...(result.message ? { message: result.message } : {}),
+    ...(result.cards ? { cards: result.cards } : {}),
+    ...(result.agent ? { agent: result.agent } : {}),
     ...(result.task || {}),
   };
 }

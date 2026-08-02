@@ -5,6 +5,7 @@ import { parseGoInput } from "../../agents/go-command-parser.ts";
 import { policyForType } from "../../agents/go-command-catalog.ts";
 
 const TASK_TYPES = new Set([
+  "agent.chat",
   "narrative.scan",
   "narrative.generate",
   "narrative.recommend",
@@ -17,6 +18,10 @@ const TASK_TYPES = new Set([
   "funds.transfer",
   "funds.withdraw",
   "dev.market.scan",
+  "market.trending",
+  "market.trenches",
+  "market.kline",
+  "market.signal",
   "narrative.trends",
   "meme.analyze",
   "account.recent-summary",

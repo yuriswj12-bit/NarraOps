@@ -196,7 +196,11 @@ export function createApplication({ config, logger, repository, conversationRepo
   };
   const manager = taskManager || new TaskManager({
     repository: repo,
-    handlers: createMockHandlers(registry, { devWalletRepository: devWallets, launchDraftRepository: launchDrafts }),
+    handlers: createMockHandlers(registry, {
+      devWalletRepository: devWallets,
+      launchDraftRepository: launchDrafts,
+      conversationRepository: conversations,
+    }),
     stepDelayMs: config.taskStepDelayMs,
   });
 

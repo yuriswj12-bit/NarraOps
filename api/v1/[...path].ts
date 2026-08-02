@@ -19,6 +19,7 @@ import {
   createAgentTask,
   getAgentConversation,
   handleTelegramWebhook,
+  getSharedAgentRuntime,
   postAgentConversationMessage,
   updateAgentLaunchDraft,
 } from "./agent/runtime.cjs";
@@ -944,6 +945,39 @@ export default async function handler(request, response) {
 
   if (request.method === "POST" && path === "/api/v1/go/plan") {
     const body = await readBody(request);
+    const directAgentInput = [
+      body.command,
+      body.message,
+      typeof body.input === "string" ? body.input : null,
+    ].find((value) => typeof value === "string" && value.trim());
+    if (/^\s*\/(?:analyze-meme|analyze)\b/i.test(String(directAgentInput || ""))) {
+      try {
+        const agentResult = await getSharedAgentRuntime().handleMessage({
+          channel: "web",
+          message: String(directAgentInput).trim(),
+          command: String(directAgentInput).trim(),
+          context: body.context || { language: "zh", currentView: "go" },
+          wait: true,
+          timeoutMs: Number(body.timeoutMs || 20_000),
+        });
+        return sendJson(
+          response,
+          200,
+          {
+            ...agentResult,
+            card: agentResult.cards?.[0] || null,
+          },
+          { "cache-control": "private, no-store" },
+        );
+      } catch (error) {
+        return apiError(
+          response,
+          error.status || 500,
+          error.code || "AGENT_RUNTIME_ERROR",
+          error.message || "Unable to analyze the meme contract",
+        );
+      }
+    }
     const snapshotId = body.snapshotId || body.snapshot_id || null;
     if (snapshotId) {
       const narrativeSupabase = serverSupabase();
