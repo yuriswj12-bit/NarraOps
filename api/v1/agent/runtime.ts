@@ -1,4 +1,5 @@
-﻿// @ts-nocheck
+// @ts-nocheck
+import { createClient } from "@supabase/supabase-js";
 import { createAgentRuntime } from "../../../backend/agents/agent-runtime.ts";
 import {
   formatTelegramReply,
@@ -9,10 +10,26 @@ import {
 let runtimeSingleton = null;
 const telegramConversationByChat = new Map();
 
+function serverSupabase() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const secret =
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !secret) return null;
+  return createClient(url, secret, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
 function getRuntime() {
   if (!runtimeSingleton) {
     runtimeSingleton = createAgentRuntime({
       stepDelayMs: 5,
+      supabase: serverSupabase(),
       config: {
         gmgnLiveEnabled: process.env.GMGN_LIVE_ENABLED === "true",
         hertzflowLiveEnabled: process.env.HERTZFLOW_LIVE_ENABLED === "true",
@@ -46,6 +63,10 @@ export async function postAgentConversationMessage(conversationId, body = {}) {
     wait,
     timeoutMs: Number(body.timeoutMs || 8000),
   });
+}
+
+export async function updateAgentLaunchDraft(draftId, body = {}) {
+  return getRuntime().updateLaunchDraft(draftId, body);
 }
 
 export async function createAgentTask(body = {}) {
@@ -118,6 +139,7 @@ export default {
   createAgentConversation,
   getAgentConversation,
   postAgentConversationMessage,
+  updateAgentLaunchDraft,
   createAgentTask,
   handleTelegramWebhook,
 };

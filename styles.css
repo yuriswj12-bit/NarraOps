@@ -2700,3 +2700,16 @@ select:focus-visible {
 }
 
 
+
+
+.go-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.go-card-actions .secondary-button {
+  font-size: 12px;
+  padding: 6px 10px;
+}

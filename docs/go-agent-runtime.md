@@ -5,7 +5,7 @@
 One channel-agnostic Agent Runtime powers:
 
 - Web Go page
-- Telegram bot
+- Telegram bot (adapter ready, rollout later)
 - future channels (Discord, API partners)
 
 The model/provider is swappable. Business writes always go through controlled tools/handlers.
@@ -17,39 +17,48 @@ Channel Adapter (web | telegram)
         ↓
 POST /api/v1/agent/conversations
 POST /api/v1/agent/conversations/:id/messages
+PATCH /api/v1/go/launch-drafts/:id
 POST /api/v1/telegram/webhook
         ↓
 Agent Runtime
-  - conversation store
+  - durable conversation/task/draft stores (Supabase when configured)
   - intent parser (/commands + natural language)
   - TaskManager + tool handlers
+  - optional LLM content generation (template fallback)
   - structured cards
         ↓
 SSE / sync response / Telegram reply
 ```
 
-## Current V1 behavior
+## Current behavior
 
 - Runtime is live for planning/review cards.
 - Execution remains disabled.
 - Web path waits for task completion and returns cards immediately for serverless UX.
-- Telegram webhook:
-  - parses Bot API updates
-  - runs the same runtime
-  - formats a text reply
-  - sends via Bot API only when `TELEGRAM_BOT_TOKEN` is set
+- Conversations/messages/tasks/launch drafts persist to Supabase when server credentials exist; otherwise memory fallback.
+- Launch drafts support incremental token field updates.
+- Optional LLM:
+  - `OPENAI_API_KEY` or `LLM_API_KEY`
+  - `OPENAI_BASE_URL` / `LLM_BASE_URL`
+  - `OPENAI_MODEL` / `LLM_MODEL`
+  - on failure, deterministic template content is used
 
 ## Environment
 
 ```text
+SUPABASE_URL=
+SUPABASE_SECRET_KEY=
+OPENAI_API_KEY=
+OPENAI_BASE_URL=
+OPENAI_MODEL=
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_WEBHOOK_SECRET=
 ```
 
-Webhook verification uses header:
+Migration:
 
 ```text
-x-telegram-bot-api-secret-token
+database/migrations/021_go_agent_core.sql
 ```
 
 ## Card types
@@ -64,6 +73,6 @@ x-telegram-bot-api-secret-token
 
 ## Next
 
-1. Durable conversation/task storage in Supabase
-2. Optional LLM provider behind the same tool gateway
-3. Telegram deep-links that open the same launch draft in web Go
+1. Apply migration `021` on production Supabase
+2. Configure optional LLM key if desired
+3. Telegram bot rollout after Go web loop is stable

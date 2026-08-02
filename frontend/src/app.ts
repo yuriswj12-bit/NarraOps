@@ -815,13 +815,19 @@ function renderStructuredCard(card) {
   `).join("");
 
   return `
-    <article class="go-structured-card" data-card-type="${card.type}">
+    <article class="go-structured-card" data-card-type="${card.type}" ${data.launch_draft_id ? `data-launch-draft-id="${escapeHtml(String(data.launch_draft_id))}"` : ""}>
       <header>
         <div><i class="${icon}" aria-hidden="true"></i><strong>${t(titleZh, titleEn)}</strong></div>
-        <span>${escapeHtml(String(data.data_status || data.status || data.mode || card.status || t("已返回", "Returned")))}</span>
+        <span>${escapeHtml(String(data.preparation_status || data.data_status || data.status || data.mode || card.status || t("已返回", "Returned")))}</span>
       </header>
       ${metrics ? `<div class="go-card-metrics">${metrics}</div>` : ""}
       ${details || (!entries.length ? `<p class="go-card-empty">${t("后端未返回可展示的数据。", "The backend returned no displayable data.")}</p>` : "")}
+      ${card.type === "launch_draft" && data.launch_draft_id ? `
+        <div class="go-card-actions">
+          <button type="button" class="secondary-button" data-draft-action="edit-token" data-draft-id="${escapeHtml(String(data.launch_draft_id))}">${t("编辑代币参数", "Edit token fields")}</button>
+          <button type="button" class="secondary-button" data-draft-action="mark-review" data-draft-id="${escapeHtml(String(data.launch_draft_id))}">${t("标记已审阅", "Mark reviewed")}</button>
+        </div>
+      ` : ""}
     </article>
   `;
 }
@@ -892,7 +898,10 @@ function renderConversation() {
 }
 
 function renderGo() {
-  if (!state.conversation.length) state.conversation = getInitialConversation();
+  if (!state.conversation.length) {
+    state.conversation = getInitialConversation();
+    void restoreGoConversation().then((id) => { if (id) renderConversation(); });
+  }
   const quickActions = [
     ["/narrative-trends", "fa-solid fa-arrow-trend-up", "叙事趋势", "Narrative Trends", "查看正在加速的互联网叙事和证据来源。", "Review accelerating internet narratives and public evidence."],
     ["/analyze-meme", "fa-solid fa-magnifying-glass-chart", "分析叙事", "Analyze Narrative", "输入链接或合约，提取故事、来源、风险和重复度。", "Submit a link or contract to extract story, sources, risks, and crowding."],
@@ -2143,6 +2152,69 @@ function getAgentResponse(command) {
 }
 
 
+
+async function restoreGoConversation() {
+  const savedId = window.localStorage.getItem("narraops.go.conversationId");
+  if (!savedId) return null;
+  try {
+    const payload = await apiRequest(`/api/v1/agent/conversations/${savedId}`, { method: "GET" });
+    state.agent.conversationId = payload.conversationId || payload.conversation_id || savedId;
+    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    if (messages.length) {
+      state.conversation = [
+        ...getInitialConversation(),
+        ...messages.map((message) => {
+          if (message.role === "user") {
+            return {
+              role: "user",
+              content: message.content || "",
+              timestamp: getMessageTime(),
+            };
+          }
+          const card = Array.isArray(message.blocks) ? message.blocks.find((block) => block?.type) : null;
+          return {
+            role: "agent",
+            contentZh: message.content || "",
+            contentEn: message.content || "",
+            card: card || undefined,
+            cards: Array.isArray(message.blocks) ? message.blocks.filter((block) => block?.type) : [],
+            timestamp: getMessageTime(),
+            status: message.status || null,
+            taskId: message.taskId || message.task_id || null,
+          };
+        }),
+      ];
+    }
+    return state.agent.conversationId;
+  } catch {
+    window.localStorage.removeItem("narraops.go.conversationId");
+    return null;
+  }
+}
+
+async function patchLaunchDraft(draftId, patch) {
+  const payload = await apiRequest(`/api/v1/go/launch-drafts/${draftId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  const card = payload.card || {
+    type: "launch_draft",
+    status: payload.draft?.preparation_status || "draft",
+    data: payload.draft,
+  };
+  state.conversation.push({
+    role: "agent",
+    timestamp: getMessageTime(),
+    contentZh: "发射预案已更新。",
+    contentEn: "Launch draft updated.",
+    suggestionZh: "可继续修改，或保持 review-only 等待人工确认。",
+    suggestionEn: "Continue editing, or keep it review-only for human confirmation.",
+    card,
+  });
+  renderConversation();
+  return payload;
+}
+
 async function ensureGoConversation() {
   if (state.agent.conversationId) return state.agent.conversationId;
   if (state.agent.conversationPromise) return state.agent.conversationPromise;
@@ -2158,6 +2230,7 @@ async function ensureGoConversation() {
       }),
     });
     state.agent.conversationId = payload.conversationId || payload.conversation_id;
+    if (state.agent.conversationId) window.localStorage.setItem("narraops.go.conversationId", state.agent.conversationId);
     return state.agent.conversationId;
   })();
   try {
@@ -2449,6 +2522,36 @@ viewRoot.addEventListener("click", async (event) => {
   const opportunity = event.target.closest("[data-opportunity]");
   if (opportunity) {
     openPulseOpportunity(opportunity.dataset.opportunity);
+    return;
+  }
+
+  const draftAction = event.target.closest("[data-draft-action]");
+  if (draftAction) {
+    const draftId = draftAction.dataset.draftId;
+    if (!draftId) return;
+    try {
+      if (draftAction.dataset.draftAction === "mark-review") {
+        await patchLaunchDraft(draftId, { action: "mark_reviewed" });
+        showToast(t("已标记为人工审阅。", "Marked as human-reviewed."));
+      } else if (draftAction.dataset.draftAction === "edit-token") {
+        const sourceCard = state.conversation
+          .flatMap((message) => [message.card, ...(message.cards || [])])
+          .find((card) => card?.type === "launch_draft" && card.data?.launch_draft_id === draftId);
+        const current = sourceCard?.data?.token || {};
+        const name = window.prompt(t("代币名称", "Token name"), current.name || "");
+        if (name === null) return;
+        const symbol = window.prompt(t("代币符号", "Token symbol"), current.symbol || "");
+        if (symbol === null) return;
+        const description = window.prompt(t("代币描述", "Token description"), current.description || "");
+        if (description === null) return;
+        await patchLaunchDraft(draftId, {
+          token: { name, symbol, description },
+        });
+        showToast(t("代币参数已更新。", "Token fields updated."));
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error));
+    }
     return;
   }
 

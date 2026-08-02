@@ -7,7 +7,8 @@ server.js
 node_modules
 data
 logs
-backend
+# Keep backend sources available while the Agent Runtime bundle is built.
+# esbuild includes only the imported Agent dependency graph in the function.
 database
 deploy/alicloud
 deploy/docker

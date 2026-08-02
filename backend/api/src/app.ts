@@ -29,6 +29,7 @@ import { InMemoryLaunchDraftRepository } from "./repositories/in-memory-launch-d
 import { InMemoryWalletGroupRepository } from "./repositories/in-memory-wallet-group-repository.ts";
 import { InMemoryTransferRepository } from "./repositories/in-memory-transfer-repository.ts";
 import { TaskManager } from "../../agents/task-manager.ts";
+import { normalizeLaunchDraftPatch } from "../../agents/agent-runtime.ts";
 import { createMockHandlers } from "../../agents/mock-handlers.ts";
 import { createIntegrationRegistry } from "../../integrations/registry.ts";
 import { mockInviteSummary, mockPulse, mockSettings } from "../../integrations/mock-product-data.ts";
@@ -200,25 +201,27 @@ export function createApplication({ config, logger, repository, conversationRepo
   });
 
   manager.on("taskEvent", (event) => {
+    void (async () => {
     if (event.type !== "task.completed" && event.type !== "task.failed") return;
     const task = event.task;
-    const conversationId = conversations.conversationIdForTask(task?.taskId);
+    const conversationId = await conversations.conversationIdForTask(task?.taskId);
     if (!conversationId) return;
     if (event.type === "task.completed") {
-      conversations.addMessage(conversationId, {
+      await conversations.addMessage(conversationId, {
         role: "assistant",
         taskId: task.taskId,
         status: "completed",
         blocks: task.result?.card ? [task.result.card] : [{ type: "text", text: "Task completed" }],
       });
     } else {
-      conversations.addMessage(conversationId, {
+      await conversations.addMessage(conversationId, {
         role: "assistant",
         taskId: task.taskId,
         status: "failed",
         blocks: [{ type: "error", error: task.failure }],
       });
     }
+    })();
   });
 
   const server = http.createServer(async (req, res) => {
@@ -248,7 +251,7 @@ export function createApplication({ config, logger, repository, conversationRepo
 
       const conversationMatch = req.method === "GET" && url.pathname.match(/^\/api\/v1\/agent\/conversations\/([0-9a-f-]{36})$/i);
       if (conversationMatch) {
-        const conversation = conversations.get(conversationMatch[1]);
+        const conversation = await conversations.get(conversationMatch[1]);
         if (!conversation) throw new ApiError(404, "CONVERSATION_NOT_FOUND", "Agent conversation was not found");
         sendJson(res, 200, conversation, requestId);
         return;
@@ -328,9 +331,25 @@ export function createApplication({ config, logger, repository, conversationRepo
 
       const launchDraftMatch = req.method === "GET" && url.pathname.match(/^\/api\/v1\/launch\/drafts\/([0-9a-f-]{36})$/i);
       if (launchDraftMatch) {
-        const draft = launchDrafts.get(launchDraftMatch[1]);
+        const draft = await launchDrafts.get(launchDraftMatch[1]);
         if (!draft) throw new ApiError(404, "LAUNCH_DRAFT_NOT_FOUND", "Launch draft was not found");
         sendJson(res, 200, draft, requestId);
+        return;
+      }
+
+      const launchDraftPatchMatch = req.method === "PATCH" && url.pathname.match(/^\/api\/v1\/go\/launch-drafts\/([0-9a-f-]{36})$/i);
+      if (launchDraftPatchMatch) {
+        const draft = await launchDrafts.update(launchDraftPatchMatch[1], normalizeLaunchDraftPatch(await readJson(req, config.bodyLimitBytes)));
+        if (!draft) throw new ApiError(404, "LAUNCH_DRAFT_NOT_FOUND", "Launch draft was not found");
+        sendJson(res, 200, {
+          schema_version: "go.launch_draft.v1",
+          draft,
+          card: {
+            type: "launch_draft",
+            status: draft.preparation_status,
+            data: { ...draft, executable: false, submitted: false, reason: "real_execution_disabled" },
+          },
+        }, requestId);
         return;
       }
 
@@ -372,7 +391,7 @@ export function createApplication({ config, logger, repository, conversationRepo
 
       const taskMatch = req.method === "GET" && url.pathname.match(/^\/api\/v1\/agent\/tasks\/([0-9a-f-]{36})$/i);
       if (taskMatch) {
-        const task = manager.get(taskMatch[1]);
+        const task = await manager.get(taskMatch[1]);
         if (!task) throw new ApiError(404, "TASK_NOT_FOUND", "Agent task was not found");
         sendJson(res, 200, toGoTask(task), requestId);
         return;
@@ -611,7 +630,7 @@ export function createApplication({ config, logger, repository, conversationRepo
 
         if (url.pathname === "/api/v1/agent/conversations") {
           const context = validateConversationCreate(body);
-          const conversation = conversations.create(context);
+          const conversation = await conversations.create(context);
           sendJson(res, 201, conversation, requestId);
           return;
         }
@@ -629,7 +648,7 @@ export function createApplication({ config, logger, repository, conversationRepo
           const token = buildDraftMetadata({ narrative, token: input.token });
           const required = ["name", "symbol", "description", "image_url"];
           const missingFields = required.filter((field) => !token[field]);
-          const draft = launchDrafts.create({
+          const draft = await launchDrafts.create({
             chain: input.chain,
             platform,
             narrative,
@@ -650,10 +669,10 @@ export function createApplication({ config, logger, repository, conversationRepo
 
         const messageMatch = url.pathname.match(/^\/api\/v1\/agent\/conversations\/([0-9a-f-]{36})\/messages$/i);
         if (messageMatch) {
-          const conversation = conversations.get(messageMatch[1]);
+          const conversation = await conversations.get(messageMatch[1]);
           if (!conversation) throw new ApiError(404, "CONVERSATION_NOT_FOUND", "Agent conversation was not found");
           const message = validateConversationMessage(body);
-          conversations.addMessage(conversation.conversationId, {
+          await conversations.addMessage(conversation.conversationId, {
             role: "user",
             content: message.message,
             command: message.command,
@@ -662,11 +681,11 @@ export function createApplication({ config, logger, repository, conversationRepo
             ...(message.command ? { command: message.command } : { input: message.message }),
             parameters: { context: message.context },
           });
-          task = manager.create(parsed.type, parsed.input, requestId, {
+          task = await manager.create(parsed.type, parsed.input, requestId, {
             ...parsed.metadata,
             conversation_id: conversation.conversationId,
           });
-          conversations.bindTask(conversation.conversationId, task.taskId);
+          await conversations.bindTask(conversation.conversationId, task.taskId);
           sendJson(res, 202, {
             taskId: task.taskId,
             conversationId: conversation.conversationId,
@@ -676,19 +695,19 @@ export function createApplication({ config, logger, repository, conversationRepo
         }
 
         if (url.pathname === "/api/v1/narratives/scan") {
-          task = manager.create("narrative.scan", validateNarrativeScan(body), requestId, policyForType("narrative.scan"));
+          task = await manager.create("narrative.scan", validateNarrativeScan(body), requestId, policyForType("narrative.scan"));
         } else if (url.pathname === "/api/v1/narratives/generate") {
-          task = manager.create("narrative.generate", validateNarrativeGenerate(body), requestId, policyForType("narrative.generate"));
+          task = await manager.create("narrative.generate", validateNarrativeGenerate(body), requestId, policyForType("narrative.generate"));
         } else if (url.pathname === "/api/v1/launch/packages") {
-          task = manager.create("launch.package", validateLaunchPackage(body), requestId, policyForType("launch.package"));
+          task = await manager.create("launch.package", validateLaunchPackage(body), requestId, policyForType("launch.package"));
         } else if (url.pathname === "/api/v1/agent/tasks") {
           const command = validateAgentTask(body);
-          task = manager.create(command.type, command.input, requestId, command.metadata);
+          task = await manager.create(command.type, command.input, requestId, command.metadata);
           sendJson(res, 202, toGoTask(task), requestId);
           return;
         } else if (url.pathname === "/api/v1/market/dev-wallets/scan") {
           const command = validateAgentTask({ type: "dev.market.scan", input: body });
-          task = manager.create(command.type, command.input, requestId, command.metadata);
+          task = await manager.create(command.type, command.input, requestId, command.metadata);
           sendJson(res, 202, toGoTask(task), requestId);
           return;
         }

@@ -1,15 +1,18 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 import { randomUUID } from "node:crypto";
 
 export class InMemoryConversationRepository {
   #conversations = new Map();
   #taskToConversation = new Map();
 
-  create(context = {}) {
+  async create(context = {}) {
     const now = new Date().toISOString();
     const conversation = {
       conversationId: randomUUID(),
       context: structuredClone(context),
+      channel: context.channel || "web",
+      userId: context.user_id || context.userId || null,
+      channelUserId: context.channel_user_id || context.channelUserId || null,
       messages: [],
       createdAt: now,
       updatedAt: now,
@@ -18,12 +21,12 @@ export class InMemoryConversationRepository {
     return structuredClone(conversation);
   }
 
-  get(conversationId) {
+  async get(conversationId) {
     const conversation = this.#conversations.get(conversationId);
     return conversation ? structuredClone(conversation) : null;
   }
 
-  addMessage(conversationId, message) {
+  async addMessage(conversationId, message) {
     const conversation = this.#conversations.get(conversationId);
     if (!conversation) return null;
     const next = {
@@ -36,13 +39,13 @@ export class InMemoryConversationRepository {
     return structuredClone(next);
   }
 
-  bindTask(conversationId, taskId) {
+  async bindTask(conversationId, taskId) {
     if (!this.#conversations.has(conversationId)) return false;
     this.#taskToConversation.set(taskId, conversationId);
     return true;
   }
 
-  conversationIdForTask(taskId) {
+  async conversationIdForTask(taskId) {
     return this.#taskToConversation.get(taskId) || null;
   }
 }
