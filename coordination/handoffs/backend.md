@@ -1,5 +1,154 @@
 # Backend handoff
 
+## 2026-08-02 Conversation-aware launch-draft continuation
+
+- Reproduced the production failure with the exact two-turn flow: send a
+  public X link, then ask `给我生成发射草案`. The first request could return
+  `running` before the link reader plus structured model completed, and the
+  second request did not inherit the prior source.
+- Increased the synchronous Agent wait budget to 20 seconds, reduced bounded
+  launch-content generation to 8 seconds, and stopped doing a second model
+  call merely to narrate an already structured card. X oEmbed failure now
+  returns its explicit data gap instead of starting a second full-page fetch.
+- `launch.meme` now resolves context in this order: current public link,
+  existing launch draft in the same conversation, then the latest public link
+  in that conversation's user messages. Repeating the same link or asking for
+  a launch draft reuses the existing draft instead of producing an unrelated
+  result.
+- Launch drafts now expose safe user selections for
+  `cooking_wallet_group_id` and `bundled_wallet_group_id`. Both can be patched
+  together with existing editable token fields. A complete token draft remains
+  `requires_wallet_selection` until both Assets-owned groups are selected;
+  real signing, broadcasting, launch, and fund movement remain disabled.
+- Repository list queries can be scoped by conversation/user, preventing
+  cross-conversation draft reuse. The hosted Supabase schema requires no new
+  columns because wallet selections are stored in the existing private
+  metadata JSON and surfaced through the server-owned read model.
+
+Verification: Agent/API tests `80/80`, TypeScript typecheck, Vercel build,
+frontend/backend checks, and `git diff --check` pass. A dedicated regression
+test covers the exact link -> natural-language launch request and confirms
+that the second response returns the same populated `launch_draft`.
+
+Production deployment `https://www.narraops.xyz` was verified with the user's
+X URL. The first request completed with a live source and populated
+`Decoy Alpha / DECOYALPHA` Solana/Pump draft in about 18 seconds. A Chinese
+follow-up launch request completed in about 8.5 seconds, returned the same
+draft ID with `reused_existing_draft=true`, and preserved both required Assets
+wallet-group selections.
+
+Frontend handoff: replace the current prompt-based token editor with an inline
+launch-parameter form, load authenticated Assets wallet groups, filter the
+Cooking selector to `purpose=cooking` and the bundled-buy selector to a
+same-network non-Cooking group, then PATCH both IDs through the existing
+`/api/v1/go/launch-drafts/{id}` route.
+
+## 2026-08-02 Public-link to launch-draft workflow
+
+- Fixed the broken bare-link path shown in the Go screenshot. A bare public
+  `http(s)` link now parses as `launch.meme` instead of matching the old
+  `narrative.recommend` mock rule.
+- Added a bounded public-link reader with redirect limits, private-host
+  rejection, response-size limits, timeout handling, HTML metadata extraction,
+  and X/Twitter public oEmbed support. It returns source text, author, title,
+  summary, image/canonical metadata, fetch status, and explicit data gaps.
+- `launch.meme` now reads the source before generating content, infers chain
+  and launchpad from the source text when the user did not specify them, and
+  returns `launch_parameters` containing chain, platform, token fields,
+  source status, source URL, and missing fields. The draft remains
+  review-only and execution-disabled.
+- Fixed the Agent fallback for launch drafts so a link-derived plan is
+  described as fetched/enriched or data-gap, rather than as a mock result.
+
+Production verification with the public X link used in the user report:
+`launch.meme` -> `launch_draft`, source `live`, author `paulwei`, chain
+`solana`, platform `pump`, generated token `Decoy Alpha (DECOY)`, and only
+`image_url` left as `requires_enrichment`. API/Agent tests `79/79`, typecheck,
+build/check, and Vercel production smoke passed.
+
+## 2026-08-02 HertzFlow Solana forensic report pipeline
+
+- Reviewed the public HertzFlow artifact repository and aligned the Agent's
+  `/analyze-meme <solana-mint>` path with the report shape: fresh GMGN token
+  evidence, holder/trader samples, concentration, MM/bot, distribution,
+  cash-out, relationship clusters, P0/P1 watchlist, deterministic verdict,
+  Markdown reports, and `hertzflow_sol_meme_forensic_v1` machine output.
+- Replaced the old Python-path-only `HertzFlowAdapter` with a deployable
+  read-only TypeScript pipeline. HertzFlow is now the primary meme-analysis
+  provider; the old `gmgn+hertzflow` result merge and misleading completed
+  status are removed. Missing holder/trader evidence returns `data-gap` with
+  explicit limitations instead of a fabricated conclusion.
+- GMGN holder/trader rows are fetched with bounded fan-out (three concurrent
+  requests, five base reads by default). Optional tag scans are off by default
+  because an 11-request fan-out triggered GMGN HTTP 429 temporary IP banning
+  during smoke testing. Existing row-level `tags` and `maker_token_tags` are
+  still used; rate-limit errors are not retried and surface as component gaps.
+- Added deterministic graph heuristics for shared native funders, token
+  distributors, collectors, concentration, MM/bot signals, distribution,
+  visible cash-out lower bounds, and monitoring targets. No signing,
+  broadcasting, trading, or fund movement was added.
+- Fixed LLM fallback wording: a live HertzFlow report no longer says that no
+  model exists or asks the user to configure a key. If the configured model
+  times out, the Agent explains that it preserved the structured report.
+- Added a compact `report_preview` card section so the current generic Go card
+  can expose the HertzFlow conclusion, key findings, sample counts, and
+  watchlist count immediately. A future frontend-owned card renderer can use
+  the existing `report` / `forensic_report` Markdown and `machine_report`
+  payload for a richer visual report without changing the backend contract.
+
+Verification: API/Agent/Vercel tests `77/77`, TypeScript typecheck, syntax and
+`git diff --check` pass. Real read-only smoke tests confirmed the report schema
+and populated relationship output on a public Solana meme sample; the user's
+current mint returned a truthful data gap because GMGN returned no wallet rows.
+
+## 2026-08-02 GMGN Agent capability expansion
+
+- Added Agent task routes for read-only GMGN `market.trending`,
+  `market.trenches`, `market.kline`, and `market.signal` capabilities, with
+  slash commands `/market-trending`, `/trenches`, `/kline`, and `/signals` plus
+  natural-language parsing.
+- `/analyze-meme <contract>` now stays on the Agent runtime even when the
+  legacy frontend submits it to `/api/v1/go/plan`; the response returns the
+  Agent card instead of requiring a reviewed Pulse opportunity.
+- Meme analysis now combines GMGN token info/security/pool and smart-money
+  holder/trader reads with the optional HertzFlow report. All external calls
+  are bounded, address-validated, and read-only. Trade, launch, transfer, and
+  withdrawal execution remain disabled.
+- Packaged `gmgn-cli` as a project dependency and made the adapter invoke its
+  Node entrypoint directly on Windows/serverless environments. Local GMGN
+  read-only smoke test returned a live response. Vercel's Node build config
+  explicitly includes the CLI and its runtime dependencies because the CLI is
+  launched as a child process rather than imported into the bundle.
+- Production Vercel environment now has server-only `GMGN_API_KEY` and
+  `GMGN_LIVE_ENABLED`; the key was written through stdin and is not in Git or
+  logs.
+
+Verification: API/Agent/Vercel tests `75/75`, TypeScript typecheck, frontend and
+backend checks, Agent bundle build, adapter-level live GMGN smoke test, and
+`git diff --check` pass.
+
+## 2026-08-02 Conversational LLM Agent integration
+
+- Added an OpenAI-compatible conversational response layer to the Go Agent.
+  General capability questions route to `agent.chat` and no longer create a
+  misleading `mock` narrative card.
+- Completed controlled tasks now pass bounded task results and recent
+  conversation history to the server-side model provider. The response and
+  provider metadata are persisted with the assistant message.
+- Accepted server-only configuration: `OPENAI_API_KEY` or `LLM_API_KEY`, with
+  `OPENAI_BASE_URL` / `LLM_BASE_URL` and `OPENAI_MODEL` / `LLM_MODEL` aliases.
+  Missing or failed providers explicitly return `fallback` metadata; no model
+  result is presented as live data.
+- Real signing, broadcasting, fund movement, and token launch remain disabled.
+
+Verification: Agent/API tests `72/72`, TypeScript typecheck, frontend/backend
+checks, Agent bundle build, Node syntax check, and `git diff --check` pass.
+
+Remaining production blocker: Vercel `hek/narra-ops` currently has only the
+Supabase variables (`SUPABASE_SECRET_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, and
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`). A server-side OpenAI-compatible model
+key must be added before production can produce real LLM replies.
+
 ## 2026-08-02 Vercel Agent Runtime bundle fix
 
 - Fixed the Vercel runtime failure caused by `api/v1/agent/runtime.ts`
@@ -16,8 +165,10 @@ Verification: API/Agent/Vercel handler tests `71/71`, TypeScript typecheck,
 frontend/backend checks, full `npm run build`, `node --check` on the generated
 bundle, and Vercel CLI local build all pass.
 
-Remaining blocker: deploy the fix through the existing `narra-ops` Vercel
-project; no push or production deployment was performed in this worktree.
+Production verification completed after the fix: the existing `narra-ops`
+Vercel project serves the Agent catch-all successfully. The remaining Agent
+blocker is provider configuration described in the conversational LLM section
+above.
 
 ## 2026-08-02 Go Agent core continuation
 

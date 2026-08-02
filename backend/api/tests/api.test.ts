@@ -411,6 +411,35 @@ test("Go conversation contract accepts a quick action and stores the resulting c
   assert.equal(conversation.messages[1].blocks[0].type, "dev_market");
 });
 
+test("Go conversation wait mode returns the completed launch card inline", async (t) => {
+  const { application, baseUrl } = await startApi();
+  t.after(() => application.close());
+  const created = await post(baseUrl, "/api/v1/agent/conversations", {
+    context: { language: "en", currentView: "go" },
+  }).then((response) => response.json());
+
+  const response = await post(baseUrl, `/api/v1/agent/conversations/${created.conversationId}/messages`, {
+    message: "/launch https://example.com/story solana pump",
+    command: "/launch https://example.com/story solana pump",
+    wait: true,
+    timeout_ms: 4_000,
+    context: { language: "en", currentView: "go" },
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.status, "succeeded");
+  assert.equal(payload.task.result.card.type, "launch_draft");
+
+  const followUp = await post(baseUrl, `/api/v1/agent/conversations/${created.conversationId}/messages`, {
+    message: "What is the content of this link?",
+    wait: true,
+    context: { language: "en", currentView: "go" },
+  }).then((item) => item.json());
+  assert.equal(followUp.status, "succeeded");
+  assert.ok(followUp.message.content);
+  assert.notEqual(followUp.message.content, "Task completed.");
+});
+
 test("market scan exposes explicit GMGN data gaps without fabricated Dev wallets", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());

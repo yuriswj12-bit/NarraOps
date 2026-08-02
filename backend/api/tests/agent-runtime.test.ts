@@ -25,6 +25,78 @@ test("agent runtime turns a slash command into a structured card", async () => {
   assert.equal(result.persistence, "memory");
 });
 
+test("agent runtime exposes GMGN read-only market tasks", async () => {
+  const runtime = createAgentRuntime({ stepDelayMs: 1 });
+  const result = await runtime.handleMessage({
+    channel: "web",
+    message: "/market-trending solana",
+    command: "/market-trending solana",
+    context: { language: "zh", currentView: "go" },
+    wait: true,
+    timeoutMs: 3000,
+  });
+  assert.equal(result.status, "succeeded");
+  assert.equal(result.task.type, "market.trending");
+  assert.equal(result.cards[0]?.type, "market_trending");
+  assert.equal(result.cards[0]?.data?.data_source, "gmgn");
+  assert.equal(result.cards[0]?.data?.data_source_status, "disabled");
+});
+
+test("agent runtime uses an OpenAI-compatible model for general conversation", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.OPENAI_API_KEY;
+  const originalModel = process.env.OPENAI_MODEL;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  process.env.OPENAI_MODEL = "test-model";
+  globalThis.fetch = async (_url, options) => {
+    const request = JSON.parse(options.body);
+    assert.equal(request.model, "test-model");
+    assert.equal(request.stream, false);
+    assert.equal(request.messages[0].role, "system");
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                content: "真实模型已接入：我可以帮助你发现叙事、分析风险并生成 review-only 方案。",
+                suggestion: "告诉我你想研究的叙事或贴一条公开链接。",
+              }),
+            },
+          }],
+        };
+      },
+    };
+  };
+
+  try {
+    const runtime = createAgentRuntime({ stepDelayMs: 1 });
+    const result = await runtime.handleMessage({
+      channel: "web",
+      message: "介绍下你可以做什么",
+      context: { language: "zh", currentView: "go" },
+      wait: true,
+      timeoutMs: 3000,
+    });
+    assert.equal(result.status, "succeeded");
+    assert.equal(result.task.execution_mode, "assistant");
+    assert.equal(result.agent.provider, "openai_compatible");
+    assert.equal(result.agent.used_llm, true);
+    assert.equal(result.message.content, "真实模型已接入：我可以帮助你发现叙事、分析风险并生成 review-only 方案。");
+    assert.equal(result.cards.length, 0);
+    const conversation = await runtime.getConversation(result.conversation_id);
+    assert.equal(conversation.messages.at(-1).content, result.message.content);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
+    if (originalModel === undefined) delete process.env.OPENAI_MODEL;
+    else process.env.OPENAI_MODEL = originalModel;
+  }
+});
+
 test("launch draft can be created and patched through runtime", async () => {
   const runtime = createAgentRuntime({ stepDelayMs: 1 });
   const created = await runtime.handleMessage({
@@ -50,8 +122,21 @@ test("launch draft can be created and patched through runtime", async () => {
   });
   assert.equal(updated.card.type, "launch_draft");
   assert.equal(updated.draft.token.symbol, "RACC");
-  assert.equal(updated.draft.preparation_status, "ready_for_user_review");
+  assert.equal(updated.draft.preparation_status, "requires_wallet_selection");
   assert.deepEqual(updated.draft.missing_fields, []);
+  assert.deepEqual(updated.draft.required_user_selections, [
+    "cooking_wallet_group_id",
+    "bundled_wallet_group_id",
+  ]);
+
+  const walletReady = await runtime.updateLaunchDraft(draftId, {
+    cooking_wallet_group_id: "cook-group",
+    bundled_wallet_group_id: "bundle-group",
+  });
+  assert.equal(walletReady.draft.cooking_wallet_group_id, "cook-group");
+  assert.equal(walletReady.draft.bundled_wallet_group_id, "bundle-group");
+  assert.equal(walletReady.draft.preparation_status, "ready_for_user_review");
+  assert.deepEqual(walletReady.draft.required_user_selections, []);
 
   const reviewed = await runtime.updateLaunchDraft(draftId, { action: "mark_reviewed" });
   assert.equal(reviewed.draft.metadata.review_status, "reviewed");
@@ -60,6 +145,75 @@ test("launch draft can be created and patched through runtime", async () => {
     () => runtime.updateLaunchDraft(draftId, { token: { private_key: "never-store-this" } }),
     (error) => error.code === "SENSITIVE_INPUT_REJECTED",
   );
+});
+
+test("a follow-up launch request reuses the link-derived draft from the same conversation", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /^https:\/\/publish\.twitter\.com\/oembed\?/);
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
+      async text() {
+        return JSON.stringify({
+          author_name: "Paul",
+          author_url: "https://x.com/coolish",
+          html: "<blockquote><p>Decoy alpha is the meme narrative for today.</p></blockquote>",
+        });
+      },
+    };
+  };
+
+  try {
+    const runtime = createAgentRuntime({ stepDelayMs: 1 });
+    const first = await runtime.handleMessage({
+      channel: "web",
+      message: "https://x.com/coolish/status/2083800621321535680?s=20",
+      context: { language: "zh", currentView: "go" },
+      wait: true,
+      timeoutMs: 3000,
+    });
+    assert.equal(first.status, "succeeded");
+    assert.equal(first.task.type, "launch.meme");
+    assert.equal(first.cards[0]?.type, "launch_draft");
+    const firstDraftId = first.cards[0]?.data?.launch_draft_id;
+    assert.ok(firstDraftId);
+
+    const second = await runtime.handleMessage({
+      channel: "web",
+      conversationId: first.conversation_id,
+      message: "给我生成发射草案",
+      context: { language: "zh", currentView: "go" },
+      wait: true,
+      timeoutMs: 3000,
+    });
+    assert.equal(second.status, "succeeded");
+    assert.equal(second.task.type, "launch.meme");
+    assert.equal(second.cards[0]?.type, "launch_draft");
+    assert.equal(second.cards[0]?.data?.launch_draft_id, firstDraftId);
+    assert.equal(second.cards[0]?.data?.reused_existing_draft, true);
+    assert.equal(
+      second.cards[0]?.data?.launch_parameters?.source_url,
+      "https://x.com/coolish/status/2083800621321535680?s=20",
+    );
+    assert.match(second.message.content, /发射预案/);
+
+    const third = await runtime.handleMessage({
+      channel: "web",
+      conversationId: first.conversation_id,
+      message: "该链接是什么内容",
+      context: { language: "zh", currentView: "go" },
+      wait: true,
+      timeoutMs: 3000,
+    });
+    assert.equal(third.status, "succeeded");
+    assert.equal(third.task.type, "agent.chat");
+    assert.match(third.message.content, /Decoy alpha is the meme narrative for today/);
+    assert.doesNotMatch(third.message.content, /我可以做叙事发现/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("conversation messages are restored after create", async () => {

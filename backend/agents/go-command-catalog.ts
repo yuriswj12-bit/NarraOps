@@ -11,6 +11,13 @@ export const GO_CATEGORIES = Object.freeze([
   "summary",
 ]);
 
+export const AGENT_CHAT_POLICY = Object.freeze({
+  type: "agent.chat",
+  category: "assistant",
+  requires_confirmation: false,
+  execution_mode: "assistant",
+});
+
 export const GO_COMMANDS = Object.freeze([
   {
     command: "/dev-market",
@@ -21,6 +28,46 @@ export const GO_COMMANDS = Object.freeze([
     usage: "/dev-market [solana|bsc|robinhood]",
     requires_confirmation: false,
     execution_mode: "mock",
+  },
+  {
+    command: "/market-trending",
+    aliases: ["/trending", "/hot-tokens", "/hot"],
+    category: "market",
+    type: "market.trending",
+    description: "Read the GMGN trending-token ranking for a supported chain.",
+    usage: "/market-trending [solana|bsc|base|eth]",
+    requires_confirmation: false,
+    execution_mode: "live_read_only",
+  },
+  {
+    command: "/trenches",
+    aliases: ["/new-tokens", "/new-launches"],
+    category: "market",
+    type: "market.trenches",
+    description: "Read newly created, near-completion, and completed launchpad tokens from GMGN.",
+    usage: "/trenches [solana|bsc|base|eth]",
+    requires_confirmation: false,
+    execution_mode: "live_read_only",
+  },
+  {
+    command: "/kline",
+    aliases: ["/chart", "/price-chart"],
+    category: "market",
+    type: "market.kline",
+    description: "Read GMGN OHLCV candlestick data for a public token address.",
+    usage: "/kline <contract address> [solana|bsc|base|eth]",
+    requires_confirmation: false,
+    execution_mode: "live_read_only",
+  },
+  {
+    command: "/signals",
+    aliases: ["/signal", "/smart-money-signals"],
+    category: "market",
+    type: "market.signal",
+    description: "Read GMGN token signal groups such as smart-money buys and price spikes.",
+    usage: "/signals [solana|bsc]",
+    requires_confirmation: false,
+    execution_mode: "live_read_only",
   },
   {
     command: "/pulse",
@@ -152,5 +199,6 @@ export function policyForType(type) {
   if (type === "launch.package") {
     return { type, category: "launch", requires_confirmation: true, execution_mode: "disabled" };
   }
+  if (type === "agent.chat") return AGENT_CHAT_POLICY;
   return null;
 }

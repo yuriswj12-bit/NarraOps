@@ -3,6 +3,12 @@ import { ApiError } from "../api/src/errors.ts";
 import { commandForName, policyForType } from "./go-command-catalog.ts";
 
 const NATURAL_RULES = [
+  { pattern: /(热门币|最热币|涨幅榜|市场排行|trending tokens?|hot tokens?|what(?:'s| is) pumping|market ranking)/i, type: "market.trending" },
+  { pattern: /(新币|新代币|刚上线|新发射|新项目|new tokens?|new launches?|trenches|pump\.fun|fourmeme)/i, type: "market.trenches" },
+  { pattern: /(k线|行情图|走势图|candlestick|ohlcv|price chart|kline)/i, type: "market.kline" },
+  { pattern: /(信号|聪明钱|智能钱|smart money|token signals?|signal groups?)/i, type: "market.signal" },
+  { pattern: /(分析.*(?:meme|代币|合约|token)|(?:meme|token|contract).*(?:分析|analysis|research|due diligence))/i, type: "meme.analyze" },
+  { pattern: /(你可以做什么|你能做什么|能做什么|有什么功能|介绍.*功能|介绍.*能力|help|what can you do|capabilities?)/i, type: "agent.chat" },
   { pattern: /(链上行情|dev\s*market|developer\s*market|onchain\s*market)/i, type: "dev.market.scan" },
   { pattern: /(近期总结|recent\s*summary|account\s*summary)/i, type: "account.recent-summary" },
   { pattern: /(分析.*meme|meme.*分析|analy[sz]e\s*meme|合约.*分析)/i, type: "meme.analyze" },
@@ -37,8 +43,25 @@ export function parseGoInput(text) {
     };
   }
 
+  // A bare public link is a Go launch input, not a mock narrative query.
+  // This lets the Agent fetch the source, extract launch parameters, and
+  // create a review-only draft in one step.
+  if (/^https?:\/\/\S+$/i.test(normalized)) {
+    const policy = policyForType("launch.meme");
+    return {
+      type: "launch.meme",
+      category: policy.category,
+      command: "/launch",
+      raw_input: normalized,
+      arguments: normalized,
+      parsed_by: "public_link",
+      requires_confirmation: policy.requires_confirmation,
+      execution_mode: policy.execution_mode,
+    };
+  }
+
   const matched = NATURAL_RULES.find((rule) => rule.pattern.test(normalized));
-  const type = matched?.type || "narrative.recommend";
+  const type = matched?.type || "agent.chat";
   const policy = policyForType(type);
   return {
     type,

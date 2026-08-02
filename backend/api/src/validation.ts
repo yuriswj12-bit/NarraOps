@@ -5,6 +5,7 @@ import { parseGoInput } from "../../agents/go-command-parser.ts";
 import { policyForType } from "../../agents/go-command-catalog.ts";
 
 const TASK_TYPES = new Set([
+  "agent.chat",
   "narrative.scan",
   "narrative.generate",
   "narrative.recommend",
@@ -17,6 +18,10 @@ const TASK_TYPES = new Set([
   "funds.transfer",
   "funds.withdraw",
   "dev.market.scan",
+  "market.trending",
+  "market.trenches",
+  "market.kline",
+  "market.signal",
   "narrative.trends",
   "meme.analyze",
   "account.recent-summary",
@@ -261,6 +266,10 @@ export function validateConversationMessage(body) {
   return {
     message,
     command,
+    wait: body.wait === true,
+    timeout_ms: Number.isInteger(body.timeout_ms)
+      ? Math.min(Math.max(body.timeout_ms, 250), 15_000)
+      : 8_000,
     context: {
       language: context.language === "zh" ? "zh" : "en",
       currentView: string(context.currentView, "context.currentView", { max: 50 }) || "go",

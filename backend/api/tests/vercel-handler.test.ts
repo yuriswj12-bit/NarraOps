@@ -192,7 +192,15 @@ test("Pulse narratives returns only unexpired real source cards by category", ()
       published_at: "2026-07-30T08:00:00.000Z",
       expires_at: "2026-07-30T08:30:00.000Z",
     },
-  ], now);
+  ], now, new Set(), {
+    started_at: "2026-07-30T08:59:00.000Z",
+    completed_at: "2026-07-30T08:59:20.000Z",
+    status: "completed",
+    source_count: 10,
+    successful_source_count: 10,
+    collected_item_count: 2,
+    eligible_item_count: 1,
+  });
   assert.equal(response.schema_version, "pulse.narratives.v1");
   assert.equal(response.data_status, "live");
   assert.equal(response.total, 1);
@@ -510,4 +518,25 @@ test("Go plan endpoint returns not found for unknown opportunity ids", async () 
   const result = recorder.result();
   assert.equal(result.status, 404);
   assert.equal(result.body.error.code, "PULSE_OPPORTUNITY_NOT_FOUND");
+});
+
+test("Go plan keeps /analyze-meme on the Agent route", async () => {
+  const recorder = responseRecorder();
+  await goPlanHandler(
+    {
+      method: "POST",
+      url: "/api/v1/go/plan",
+      headers: { "content-type": "application/json" },
+      body: {
+        message: "/analyze-meme So11111111111111111111111111111111111111112",
+        command: "/analyze-meme So11111111111111111111111111111111111111112",
+        context: { language: "zh", currentView: "go" },
+      },
+    },
+    recorder.response,
+  );
+  const result = recorder.result();
+  assert.equal(result.status, 200);
+  assert.equal(result.body.task.type, "meme.analyze");
+  assert.equal(result.body.card.type, "meme_analysis");
 });

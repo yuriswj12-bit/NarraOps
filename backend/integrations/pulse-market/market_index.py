@@ -28,6 +28,16 @@ def clamp_score(value: Decimal) -> Decimal:
     return max(Decimal(0), min(Decimal(100), value))
 
 
+def median(values: Iterable[Decimal]) -> Decimal:
+    ordered = sorted(values)
+    if not ordered:
+        raise ValueError("values are required")
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / Decimal(2)
+
+
 def percentile_score(current: Decimal, history: Iterable[Decimal]) -> Decimal:
     """Empirical mid-rank percentile against earlier observations only."""
     values = list(history)
@@ -75,12 +85,18 @@ def calculate_index(
             complete = False
             score = None
             contribution = None
+            normalized = None
         else:
-            score = percentile_score(raw, baseline)
+            # The bounded RPC sample can contain only a handful of migrations.
+            # A trailing three-observation median prevents one sparse sample
+            # from creating a false cliff while preserving real direction.
+            normalized = median([*baseline[-2:], raw])
+            score = percentile_score(normalized, baseline)
             contribution = score * weight
             weighted_total += contribution
         component_results[name] = {
             "raw_value": str(raw) if raw is not None else None,
+            "normalized_value": str(normalized) if normalized is not None else None,
             "score": str(score.quantize(Decimal("0.0001"))) if score is not None else None,
             "weight": str(weight),
             "contribution": (

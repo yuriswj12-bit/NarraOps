@@ -22,8 +22,18 @@ import {
   validateConversationCreate,
   validateConversationMessage,
 } from "../api/src/validation.ts";
+import { generateAgentReply } from "./llm-provider.ts";
 
 const SUPPORTED_CHANNELS = new Set(["web", "telegram", "api"]);
+export const AGENT_CAPABILITIES = Object.freeze([
+  "Read-only GMGN market data: trending tokens, launchpad trenches, K-lines, token signals, and token due diligence",
+  "HertzFlow Solana meme forensics: concentration, MM/bot, distribution, cash-out, relationship clusters, and monitoring report",
+  "解释 NarraOps 能力和当前工作区状态",
+  "根据公开叙事生成可审阅的 narrative / meme 草案",
+  "读取已接入的只读行情、开发者钱包和 Meme 分析工具结果",
+  "生成 review-only launch draft 和风险清单",
+  "模拟交易、转账和提现计划，但不签名、不广播、不动用资金",
+]);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -81,6 +91,10 @@ function messageFromTask(task, language = "en") {
     dev_market: zh ? "已生成链上 Dev 行情摘要。" : "On-chain Dev market summary ready.",
     narrative_trends: zh ? "已生成叙事趋势摘要。" : "Narrative trend summary ready.",
     meme_analysis: zh ? "已生成 Meme 分析报告。" : "Meme analysis report ready.",
+    market_trending: zh ? "GMGN 热门代币排行已生成。" : "GMGN trending-token ranking ready.",
+    market_trenches: zh ? "GMGN 新币/发射榜已生成。" : "GMGN launchpad trenches report ready.",
+    market_kline: zh ? "GMGN K 线数据已生成。" : "GMGN K-line data ready.",
+    market_signal: zh ? "GMGN 市场信号已生成。" : "GMGN market signals ready.",
     recent_summary: zh ? "已生成近期总结。" : "Recent summary ready.",
   };
   return {
@@ -98,7 +112,13 @@ const LAUNCH_DRAFT_TOKEN_FIELDS = Object.freeze([
   "description",
   "image_url",
   "x_url",
+  "telegram_url",
   "website_url",
+  "initial_buy",
+]);
+const LAUNCH_DRAFT_SELECTION_FIELDS = Object.freeze([
+  "cooking_wallet_group_id",
+  "bundled_wallet_group_id",
 ]);
 
 export function normalizeLaunchDraftPatch(patch = {}) {
@@ -153,8 +173,25 @@ export function normalizeLaunchDraftPatch(patch = {}) {
       });
     }
     normalized.metadata = {
+      ...(normalized.metadata || {}),
       review_status: "reviewed",
       reviewed_at: new Date().toISOString(),
+    };
+  }
+
+  for (const field of LAUNCH_DRAFT_SELECTION_FIELDS) {
+    if (patch[field] === undefined) continue;
+    if (patch[field] !== null && typeof patch[field] !== "string") {
+      throw Object.assign(new Error(`${field} must be a string or null`), {
+        status: 400,
+        code: "VALIDATION_ERROR",
+      });
+    }
+    const value = patch[field] == null ? null : patch[field].trim().slice(0, 100);
+    normalized[field] = value || null;
+    normalized.metadata = {
+      ...(normalized.metadata || {}),
+      [field]: value || null,
     };
   }
 
@@ -191,14 +228,17 @@ export function createAgentRuntime(options = {}) {
       handlers: createMockHandlers(integrations, {
         devWalletRepository: devWallets,
         launchDraftRepository: launchDrafts,
+        conversationRepository: conversations,
       }),
       stepDelayMs: options.stepDelayMs ?? config.taskStepDelayMs ?? 20,
     });
 
+  const waitingTaskIds = new Set();
   manager.on("taskEvent", (event) => {
     void (async () => {
       if (event.type !== "task.completed" && event.type !== "task.failed") return;
       const task = event.task;
+      if (waitingTaskIds.has(task?.taskId)) return;
       const conversationId = await conversations.conversationIdForTask(task?.taskId);
       if (!conversationId) return;
       await conversations.addMessage(conversationId, {
@@ -346,13 +386,39 @@ export function createAgentRuntime(options = {}) {
       channel,
     });
     await conversations.bindTask(conversation.conversationId, task.taskId);
+    if (wait) waitingTaskIds.add(task.taskId);
 
     let finalTask = publicTask(task);
     let assistantMessage = null;
+    let agentReply = null;
     if (wait) {
       const completed = await waitForTask(task.taskId, { timeoutMs });
+      waitingTaskIds.delete(task.taskId);
       finalTask = publicTask(completed);
-      assistantMessage = messageFromTask(completed, validated.context.language);
+      const restoredConversation = await conversations.get(conversation.conversationId);
+      agentReply = await generateAgentReply({
+        message: validated.message,
+        language: validated.context.language,
+        history: restoredConversation?.messages || [],
+        task: finalTask,
+        capabilities: AGENT_CAPABILITIES,
+      });
+      assistantMessage = {
+        role: "assistant",
+        content: agentReply.content,
+        suggestion: agentReply.suggestion,
+        provider: agentReply.provider,
+        used_llm: Boolean(agentReply.used_llm),
+        ...(agentReply.model ? { model: agentReply.model } : {}),
+      };
+      await conversations.addMessage(conversation.conversationId, {
+        role: "assistant",
+        content: agentReply.content,
+        taskId: completed?.taskId || task.taskId,
+        status: completed?.status || task.status,
+        channel,
+        blocks: assistantBlocksFromTask(completed),
+      });
     }
 
     return {
@@ -369,6 +435,15 @@ export function createAgentRuntime(options = {}) {
         : Array.isArray(finalTask?.result?.cards)
           ? finalTask.result.cards
           : [],
+      agent: agentReply
+        ? {
+            provider: agentReply.provider,
+            used_llm: Boolean(agentReply.used_llm),
+            configured: Boolean(agentReply.configured),
+            ...(agentReply.model ? { model: agentReply.model } : {}),
+            ...(agentReply.fallback_reason ? { fallback_reason: agentReply.fallback_reason } : {}),
+          }
+        : null,
       persistence: supabase ? "supabase" : "memory",
     };
   }

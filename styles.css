@@ -1532,6 +1532,285 @@ button {
   color: var(--amber);
 }
 
+.launch-draft-card {
+  width: min(100%, 720px);
+  padding: 14px 16px;
+  border-color: #30303a;
+  border-radius: 10px;
+  background: #0c0c11;
+}
+
+.launch-draft-card .launch-draft-heading {
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.launch-draft-heading > div,
+.launch-draft-heading > div > span:last-child {
+  display: flex;
+  align-items: flex-start;
+}
+
+.launch-draft-heading > div > span:last-child {
+  flex-direction: column;
+  gap: 3px;
+}
+
+.launch-draft-heading small {
+  color: #858590;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.launch-draft-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid rgba(133, 112, 255, 0.38);
+  border-radius: 8px;
+  background: rgba(133, 112, 255, 0.12);
+}
+
+.launch-draft-status {
+  padding: 4px 8px;
+  border: 1px solid #363640;
+  border-radius: 999px;
+  background: #14141a;
+  color: #aaaab5 !important;
+  font-size: 11px !important;
+  white-space: nowrap;
+}
+
+.launch-draft-form,
+.launch-image-field,
+.launch-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.launch-draft-form {
+  gap: 9px;
+}
+
+.launch-field {
+  gap: 4px;
+  min-width: 0;
+}
+
+.launch-field-title {
+  display: flex;
+  min-height: 16px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #c9c9d1;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.launch-field-title small {
+  color: #666672;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.launch-image-input {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.launch-image-preview {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #363641;
+  border-radius: 7px;
+  background: #111116;
+  color: #676772;
+}
+
+.launch-image-preview i {
+  font-size: 15px;
+}
+
+.launch-image-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.launch-field input,
+.launch-field textarea,
+.launch-field select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid #2d2d36;
+  border-radius: 7px;
+  outline: none;
+  background: #121217;
+  color: #f0f0f4;
+  font: inherit;
+  font-size: 13px;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.launch-field textarea {
+  min-height: 54px;
+  padding-block: 7px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.launch-field select {
+  appearance: auto;
+}
+
+.launch-field input:focus,
+.launch-field textarea:focus,
+.launch-field select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(133, 112, 255, 0.12);
+}
+
+.launch-field input::placeholder,
+.launch-field textarea::placeholder {
+  color: #5f5f69;
+}
+
+.launch-field select:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.launch-field-grid,
+.launch-wallet-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.launch-social-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.launch-context-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.launch-context-row > span {
+  display: flex;
+  min-width: 118px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 5px 8px;
+  border: 1px solid #292932;
+  border-radius: 7px;
+  background: #101015;
+}
+
+.launch-context-row small {
+  color: #757580;
+  font-size: 10px;
+}
+
+.launch-context-row strong {
+  color: #dddde4;
+  font-size: 11px;
+}
+
+.launch-wallet-section {
+  padding-top: 8px;
+  border-top: 1px solid #25252d;
+}
+
+.launch-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+}
+
+.launch-section-title > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.launch-section-title strong {
+  color: #e8e8ed;
+  font-size: 12px;
+}
+
+.launch-section-title small,
+.launch-wallet-help {
+  color: #777782;
+  font-size: 10px;
+}
+
+.launch-section-title button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.launch-wallet-help {
+  margin: 6px 0 0;
+}
+
+.launch-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding-top: 8px;
+  border-top: 1px solid #25252d;
+}
+
+.launch-form-footer > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #7f7f8b;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.launch-form-footer > span:first-child i {
+  color: #5bd3a0;
+}
+
+.launch-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.launch-form-actions .primary-button,
+.launch-form-actions .secondary-button {
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 11px;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
 .go-card-detail {
   margin-top: 16px;
   padding-top: 15px;
@@ -1553,7 +1832,7 @@ button {
 
 .go-composer {
   margin: 0 32px;
-  padding: 14px 16px 12px;
+  padding: 9px 14px 8px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: #111117;
@@ -1566,7 +1845,7 @@ button {
 
 .go-command-input {
   width: 100%;
-  min-height: 46px;
+  min-height: 30px;
   max-height: 144px;
   padding: 4px 2px;
   resize: none;
@@ -1574,7 +1853,7 @@ button {
   outline: none;
   background: transparent;
   color: var(--text);
-  font-size: 17px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -1606,11 +1885,11 @@ button {
 }
 
 .go-quick-actions button {
-  min-height: 44px;
+  min-height: 36px;
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  padding: 0 17px;
+  padding: 0 12px;
   flex: 0 0 auto;
   border: 1px solid #303038;
   border-radius: 7px;
@@ -2712,4 +2991,37 @@ select:focus-visible {
 .go-card-actions .secondary-button {
   font-size: 12px;
   padding: 6px 10px;
+}
+
+@media (max-width: 820px) {
+  .launch-draft-card {
+    padding: 18px;
+  }
+
+  .launch-token-grid,
+  .launch-field-grid,
+  .launch-social-grid,
+  .launch-wallet-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .launch-form-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .launch-form-actions {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 520px) {
+  .launch-draft-heading {
+    align-items: flex-start !important;
+    flex-direction: column;
+  }
+
+  .launch-draft-status {
+    margin-left: 46px;
+  }
 }

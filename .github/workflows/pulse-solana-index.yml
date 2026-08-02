@@ -34,5 +34,6 @@ jobs:
           # transaction sample remains bounded while making both rare event
           # metrics observable.
           PULSE_MAX_PAGES_PER_RUN: "120"
+          PULSE_RPC_PAGE_DELAY_SECONDS: "0.12"
           PULSE_RAW_RETENTION_DAYS: "30"
         run: python3 solana_index_worker.py

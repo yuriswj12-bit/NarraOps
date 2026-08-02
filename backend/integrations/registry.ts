@@ -52,11 +52,9 @@ export function createIntegrationRegistry(config = {}) {
     maxRetries: config.externalMaxRetries,
   });
   const hertzflow = new HertzFlowAdapter({
-    enabled: Boolean(config.hertzflowLiveEnabled),
-    pythonPath: config.hertzflowPythonPath,
-    reportScriptPath: config.hertzflowReportScriptPath,
-    forensicScriptPath: config.hertzflowForensicScriptPath,
-    outputRoot: config.hertzflowOutputRoot,
+    enabled: Boolean(config.hertzflowLiveEnabled || config.gmgnLiveEnabled),
+    marketAdapter: gmgnMarket,
+    timeoutMs: config.externalTimeoutMs ? Math.max(Number(config.externalTimeoutMs) * 8, 60_000) : 120_000,
   });
 
   return {
@@ -74,8 +72,30 @@ export function createIntegrationRegistry(config = {}) {
     scanDevWallets(options) {
       return gmgnMarket.scanDevWallets(options);
     },
-    analyzeMeme(options) {
-      return hertzflow.analyze(options);
+    marketTrending(options) {
+      return gmgnMarket.marketTrending(options);
+    },
+    marketTrenches(options) {
+      return gmgnMarket.marketTrenches(options);
+    },
+    marketKline(options) {
+      return gmgnMarket.marketKline(options);
+    },
+    marketSignals(options) {
+      return gmgnMarket.marketSignals(options);
+    },
+    async analyzeMeme(options) {
+      const normalizedOptions = {
+        ...options,
+        address: options?.address || options?.contractAddress,
+      };
+      const hertzflowResult = await hertzflow.analyze(normalizedOptions);
+      return {
+        ...hertzflowResult,
+        provider: "hertzflow",
+        source: "hertzflow",
+        ...(hertzflowResult.status === "completed" ? { analysis_status: "completed" } : {}),
+      };
     },
   };
 }

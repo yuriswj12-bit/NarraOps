@@ -16,6 +16,10 @@ export class InMemoryLaunchDraftRepository {
       created_at: now,
       updated_at: now,
       ...structuredClone(input),
+      cooking_wallet_group_id:
+        input.cooking_wallet_group_id || input.metadata?.cooking_wallet_group_id || null,
+      bundled_wallet_group_id:
+        input.bundled_wallet_group_id || input.metadata?.bundled_wallet_group_id || null,
     };
     this.#drafts.set(draft.launch_draft_id, draft);
     return structuredClone(draft);
@@ -34,20 +38,46 @@ export class InMemoryLaunchDraftRepository {
       ...(patch.token || {}),
     };
     const missing = ["name", "symbol", "description", "image_url"].filter((field) => !token[field]);
+    const cookingWalletGroupId =
+      patch.cooking_wallet_group_id ??
+      patch.metadata?.cooking_wallet_group_id ??
+      current.cooking_wallet_group_id ??
+      current.metadata?.cooking_wallet_group_id ??
+      null;
+    const bundledWalletGroupId =
+      patch.bundled_wallet_group_id ??
+      patch.metadata?.bundled_wallet_group_id ??
+      current.bundled_wallet_group_id ??
+      current.metadata?.bundled_wallet_group_id ??
+      null;
+    const requiredUserSelections = [
+      ...(!cookingWalletGroupId ? ["cooking_wallet_group_id"] : []),
+      ...(!bundledWalletGroupId ? ["bundled_wallet_group_id"] : []),
+    ];
     const next = {
       ...current,
       ...patch,
       token,
       metadata: { ...(current.metadata || {}), ...(patch.metadata || {}) },
+      cooking_wallet_group_id: cookingWalletGroupId,
+      bundled_wallet_group_id: bundledWalletGroupId,
       missing_fields: missing,
-      preparation_status: missing.length ? "requires_enrichment" : "ready_for_user_review",
+      required_user_selections: requiredUserSelections,
+      preparation_status: missing.length
+        ? "requires_enrichment"
+        : requiredUserSelections.length
+          ? "requires_wallet_selection"
+          : "ready_for_user_review",
       updated_at: new Date().toISOString(),
     };
     this.#drafts.set(id, next);
     return structuredClone(next);
   }
 
-  async list() {
-    return [...this.#drafts.values()].map((draft) => structuredClone(draft));
+  async list({ conversationId = null, userId = null } = {}) {
+    return [...this.#drafts.values()]
+      .filter((draft) => !conversationId || draft.conversation_id === conversationId)
+      .filter((draft) => !userId || draft.user_id === userId)
+      .map((draft) => structuredClone(draft));
   }
 }

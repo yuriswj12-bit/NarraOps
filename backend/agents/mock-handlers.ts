@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { simulateExecution } from "./execution-simulator.ts";
 import { resolveLaunchPlatform } from "../integrations/launch-platform-registry.ts";
-import { buildDraftMetadata, prepareNarrativeLink } from "../integrations/narrative-link-adapter.ts";
+import { buildDraftMetadata, fetchNarrativeLink } from "../integrations/narrative-link-adapter.ts";
 import { generateStructuredLaunchContent } from "./llm-provider.ts";
 
 function slug(value, fallback) {
@@ -11,6 +11,29 @@ function slug(value, fallback) {
 
 export function createMockHandlers(integrations, services = {}) {
   return {
+    async "agent.chat"(input, context) {
+      const latestDraft = await latestConversationDraft(context, services);
+      return {
+        mode: "assistant",
+        request: String(input.prompt || input.agent_input?.arguments || "").slice(0, 8_000),
+        ...(latestDraft
+          ? {
+              latest_launch_context: {
+                source_url:
+                  latestDraft?.narrative?.canonical_url
+                  || latestDraft?.narrative?.url
+                  || extractPublicUrl(latestDraft?.source_prompt),
+                title: latestDraft?.narrative?.title || null,
+                author_name: latestDraft?.narrative?.author_name || null,
+                summary: String(latestDraft?.narrative?.summary || "").slice(0, 1_200) || null,
+                content: String(latestDraft?.narrative?.content || "").slice(0, 4_000) || null,
+                token: latestDraft?.token || {},
+              },
+            }
+          : {}),
+      };
+    },
+
     async "narrative.scan"(input, context) {
       const sources = input.sources?.length ? input.sources : [{ platform: "X", handle: input.query || "market pulse" }];
       const observations = await Promise.all(
@@ -104,17 +127,34 @@ export function createMockHandlers(integrations, services = {}) {
     },
 
     async "launch.meme"(input, context) {
-      const chain = normalizeLaunchChain(input.chain || input.prompt);
-      const platform = resolveLaunchPlatform({ chain, platform: input.platform });
-      const narrativeUrl = input.narrative_url || extractPublicUrl(input.prompt);
-      const narrative = prepareNarrativeLink(narrativeUrl);
+      const launchContext = await resolveLaunchContext(input, context, services);
+      if (launchContext.existingDraft) {
+        const result = launchResultFromDraft(launchContext.existingDraft, {
+          reusedExistingDraft: true,
+        });
+        context.emitEvent("launch_plan_ready", {
+          launch_draft_id: result.launch_draft_id,
+          executable: false,
+          reused_existing_draft: true,
+        });
+        context.emitEvent("execution_disabled", { action: "launch", reason: "real_execution_disabled" });
+        return { ...result, card: { type: "launch_draft", data: result } };
+      }
+      const narrativeUrl = launchContext.narrativeUrl;
+      const narrative = await fetchNarrativeLink(narrativeUrl, {
+        timeoutMs: Number(input.link_timeout_ms || 6_000),
+      });
       const language = input?.context?.language === "zh" ? "zh" : "en";
       const sourceText = [
-        narrative?.title,
+        narrative?.content,
         narrative?.summary,
+        narrative?.title,
+        narrative?.author_name ? `Author: ${narrative.author_name}` : null,
         input.source_text,
         input.prompt,
       ].filter(Boolean).join("\n");
+      const chain = normalizeLaunchChain(input.chain || sourceText || input.prompt);
+      const platform = resolveLaunchPlatform({ chain, platform: input.platform });
       const generated = await generateStructuredLaunchContent({
         prompt: input.prompt || "",
         sourceText,
@@ -143,8 +183,11 @@ export function createMockHandlers(integrations, services = {}) {
         token,
         dev_wallet_id: input.dev_wallet_id || null,
         wallet_group_id: input.wallet_group_id || null,
-        preparation_status: missingFields.length ? "requires_enrichment" : "ready_for_user_review",
+        cooking_wallet_group_id: input.cooking_wallet_group_id || null,
+        bundled_wallet_group_id: input.bundled_wallet_group_id || input.wallet_group_id || null,
+        preparation_status: missingFields.length ? "requires_enrichment" : "requires_wallet_selection",
         missing_fields: missingFields,
+        required_user_selections: ["cooking_wallet_group_id", "bundled_wallet_group_id"],
         requires_user_confirmation: true,
         conversation_id: context.conversationId || input?.context?.conversation_id || null,
         user_id: input?.context?.user_id || null,
@@ -170,6 +213,23 @@ export function createMockHandlers(integrations, services = {}) {
         reason: "real_execution_disabled",
         content_provider: generated.provider,
         used_llm: Boolean(generated.used_llm),
+        launch_parameters: {
+          chain,
+          platform: platform.id || input.platform || null,
+          source_url: narrative.url || narrativeUrl || null,
+          source_status: narrative.status,
+          source_fetched: Boolean(narrative.fetched),
+          token: {
+            name: token.name,
+            symbol: token.symbol,
+            description: token.description,
+            image_url: token.image_url,
+            x_url: token.x_url,
+            website_url: token.website_url,
+          },
+          missing_fields: missingFields,
+          required_user_selections: ["cooking_wallet_group_id", "bundled_wallet_group_id"],
+        },
       };
       context.emitEvent("launch_plan_ready", { launch_draft_id: result.launch_draft_id, executable: false });
       context.emitEvent("execution_disabled", { action: "launch", reason: "real_execution_disabled" });
@@ -223,6 +283,68 @@ export function createMockHandlers(integrations, services = {}) {
       return { ...result, card: { type: "dev_market", data: result } };
     },
 
+    async "market.trending"(input, context) {
+      const chain = normalizeMarketChain(input.chain || input.prompt);
+      const scan = await integrations.marketTrending({
+        chain,
+        interval: input.interval || "1h",
+        limit: input.limit || 20,
+        orderBy: input.orderBy || input.order_by || "volume",
+        direction: input.direction || "desc",
+        filters: input.filters || [],
+        platforms: input.platforms || [],
+        requestId: context.requestId,
+      });
+      const result = marketReadOnlyResult(scan, { requested_chain: chain, interval: input.interval || "1h" });
+      return { ...result, card: { type: "market_trending", data: result } };
+    },
+
+    async "market.trenches"(input, context) {
+      const chain = normalizeMarketChain(input.chain || input.prompt);
+      const scan = await integrations.marketTrenches({
+        chain,
+        types: input.types || ["new_creation", "near_completion", "completed"],
+        limit: input.limit || 20,
+        launchpadPlatforms: input.launchpadPlatforms || input.launchpad_platforms || [],
+        filterPreset: input.filterPreset || input.filter_preset,
+        sortBy: input.sortBy || input.sort_by || "created_timestamp",
+        direction: input.direction || "desc",
+        requestId: context.requestId,
+      });
+      const result = marketReadOnlyResult(scan, { requested_chain: chain });
+      return { ...result, card: { type: "market_trenches", data: result } };
+    },
+
+    async "market.kline"(input, context) {
+      const contractAddress = input.contract_address || input.address || extractContractAddress(input.prompt);
+      const chain = normalizeAnalysisChain(input.chain || input.prompt, contractAddress);
+      const scan = await integrations.marketKline({
+        chain,
+        address: contractAddress,
+        resolution: input.resolution || "1h",
+        from: input.from,
+        to: input.to,
+        requestId: context.requestId,
+      });
+      const result = marketReadOnlyResult(scan, {
+        requested_chain: chain,
+        contract_address: contractAddress,
+        resolution: input.resolution || "1h",
+      });
+      return { ...result, card: { type: "market_kline", data: result } };
+    },
+
+    async "market.signal"(input, context) {
+      const chain = normalizeMarketChain(input.chain || input.prompt);
+      const scan = await integrations.marketSignals({
+        chain,
+        signalTypes: input.signalTypes || input.signal_types || [],
+        requestId: context.requestId,
+      });
+      const result = marketReadOnlyResult(scan, { requested_chain: chain });
+      return { ...result, card: { type: "market_signal", data: result } };
+    },
+
     async "narrative.trends"(input, context) {
       const scans = await Promise.all([
         integrations.scanDevWallets({ chain: "solana", limit: 40, requestId: context.requestId }),
@@ -250,8 +372,35 @@ export function createMockHandlers(integrations, services = {}) {
     async "meme.analyze"(input, context) {
       const contractAddress = input.contract_address || extractContractAddress(input.prompt);
       const chain = normalizeAnalysisChain(input.chain || input.prompt, contractAddress);
-      const analysis = await integrations.analyzeMeme({ chain, contractAddress });
-      const result = { mode: analysis.status === "completed" ? "live" : "data-gap", contract_address: contractAddress, analysis_status: analysis.status, ...analysis };
+      const analysis = await integrations.analyzeMeme({ chain, address: contractAddress, contractAddress, requestId: context.requestId });
+      const result = {
+        mode: analysis.status === "completed" ? "live" : "data-gap",
+        contract_address: contractAddress,
+        analysis_status: analysis.status,
+        report_status: analysis.status === "completed"
+          ? "completed"
+          : analysis.machine_report
+            ? "data_gap"
+            : "unavailable",
+        ...analysis,
+        source: analysis.status === "completed" ? "hertzflow" : analysis.source || "hertzflow",
+        ...(analysis.reason ? { data_gap: analysis.reason } : {}),
+      };
+      if (analysis.machine_report) {
+        result.report_preview = {
+          schema: analysis.machine_report.schema,
+          source: "GMGN fresh sample + HertzFlow",
+          risk_score: analysis.verdict?.risk_score ?? null,
+          risk_level: analysis.verdict?.risk_level || "data_gap",
+          chain_state: analysis.verdict?.chain_state || "DATA_GAP",
+          conclusion: analysis.verdict?.one_liner || null,
+          key_findings: analysis.verdict?.signals || [],
+          sampled_holders: analysis.metrics?.sampled_holder_count || 0,
+          sampled_traders: analysis.metrics?.sampled_trader_count || 0,
+          watchlist_count: Array.isArray(analysis.watchlist) ? analysis.watchlist.length : 0,
+          data_gaps: analysis.data_gaps || [],
+        };
+      }
       return { ...result, card: { type: "meme_analysis", data: result } };
     },
 
@@ -280,8 +429,22 @@ export function createMockHandlers(integrations, services = {}) {
 function normalizeMarketChain(value) {
   const text = String(value || "").toLowerCase();
   if (text.includes("bsc") || text.includes("bnb")) return "bsc";
+  if (text.includes("base")) return "base";
+  if (text.includes("eth") || text.includes("ethereum")) return "eth";
   if (text.includes("robinhood") || text.includes("hood")) return "robinhood";
   return "solana";
+}
+
+function marketReadOnlyResult(scan, extra = {}) {
+  return {
+    mode: scan.status === "live" ? "live" : "data-gap",
+    data_source: "gmgn",
+    data_source_status: scan.status,
+    ...extra,
+    ...(scan.data !== undefined ? { data: scan.data } : {}),
+    ...(scan.observed_at ? { observed_at: scan.observed_at } : {}),
+    ...(scan.reason ? { data_gap: scan.reason } : {}),
+  };
 }
 
 function extractContractAddress(value) {
@@ -295,6 +458,98 @@ function extractPublicUrl(value) {
   return String(value || "").match(/https?:\/\/[^\s]+/i)?.[0] || null;
 }
 
+async function resolveLaunchContext(input, context, services) {
+  const conversationId = context.conversationId || input?.context?.conversation_id || null;
+  const directUrl = input.narrative_url || extractPublicUrl(input.prompt);
+  const drafts = services.launchDraftRepository?.list
+    ? await services.launchDraftRepository.list({ conversationId })
+    : [];
+  const conversationDrafts = (Array.isArray(drafts) ? drafts : [])
+    .filter((draft) => !conversationId || draft.conversation_id === conversationId)
+    .sort((left, right) => String(right.updated_at || "").localeCompare(String(left.updated_at || "")));
+
+  if (directUrl) {
+    const existingDraft = conversationDrafts.find((draft) => {
+      const sourceUrl = draft?.narrative?.url || draft?.narrative?.canonical_url || draft?.source_prompt;
+      return samePublicUrl(sourceUrl, directUrl);
+    });
+    return { narrativeUrl: directUrl, existingDraft: existingDraft || null };
+  }
+
+  if (conversationDrafts.length) {
+    return {
+      narrativeUrl:
+        conversationDrafts[0]?.narrative?.url ||
+        conversationDrafts[0]?.narrative?.canonical_url ||
+        extractPublicUrl(conversationDrafts[0]?.source_prompt),
+      existingDraft: conversationDrafts[0],
+    };
+  }
+
+  if (conversationId && services.conversationRepository?.get) {
+    const conversation = await services.conversationRepository.get(conversationId);
+    const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role !== "user") continue;
+      const historicalUrl = extractPublicUrl(messages[index]?.content || messages[index]?.command);
+      if (historicalUrl) return { narrativeUrl: historicalUrl, existingDraft: null };
+    }
+  }
+
+  return { narrativeUrl: null, existingDraft: null };
+}
+
+async function latestConversationDraft(context, services) {
+  const conversationId = context?.conversationId || null;
+  if (!conversationId || !services.launchDraftRepository?.list) return null;
+  const drafts = await services.launchDraftRepository.list({ conversationId });
+  return (Array.isArray(drafts) ? drafts : [])
+    .filter((draft) => draft?.conversation_id === conversationId)
+    .sort((left, right) => String(right.updated_at || "").localeCompare(String(left.updated_at || "")))[0] || null;
+}
+
+function samePublicUrl(left, right) {
+  try {
+    const normalize = (value) => {
+      const parsed = new URL(value);
+      parsed.hash = "";
+      return parsed.toString();
+    };
+    return normalize(left) === normalize(right);
+  } catch {
+    return String(left || "") === String(right || "");
+  }
+}
+
+function launchResultFromDraft(draft, { reusedExistingDraft = false } = {}) {
+  const platformId = typeof draft.platform === "string" ? draft.platform : draft.platform?.id || null;
+  const requiredUserSelections = [
+    ...(!draft.cooking_wallet_group_id ? ["cooking_wallet_group_id"] : []),
+    ...(!draft.bundled_wallet_group_id ? ["bundled_wallet_group_id"] : []),
+  ];
+  return {
+    ...draft,
+    mode: "review-only",
+    executable: false,
+    submitted: false,
+    reason: "real_execution_disabled",
+    reused_existing_draft: reusedExistingDraft,
+    required_user_selections: requiredUserSelections,
+    launch_parameters: {
+      chain: draft.chain || "solana",
+      platform: platformId,
+      source_url: draft?.narrative?.url || draft?.narrative?.canonical_url || extractPublicUrl(draft.source_prompt),
+      source_status: draft?.narrative?.status || "not_provided",
+      source_fetched: Boolean(draft?.narrative?.fetched),
+      token: draft.token || {},
+      cooking_wallet_group_id: draft.cooking_wallet_group_id || null,
+      bundled_wallet_group_id: draft.bundled_wallet_group_id || null,
+      missing_fields: draft.missing_fields || [],
+      required_user_selections: requiredUserSelections,
+    },
+  };
+}
+
 function normalizeLaunchChain(value) {
   const text = String(value || "").toLowerCase();
   if (text.includes("robinhood") || text.includes("pons")) return "robinhood";
@@ -305,6 +560,8 @@ function normalizeLaunchChain(value) {
 function normalizeAnalysisChain(value, contractAddress) {
   const text = String(value || "").toLowerCase();
   if (text.includes("robinhood")) return "robinhood";
+  if (text.includes("base")) return "base";
+  if (text.includes("eth") || text.includes("ethereum")) return "eth";
   if (text.includes("bsc") || String(contractAddress || "").startsWith("0x")) return "bsc";
   return "solana";
 }
