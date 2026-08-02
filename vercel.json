@@ -36,6 +36,14 @@
   ],
   "routes": [
     {
+      "src": "/api/v1/agent/(.*)",
+      "dest": "/api/v1/[...path].ts"
+    },
+    {
+      "src": "/api/v1/telegram/webhook",
+      "dest": "/api/v1/[...path].ts"
+    },
+    {
       "src": "/api/v1/wallet-groups/([^/]+)/wallets",
       "dest": "/api/v1/wallet-groups/[groupId]/wallets.ts"
     },
