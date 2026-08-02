@@ -27,8 +27,11 @@ CATEGORIES = frozenset(
     }
 )
 USER_STATES = frozenset({"unseen", "seen", "dismissed", "used"})
-SOURCE_WINDOW = timedelta(hours=1)
-MAX_DISPLAY_LIFETIME = timedelta(minutes=30)
+# GitHub scheduled workflows are best-effort and can be delayed for several
+# hours. Keep genuinely recent source items visible across those gaps instead
+# of clearing the entire discovery layer between successful collector runs.
+SOURCE_WINDOW = timedelta(hours=4)
+MAX_DISPLAY_LIFETIME = timedelta(hours=4)
 CATEGORY_TERMS = {
     "politics_satire": frozenset(
         {
@@ -226,7 +229,7 @@ class SourceItem:
             raise ValueError("unsupported category")
         published = parse_timestamp(self.published_at)
         if not is_source_eligible(published, first_displayed_at):
-            raise ValueError("source is outside the one-hour eligibility window")
+            raise ValueError("source is outside the four-hour eligibility window")
         fingerprint = content_fingerprint(
             self.platform,
             self.source_id,

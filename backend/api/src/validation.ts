@@ -266,6 +266,10 @@ export function validateConversationMessage(body) {
   return {
     message,
     command,
+    wait: body.wait === true,
+    timeout_ms: Number.isInteger(body.timeout_ms)
+      ? Math.min(Math.max(body.timeout_ms, 250), 15_000)
+      : 8_000,
     context: {
       language: context.language === "zh" ? "zh" : "en",
       currentView: string(context.currentView, "context.currentView", { max: 50 }) || "go",

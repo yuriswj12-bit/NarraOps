@@ -198,6 +198,19 @@ test("a follow-up launch request reuses the link-derived draft from the same con
       "https://x.com/coolish/status/2083800621321535680?s=20",
     );
     assert.match(second.message.content, /发射预案/);
+
+    const third = await runtime.handleMessage({
+      channel: "web",
+      conversationId: first.conversation_id,
+      message: "该链接是什么内容",
+      context: { language: "zh", currentView: "go" },
+      wait: true,
+      timeoutMs: 3000,
+    });
+    assert.equal(third.status, "succeeded");
+    assert.equal(third.task.type, "agent.chat");
+    assert.match(third.message.content, /Decoy alpha is the meme narrative for today/);
+    assert.doesNotMatch(third.message.content, /我可以做叙事发现/);
   } finally {
     globalThis.fetch = originalFetch;
   }

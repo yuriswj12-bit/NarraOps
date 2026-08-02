@@ -39,23 +39,23 @@ class NarrativeFeedTests(unittest.TestCase):
         self.assertNotIn("risk_flags", card)
         self.assertNotIn("ai_explanation", card)
 
-    def test_card_expires_after_30_minutes_when_source_is_fresh(self):
+    def test_card_stays_visible_across_delayed_collector_runs(self):
         card = source(NOW - timedelta(minutes=5)).to_card("events", NOW)
         self.assertEqual(
             feed.parse_timestamp(card["expires_at"]),
-            NOW + timedelta(minutes=30),
+            NOW + timedelta(hours=3, minutes=55),
         )
 
-    def test_old_source_expires_at_one_hour_age(self):
-        card = source(NOW - timedelta(minutes=50)).to_card("events", NOW)
+    def test_old_source_expires_at_four_hour_age(self):
+        card = source(NOW - timedelta(hours=3, minutes=50)).to_card("events", NOW)
         self.assertEqual(
             feed.parse_timestamp(card["expires_at"]),
             NOW + timedelta(minutes=10),
         )
 
-    def test_source_older_than_one_hour_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "one-hour"):
-            source(NOW - timedelta(hours=1)).to_card("events", NOW)
+    def test_source_older_than_four_hours_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "four-hour"):
+            source(NOW - timedelta(hours=4)).to_card("events", NOW)
 
     def test_tiktok_is_not_a_supported_v1_platform(self):
         value = dict(source().__dict__)

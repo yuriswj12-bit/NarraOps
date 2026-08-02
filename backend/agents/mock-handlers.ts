@@ -11,10 +11,26 @@ function slug(value, fallback) {
 
 export function createMockHandlers(integrations, services = {}) {
   return {
-    async "agent.chat"(input) {
+    async "agent.chat"(input, context) {
+      const latestDraft = await latestConversationDraft(context, services);
       return {
         mode: "assistant",
         request: String(input.prompt || input.agent_input?.arguments || "").slice(0, 8_000),
+        ...(latestDraft
+          ? {
+              latest_launch_context: {
+                source_url:
+                  latestDraft?.narrative?.canonical_url
+                  || latestDraft?.narrative?.url
+                  || extractPublicUrl(latestDraft?.source_prompt),
+                title: latestDraft?.narrative?.title || null,
+                author_name: latestDraft?.narrative?.author_name || null,
+                summary: String(latestDraft?.narrative?.summary || "").slice(0, 1_200) || null,
+                content: String(latestDraft?.narrative?.content || "").slice(0, 4_000) || null,
+                token: latestDraft?.token || {},
+              },
+            }
+          : {}),
       };
     },
 
@@ -130,9 +146,9 @@ export function createMockHandlers(integrations, services = {}) {
       });
       const language = input?.context?.language === "zh" ? "zh" : "en";
       const sourceText = [
-        narrative?.title,
-        narrative?.summary,
         narrative?.content,
+        narrative?.summary,
+        narrative?.title,
         narrative?.author_name ? `Author: ${narrative.author_name}` : null,
         input.source_text,
         input.prompt,
@@ -481,6 +497,15 @@ async function resolveLaunchContext(input, context, services) {
   }
 
   return { narrativeUrl: null, existingDraft: null };
+}
+
+async function latestConversationDraft(context, services) {
+  const conversationId = context?.conversationId || null;
+  if (!conversationId || !services.launchDraftRepository?.list) return null;
+  const drafts = await services.launchDraftRepository.list({ conversationId });
+  return (Array.isArray(drafts) ? drafts : [])
+    .filter((draft) => draft?.conversation_id === conversationId)
+    .sort((left, right) => String(right.updated_at || "").localeCompare(String(left.updated_at || "")))[0] || null;
 }
 
 function samePublicUrl(left, right) {

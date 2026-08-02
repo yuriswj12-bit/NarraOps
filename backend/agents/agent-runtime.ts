@@ -25,7 +25,7 @@ import {
 import { generateAgentReply } from "./llm-provider.ts";
 
 const SUPPORTED_CHANNELS = new Set(["web", "telegram", "api"]);
-const AGENT_CAPABILITIES = Object.freeze([
+export const AGENT_CAPABILITIES = Object.freeze([
   "Read-only GMGN market data: trending tokens, launchpad trenches, K-lines, token signals, and token due diligence",
   "HertzFlow Solana meme forensics: concentration, MM/bot, distribution, cash-out, relationship clusters, and monitoring report",
   "解释 NarraOps 能力和当前工作区状态",
@@ -112,7 +112,9 @@ const LAUNCH_DRAFT_TOKEN_FIELDS = Object.freeze([
   "description",
   "image_url",
   "x_url",
+  "telegram_url",
   "website_url",
+  "initial_buy",
 ]);
 const LAUNCH_DRAFT_SELECTION_FIELDS = Object.freeze([
   "cooking_wallet_group_id",

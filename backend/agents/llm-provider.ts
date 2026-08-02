@@ -247,11 +247,25 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
   const input = String(message || "").toLowerCase();
   const capabilityQuestion = /你可以做什么|你能做什么|能做什么|有什么功能|help|what can you do|capabilit/.test(input);
   const taskResult = task?.result || {};
+  const launchContext = taskResult?.latest_launch_context || null;
+  const linkContentQuestion = /(该|这个|上面|刚才).{0,8}(链接|推文|帖子).{0,8}(什么|内容|讲|说)|链接.{0,8}(什么|内容)|what.{0,12}(link|post|tweet)|summari[sz]e.{0,12}(link|post|tweet)/i.test(input);
   const isLiveReport = taskResult?.mode === "live"
     && (taskResult?.report || taskResult?.forensic_report || taskResult?.machine_report);
   const isForensicReport = taskResult?.source === "hertzflow"
     && (taskResult?.report || taskResult?.forensic_report || taskResult?.machine_report);
-  if (capabilityQuestion || task?.type === "agent.chat") {
+  if (linkContentQuestion && launchContext) {
+    const source = String(launchContext.content || launchContext.summary || launchContext.title || "").trim();
+    const author = launchContext.author_name ? `${launchContext.author_name}：` : "";
+    return {
+      content: zh
+        ? `${author}${source || "这条公开链接暂时没有可读取的正文。"}`
+        : `${author}${source || "The public source did not return readable body text."}`,
+      suggestion: zh
+        ? "如果要基于这段内容调整代币名称、符号或描述，直接告诉我要改哪一项。"
+        : "Tell me which token field to change if you want the draft revised from this content.",
+    };
+  }
+  if (capabilityQuestion) {
     return {
       content: zh
         ? `我是 NarraOps Agent，可以做叙事发现、GMGN 只读行情、HertzFlow SOL Meme 链上取证报告、开发者钱包分析、风险整理和 review-only 方案。${getLlmProviderStatus().configured ? "当前模型暂时未返回，已使用结构化结果安全降级。" : "当前部署没有配置真实模型密钥，已使用结构化结果安全降级。"}`
@@ -296,6 +310,17 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
     };
   }
   const mode = taskResult?.mode || task?.execution_mode || task?.executionMode || "fallback";
+  if (task?.type === "agent.chat" && launchContext) {
+    const source = String(launchContext.content || launchContext.summary || launchContext.title || "").trim();
+    return {
+      content: zh
+        ? `当前预案依据的公开内容是：${source || "正文暂时无法读取。"}`
+        : `The current draft is based on this public content: ${source || "The body text is currently unavailable."}`,
+      suggestion: zh
+        ? "你可以继续问这条内容的含义，或直接要求修改预案字段。"
+        : "You can ask what it means or request a specific draft-field change.",
+    };
+  }
   const configuredMessage = getLlmProviderStatus().configured
     ? (zh ? "模型暂时超时或返回错误，已保留结构化结果。" : "The configured model timed out or returned an error; the structured result is preserved.")
     : (zh ? "当前没有配置真实模型密钥，已返回安全的结构化结果。" : "No model key is configured, so a safe structured result was returned.");
@@ -308,21 +333,29 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
 }
 
 function templateLaunchContent({ prompt, sourceText, language }) {
-  const base = String(sourceText || prompt || "Narra meme").trim();
+  const raw = String(sourceText || prompt || "Narra meme").trim();
+  const base = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^X post by\b/i.test(line) && !/^Author:/i.test(line) && !/^https?:\/\//i.test(line))[0]
+    || raw;
   const words = base
     .replace(/https?:\/\/\S+/gi, " ")
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
     .filter(Boolean);
-  const titleSeed = words.slice(0, 4).join(" ") || "Narra Meme";
-  const symbolSeed = (words.find((w) => /^[a-zA-Z]{3,10}$/.test(w)) || "NARRA").toUpperCase().slice(0, 8);
+  const titleSeed = words.slice(0, 5).join(" ") || "Narra Meme";
+  const sourceHandle = String(prompt || "").match(/https?:\/\/(?:www\.)?(?:x|twitter)\.com\/([^/\s]+)/i)?.[1];
+  const symbolSeed = (
+    words.find((word) => /^[a-zA-Z][a-zA-Z0-9]{2,9}$/.test(word) && !/^(the|this|that|with|from|have|what|into|about|because)$/i.test(word))
+    || sourceHandle
+    || "NARRA"
+  ).toUpperCase().slice(0, 10);
   const zh = language === "zh";
   return {
     name: titleSeed.slice(0, 48),
     symbol: symbolSeed,
-    description: zh
-      ? `${titleSeed}：基于公开叙事整理的可审阅 Meme 发射预案。`
-      : `${titleSeed}: a review-only meme launch draft prepared from public narrative evidence.`,
+    description: base.slice(0, 280),
     narrative_thesis: base.slice(0, 240),
     risk_notes: [
       zh ? "内容由 Agent 生成，需人工审阅" : "Agent-generated content requires human review",

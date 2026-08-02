@@ -70,6 +70,36 @@ desktop-density correction.
 
 final result: passed
 
+## 2026-08-02 Go launch draft compact pass
+
+- Source visual truth:
+  `C:\Users\hek\AppData\Local\Temp\codex-clipboard-c62fc1ff-0a5f-474c-bd0a-676c19fbab5f.png`
+- Browser-rendered implementation:
+  `C:\Users\hek\Documents\SOL单兵\narraops-backend-agent\qa\launch-draft-card-compact-1265x720.png`
+- Side-by-side comparison:
+  `C:\Users\hek\Documents\SOL单兵\narraops-backend-agent\qa\launch-draft-side-by-side.png`
+- Browser viewport: 1265 x 720 CSS px.
+
+### Visual and interaction checks
+
+- The form follows the reference hierarchy: name and symbol, description,
+  image and initial buy, X/Telegram/Website, then wallet groups and actions.
+- Card width is 720 px and measured height is 654 px, down from 727 px.
+- Inputs are 34 px high, the description is 54 px high, and action buttons
+  remain compact.
+- The Go composer is reduced to about 90 px and quick actions remain usable.
+- Sending a launch command now waits for the completed task and returns the
+  editable launch card inline instead of a generic completion message.
+- Name, symbol, description, image URL, initial buy, social links, wallet group
+  selectors, Reset, and Save are interactive controls.
+- The form remains review-only and cannot sign, broadcast, or move funds.
+
+No actionable P0 or P1 visual differences remain. The implementation preserves
+the existing NarraOps dark theme while matching the source form density and
+field order.
+
+final result: passed
+
 ## 2026-08-02 Go Agent launch draft
 
 - Source visual truth:

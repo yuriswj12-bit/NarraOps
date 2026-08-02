@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+import urllib.error
 import urllib.request
 
 from pump_chain import PUMP_PROGRAM_ID
@@ -13,7 +15,13 @@ class SolanaRpcError(RuntimeError):
     pass
 
 
-def rpc_request(method: str, params: list, *, timeout_seconds: int = 30) -> object:
+def rpc_request(
+    method: str,
+    params: list,
+    *,
+    timeout_seconds: int = 30,
+    max_attempts: int = 5,
+) -> object:
     endpoint = os.environ["SOLANA_RPC_URL"]
     request = urllib.request.Request(
         endpoint,
@@ -23,8 +31,21 @@ def rpc_request(method: str, params: list, *, timeout_seconds: int = 30) -> obje
         method="POST",
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-        payload = json.loads(response.read())
+    payload = None
+    for attempt in range(max_attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                payload = json.loads(response.read())
+            break
+        except urllib.error.HTTPError as error:
+            retryable = error.code == 429 or 500 <= error.code < 600
+            if not retryable or attempt == max_attempts - 1:
+                raise
+            retry_after = error.headers.get("Retry-After") if error.headers else None
+            delay = float(retry_after) if retry_after and retry_after.isdigit() else min(8, 2**attempt)
+            time.sleep(delay)
+    if payload is None:
+        raise SolanaRpcError("Solana RPC returned no payload")
     if payload.get("error"):
         error = payload["error"]
         raise SolanaRpcError(str(error.get("message") or error))

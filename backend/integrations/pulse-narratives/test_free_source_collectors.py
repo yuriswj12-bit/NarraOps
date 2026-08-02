@@ -38,7 +38,7 @@ class FreeSourceCollectorTests(unittest.TestCase):
         self.assertNotIn("score", card)
         self.assertNotIn("summary", card)
 
-    def test_opennews_discards_sources_older_than_one_hour(self):
+    def test_opennews_discards_sources_older_than_four_hours(self):
         payload = {
             "success": True,
             "news": {
@@ -46,7 +46,7 @@ class FreeSourceCollectorTests(unittest.TestCase):
                     {
                         "id": 1,
                         "link": "https://example.com/old",
-                        "published_at": (NOW - timedelta(hours=1)).isoformat(),
+                        "published_at": (NOW - timedelta(hours=4)).isoformat(),
                         "source": "Example",
                         "title": "Old item",
                     }

@@ -115,6 +115,7 @@ const state = {
     launchWalletGroupsLoading: false,
     launchWalletGroupsLoaded: false,
     launchWalletGroupsError: null,
+    launchWalletGroupsRetryTimer: null,
     savingDraftIds: new Set(),
   },
   assets: {
@@ -636,14 +637,14 @@ function renderNarrativeDiscovery() {
     `;
   }).join("");
   const status = state.pulse.narrativesError
-    ? t("????????", "Source temporarily unavailable")
+    ? t("来源暂时不可用", "Source temporarily unavailable")
     : state.pulse.loading
-      ? t("????", "Updating")
-      : total
-        ? t("??", "Live")
-        : state.pulse.narratives?.data_status === "collector_stale"
-          ? t("????", "Collector delayed")
-          : t("?????", "Waiting for signals");
+      ? t("更新中", "Updating")
+      : ["collector_stale", "delayed_live_snapshot"].includes(state.pulse.narratives?.data_status)
+        ? t("采集延迟", "Collector delayed")
+        : total
+          ? t("实时", "Live")
+          : t("等待信号", "Waiting for signals");
   return `
     <section class="section-block narrative-discovery">
       <div class="narrative-discovery-header">
@@ -866,14 +867,21 @@ function renderLaunchDraftCard(card) {
   const bundledId = data.bundled_wallet_group_id || parameters.bundled_wallet_group_id || "";
   const imageUrl = safePublicImageUrl(token.image_url);
   const saving = state.go.savingDraftIds.has(draftId);
-  const walletSelectDisabled = state.go.launchWalletGroupsLoading || Boolean(state.go.launchWalletGroupsError);
+  const walletSelectDisabled = state.go.launchWalletGroupsLoading || !state.auth.session;
   const walletHelp = state.go.launchWalletGroupsLoading
     ? t("正在读取 Assets 钱包组…", "Loading wallet groups from Assets…")
-    : state.go.launchWalletGroupsError
+    : !state.auth.session
       ? t("连接钱包后即可选择 Assets 中的钱包组。", "Connect your wallet to select groups from Assets.")
+      : state.go.launchWalletGroupsError
+        ? t("钱包组读取失败，正在自动重试。", "Wallet groups could not be loaded. Retrying automatically.")
       : (!cookingGroups.length || !bundledGroups.length)
         ? t("需要先在 Assets 中创建 Cooking 和常规钱包组。", "Create a Cooking and a regular wallet group in Assets first.")
         : "";
+  if (state.auth.session && !state.go.launchWalletGroupsLoading
+    && !state.go.launchWalletGroupsLoaded && !state.go.launchWalletGroupsError) {
+    window.setTimeout(() => void ensureLaunchWalletGroups({ force: true }), 0);
+  }
+  const initialBuyUnit = chain === "solana" ? "SOL" : chain === "bsc" ? "BNB" : "ETH";
 
   return `
     <article class="go-structured-card launch-draft-card" data-card-type="launch_draft" data-launch-draft-id="${escapeHtml(draftId)}">
@@ -885,16 +893,7 @@ function renderLaunchDraftCard(card) {
         <span class="launch-draft-status">${escapeHtml(launchDraftStatus(data, token))}</span>
       </header>
       <form class="launch-draft-form" data-launch-draft-form data-draft-id="${escapeHtml(draftId)}">
-        <div class="launch-token-grid">
-          <label class="launch-image-field">
-            <span class="launch-field-title">${t("代币图片", "Token image")}</span>
-            <span class="launch-image-preview ${imageUrl ? "has-image" : ""}" data-launch-image-preview>
-              ${imageUrl
-                ? `<img src="${escapeHtml(imageUrl)}" alt="${t("代币图片预览", "Token image preview")}" />`
-                : `<i class="fa-regular fa-image" aria-hidden="true"></i><small>${t("粘贴图片链接", "Paste image URL")}</small>`}
-            </span>
-            <input name="image_url" data-launch-image-url type="url" value="${escapeHtml(String(token.image_url || ""))}" placeholder="https://..." autocomplete="off" />
-          </label>
+        <div class="launch-field-grid">
           <label class="launch-field">
             <span class="launch-field-title"><span>${t("代币名称", "Token name")}</span><small>${String(token.name || "").length}/32</small></span>
             <input name="name" data-launch-name maxlength="32" value="${escapeHtml(String(token.name || ""))}" placeholder="${t("填写代币名称", "Enter token name")}" required />
@@ -905,21 +904,43 @@ function renderLaunchDraftCard(card) {
           </label>
         </div>
 
+        <label class="launch-field launch-description-field">
+          <span class="launch-field-title"><span>${t("简介", "Description")}</span></span>
+          <textarea name="description" maxlength="2000" rows="2" placeholder="${t("根据链接内容生成的代币描述", "Token description generated from the source")}" required>${escapeHtml(String(token.description || ""))}</textarea>
+        </label>
+
         <div class="launch-field-grid">
+          <label class="launch-field launch-image-field">
+            <span class="launch-field-title"><span>${t("代币图片", "Token image")}</span></span>
+            <span class="launch-image-input">
+              <span class="launch-image-preview ${imageUrl ? "has-image" : ""}" data-launch-image-preview>
+                ${imageUrl
+                  ? `<img src="${escapeHtml(imageUrl)}" alt="${t("代币图片预览", "Token image preview")}" />`
+                  : `<i class="fa-regular fa-image" aria-hidden="true"></i>`}
+              </span>
+              <input name="image_url" data-launch-image-url type="url" value="${escapeHtml(String(token.image_url || ""))}" placeholder="https://.../logo.png" autocomplete="off" />
+            </span>
+          </label>
+          <label class="launch-field">
+            <span class="launch-field-title"><span>${t(`首买 ${initialBuyUnit}`, `Initial buy ${initialBuyUnit}`)}</span></span>
+            <input name="initial_buy" type="number" min="0" step="any" inputmode="decimal" value="${escapeHtml(String(token.initial_buy || "0"))}" />
+          </label>
+        </div>
+
+        <div class="launch-social-grid">
           <label class="launch-field">
             <span class="launch-field-title"><span>X</span></span>
             <input name="x_url" type="url" value="${escapeHtml(String(token.x_url || parameters.source_url || ""))}" placeholder="https://x.com/..." />
+          </label>
+          <label class="launch-field">
+            <span class="launch-field-title"><span>Telegram</span></span>
+            <input name="telegram_url" type="url" value="${escapeHtml(String(token.telegram_url || ""))}" placeholder="https://t.me/..." />
           </label>
           <label class="launch-field">
             <span class="launch-field-title"><span>${t("官网", "Website")}</span></span>
             <input name="website_url" type="url" value="${escapeHtml(String(token.website_url || ""))}" placeholder="https://..." />
           </label>
         </div>
-
-        <label class="launch-field launch-description-field">
-          <span class="launch-field-title"><span>${t("代币描述", "Description")}</span></span>
-          <textarea name="description" maxlength="2000" rows="3" placeholder="${t("根据链接内容生成的代币描述", "Token description generated from the source")}" required>${escapeHtml(String(token.description || ""))}</textarea>
-        </label>
 
         <div class="launch-context-row">
           <span><small>${t("网络", "Network")}</small><strong>${escapeHtml(chain === "bsc" ? "BSC" : chain === "solana" ? "Solana" : chain)}</strong></span>
@@ -950,9 +971,12 @@ function renderLaunchDraftCard(card) {
 
         <footer class="launch-form-footer">
           <span><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>${t("保存只更新预案，不会发射代币或移动资金。", "Saving only updates the draft. It never launches a token or moves funds.")}</span>
-          <button class="primary-button" type="submit" ${saving || !draftId ? "disabled" : ""}>
-            ${saving ? `<i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>${t("保存中", "Saving")}` : `<i class="fa-solid fa-check" aria-hidden="true"></i>${t("保存预案", "Save draft")}`}
-          </button>
+          <span class="launch-form-actions">
+            <button class="secondary-button" type="reset">${t("恢复", "Reset")}</button>
+            <button class="primary-button" type="submit" ${saving || !draftId ? "disabled" : ""}>
+              ${saving ? `<i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>${t("保存中", "Saving")}` : `<i class="fa-solid fa-check" aria-hidden="true"></i>${t("保存预案", "Save draft")}`}
+            </button>
+          </span>
         </footer>
       </form>
     </article>
@@ -1160,6 +1184,11 @@ async function loadAssets({ keepGroup = true } = {}) {
 async function ensureLaunchWalletGroups({ force = false } = {}) {
   if (state.go.launchWalletGroupsLoading) return;
   if (!force && state.go.launchWalletGroupsLoaded) return;
+  if (!state.auth.session) {
+    state.go.launchWalletGroupsLoaded = false;
+    state.go.launchWalletGroupsError = null;
+    return;
+  }
   state.go.launchWalletGroupsLoading = true;
   state.go.launchWalletGroupsError = null;
   if (state.view === "go") renderConversation();
@@ -1167,10 +1196,21 @@ async function ensureLaunchWalletGroups({ force = false } = {}) {
     const result = await apiRequest("/api/v1/wallet-groups");
     state.go.launchWalletGroups = Array.isArray(result.groups) ? result.groups : [];
     state.go.launchWalletGroupsLoaded = true;
+    state.go.launchWalletGroupsError = null;
+    if (state.go.launchWalletGroupsRetryTimer) {
+      window.clearTimeout(state.go.launchWalletGroupsRetryTimer);
+      state.go.launchWalletGroupsRetryTimer = null;
+    }
   } catch (error) {
     state.go.launchWalletGroups = [];
-    state.go.launchWalletGroupsLoaded = true;
+    state.go.launchWalletGroupsLoaded = false;
     state.go.launchWalletGroupsError = error instanceof Error ? error.message : String(error);
+    if (!state.go.launchWalletGroupsRetryTimer && state.auth.session) {
+      state.go.launchWalletGroupsRetryTimer = window.setTimeout(() => {
+        state.go.launchWalletGroupsRetryTimer = null;
+        void ensureLaunchWalletGroups({ force: true });
+      }, 5_000);
+    }
   } finally {
     state.go.launchWalletGroupsLoading = false;
     if (state.view === "go") renderConversation();
@@ -2105,6 +2145,7 @@ async function loadAuthSession() {
   finally {
     state.auth.loading = false;
     updateAuthButtons();
+    if (state.auth.session) void ensureLaunchWalletGroups({ force: true });
     if (state.auth.session && !state.auth.session.user.onboardingCompleted) window.setTimeout(openOnboarding, 250);
   }
 }
@@ -2167,6 +2208,7 @@ async function web3Login(walletId) {
     }
     closeModal();
     updateAuthButtons();
+    await ensureLaunchWalletGroups({ force: true });
     if (state.view === "assets") await loadAssets();
     showToast(t("钱包登录成功", "Wallet sign-in successful"));
     if (!state.auth.session.user.onboardingCompleted) window.setTimeout(openOnboarding, 180);
@@ -2869,7 +2911,9 @@ viewRoot.addEventListener("submit", async (event) => {
       description: String(form.get("description") || "").trim(),
       image_url: String(form.get("image_url") || "").trim() || null,
       x_url: String(form.get("x_url") || "").trim() || null,
+      telegram_url: String(form.get("telegram_url") || "").trim() || null,
       website_url: String(form.get("website_url") || "").trim() || null,
+      initial_buy: String(form.get("initial_buy") || "0").trim() || "0",
     };
     const patch = {
       token,
@@ -2909,6 +2953,11 @@ viewRoot.addEventListener("submit", async (event) => {
   if (event.target.id !== "agentForm") return;
   event.preventDefault();
   submitAgentCommand(document.querySelector("#agentInput")?.value || "");
+});
+
+viewRoot.addEventListener("reset", (event) => {
+  if (!event.target.matches("[data-launch-draft-form]")) return;
+  window.setTimeout(renderConversation, 0);
 });
 
 modal.addEventListener("submit", async (event) => {
