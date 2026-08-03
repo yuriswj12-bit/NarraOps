@@ -113,7 +113,7 @@ const state = {
     busy: false,
   },
   assets: {
-    mode: "mock",
+    mode: "live",
     section: "pnl",
     networkFilter: "solana",
     period: "7d",
@@ -148,8 +148,8 @@ const translations = {
   notifications: ["通知", "Notifications"],
   newSignal: ["新的叙事信号", "New narrative signal"],
   newSignalBody: ["跨平台讨论速度进入加速区间。", "Cross-platform discussion velocity is accelerating."],
-  simulationOnly: ["执行保护已开启", "Execution guard is active"],
-  simulationBody: ["资金与发射动作不会提交至链上。", "Fund and launch actions will not be submitted on-chain."],
+  executionReady: ["已连接真实执行服务", "Live execution services connected"],
+  executionBody: ["发射和交易会在你确认后提交到链上。", "Launches and trades are submitted on-chain after your confirmation."],
 };
 
 const signalSeries = [
@@ -165,6 +165,7 @@ const intelSeries = [
   [22, 27, 26, 32, 36, 42, 45, 50, 54, 60],
 ];
 
+/* legacy sample data is intentionally not used by the live product.
 const sampleOpportunities = [
   {
     id: "op-1",
@@ -215,6 +216,7 @@ const sampleOpportunities = [
     reach: "680K",
   },
 ];
+*/
 
 let opportunities = [];
 
@@ -277,6 +279,13 @@ function pageHeading(kicker, title, subtitle, actions = "") {
 }
 
 function renderPulse() {
+  // Pulse always renders the live API-backed view model. There is no sample
+  // or hardcoded opportunity fallback in the user-facing path.
+  return renderPulseConnected();
+
+  /* legacy static rendering retained only as a migration marker; unreachable
+     and intentionally excluded from the live Pulse UI.
+
   const actions = `
     <span class="simulation-pill"><i class="fa-solid fa-database" aria-hidden="true"></i>${t("样本信号", "Sample signals")}</span>
     <button class="secondary-button" type="button" data-action="scan"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> ${t("刷新样本", "Refresh samples")}</button>
@@ -352,6 +361,7 @@ function renderPulse() {
 }
 
 function pulseViewModel(card) {
+*/
   const evidence = Array.isArray(card?.evidence) ? card.evidence : [];
   const missingEvidence = Array.isArray(card?.missingEvidence) ? card.missingEvidence : [];
   return {
@@ -833,8 +843,9 @@ function renderLaunchDraftCard(card) {
         </div>
         <div class="go-launch-grid go-launch-meta-row">
           <label class="go-field"><span>${t("首买 SOL", "Initial buy SOL")}</span><input name="initial_buy" inputmode="decimal" value="${escapeHtml(token.initial_buy || "0")}" placeholder="0" /></label>
-          <div class="go-launch-readonly"><span>${t("网络 / 发射平台", "Network / launchpad")}</span><strong>${escapeHtml(String(chain))} · ${escapeHtml(String(platform))}</strong></div>
+          <label class="go-field"><span>${t("捆绑买入 / 钱包", "Bundled buy / wallet")}</span><input name="bundle_buy_per_wallet" inputmode="decimal" value="${escapeHtml(token.bundle_buy_per_wallet || "")}" placeholder="${t("可选", "Optional")}" /><small>${t("留空则不执行捆绑买入", "Leave blank to skip bundled buys")}</small></label>
         </div>
+        <div class="go-launch-readonly"><span>${t("网络 / 发射平台", "Network / launchpad")}</span><strong>${escapeHtml(String(chain))} · ${escapeHtml(String(platform))}</strong></div>
         <div class="go-wallet-selection">
           <div class="go-wallet-heading"><div><span>${t("资产", "Assets")}</span><strong>${t("选择钱包组", "Select wallet groups")}</strong></div><button type="button" class="go-assets-link" data-view-trigger="assets">${t("打开 Assets", "Open Assets")}</button></div>
           <div class="go-launch-grid">
@@ -1038,7 +1049,7 @@ async function loadAssets({ keepGroup = true } = {}) {
       state.auth.session ? apiRequest("/api/v1/account/login-wallet-assets") : Promise.resolve({ wallets: [] }),
     ]);
     state.assets.portfolio = portfolio;
-    state.assets.mode = groupsResult.mode || "mock";
+    state.assets.mode = groupsResult.mode || "live";
     state.assets.groups = groupsResult.groups || [];
     state.assets.loginWallets = loginWalletResult.wallets || [];
     if (!keepGroup || !state.assets.groups.some((group) => group.groupId === state.assets.selectedGroupId)) state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
@@ -1355,8 +1366,12 @@ function renderAssets() {
   const total = sumAssetBalance(unit);
   const selectedGroup = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
   const visibleGroups = state.assets.groups.filter((group) => network === "solana" ? group.network === "solana" : group.network === "evm");
-  const groupRows = visibleGroups.map((group) => `<tr class="${group.groupId === state.assets.selectedGroupId ? "selected-row" : ""}"><td><button class="group-name-button" type="button" data-wallet-group="${group.groupId}"><i class="fa-solid ${group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i><span><strong>${escapeHtml(group.name)}</strong><small>${group.purpose === "cooking" ? "Cooking" : t("常规", "General")}</small></span></button></td><td><span class="network-badge">${network === "solana" ? "SOL" : "EVM"}</span></td><td>${group.walletCount}</td><td>${escapeHtml(group.balances?.[unit] || "0")} ${unit}</td><td>${group.executionMode === "encrypted_vault" ? t("真实钱包", "Live wallets") : t("模拟", "Simulation")}</td><td><button class="table-action" type="button" data-wallet-group="${group.groupId}">${t("管理", "Manage")}</button></td></tr>`).join("");
-  const walletRows = state.assets.wallets.map((wallet) => { const address = walletAddressForGroup(wallet, selectedGroup); const balance = Object.values(wallet.balances || {}).find((item) => item.asset === unit); return `<tr><td><strong>${escapeHtml(wallet.label)}</strong></td><td><code>${escapeHtml(shortAddress(address || "—"))}</code></td><td>${escapeHtml(balance?.amount || "0")} ${unit}</td><td><span class="state-pill">${wallet.provisioningStatus === "active" ? t("已加密", "Encrypted") : t("模拟", "Simulation")}</span></td></tr>`; }).join("");
+  const groupRows = visibleGroups.map((group) => {
+    const ready = group.executionMode === "live_ready" || group.executionMode === "encrypted_vault";
+    const status = ready ? t("可执行", "Live ready") : t("待绑定钱包", "Bind wallets");
+    return `<tr class="${group.groupId === state.assets.selectedGroupId ? "selected-row" : ""}"><td><button class="group-name-button" type="button" data-wallet-group="${group.groupId}"><i class="fa-solid ${group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i><span><strong>${escapeHtml(group.name)}</strong><small>${group.purpose === "cooking" ? "Cooking" : t("常规", "General")}</small></span></button></td><td><span class="network-badge">${network === "solana" ? "SOL" : "EVM"}</span></td><td>${group.walletCount}</td><td>${escapeHtml(group.balances?.[unit] || "—")} ${group.balances?.[unit] ? unit : ""}</td><td>${status}</td><td><button class="table-action" type="button" data-wallet-group="${group.groupId}">${t("管理", "Manage")}</button></td></tr>`;
+  }).join("");
+  const walletRows = state.assets.wallets.map((wallet) => { const address = walletAddressForGroup(wallet, selectedGroup); const balance = Object.values(wallet.balances || {}).find((item) => item.asset === unit); return `<tr><td><strong>${escapeHtml(wallet.label)}</strong></td><td><code>${escapeHtml(shortAddress(address || "—"))}</code></td><td>${escapeHtml(balance?.amount || "—")} ${balance?.amount ? unit : ""}</td><td><span class="state-pill">${wallet.provisioningStatus === "active" ? t("已绑定", "Bound") : t("待绑定", "Needs binding")}</span></td></tr>`; }).join("");
   const nativeImage = nativeAssetImages[unit];
   const assetRows = total > 0 ? `<tr><td><span class="compact-token">${nativeImage ? `<img src="${nativeImage}" alt="${unit}" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" />` : ""}<strong>${unit}</strong></span></td><td>${total.toLocaleString(undefined,{maximumFractionDigits:9})}</td><td>≈ ${total.toLocaleString(undefined,{maximumFractionDigits:9})} ${unit}</td><td><span class="asset-share-bar"><i style="width:100%"></i></span>100%</td></tr>` : "";
   viewRoot.innerHTML = `<div class="compact-assets-page assets-v3">
@@ -1366,6 +1381,8 @@ function renderAssets() {
   </div>
   <div class="asset-toolbar"><select class="compact-select" id="assetNetworkFilter"><option value="solana" ${network === "solana" ? "selected" : ""}>Solana</option><option value="bsc" ${network === "bsc" ? "selected" : ""}>BSC</option></select><span class="balance-chip">${t("总余额", "Total balance")}: <strong>${total.toLocaleString(undefined,{maximumFractionDigits:9})} ${unit}</strong></span>${state.assets.section === "portfolio" ? `<span class="balance-chip">${t("代币数", "Tokens")}: <strong>${total > 0 ? 1 : 0}</strong></span>` : ""}<div class="toolbar-spacer"></div>${state.assets.section === "groups" ? `<button class="compact-button" type="button" data-action="open-export"><i class="fa-solid fa-file-export"></i>${t("导出", "Export")}</button><button class="compact-button" type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i>${t("转账", "Transfer")}</button><button class="primary-button compact" type="button" data-action="open-create-group"><i class="fa-solid fa-plus"></i>${t("新建钱包组", "New group")}</button>` : ""}</div>
   ${state.assets.section === "pnl" ? renderPnlAnalysis(network, unit) : state.assets.section === "portfolio" ? `<section class="compact-data-panel portfolio-only-assets"><div class="compact-panel-tabs"><button class="active">${t("币种", "Assets")}</button><button>${t("交易历史", "History")}</button><span>${t("当前仅包含已验证的链上资产", "Verified on-chain assets only")}</span></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("资产", "Asset")}</th><th>${t("余额", "Balance")}</th><th>${t("折合", "Value")}</th><th>${t("资产占比", "Allocation")}</th></tr></thead><tbody>${assetRows || `<tr><td colspan="4" class="empty-state">${t(`暂无 ${unit} 网络资产`, `No ${unit} assets`)}</td></tr>`}</tbody></table></div></section>` : `<section class="compact-data-panel"><div class="compact-panel-tabs"><strong>${t("钱包组", "Wallet groups")} (${visibleGroups.length})</strong><span>${network === "solana" ? "Solana" : "EVM / BSC"}</span></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("名称", "Name")}</th><th>${t("网络", "Network")}</th><th>${t("钱包数", "Wallets")}</th><th>${t("余额", "Balance")}</th><th>${t("状态", "Status")}</th><th>${t("操作", "Action")}</th></tr></thead><tbody>${groupRows || `<tr><td colspan="6" class="empty-state">${t("暂无该网络的钱包组", "No wallet groups on this network")}</td></tr>`}</tbody></table></div>${selectedGroup && visibleGroups.some((group) => group.groupId === selectedGroup.groupId) ? `<div class="compact-group-detail"><div class="detail-heading"><div><span>${unit} · ${selectedGroup.purpose === "cooking" ? "Cooking" : t("常规", "General")}</span><h2>${escapeHtml(selectedGroup.name)}</h2></div><div><button class="compact-button" type="button" data-action="deposit-disabled">${t("充值", "Deposit")}</button><button class="compact-button" type="button" data-action="open-transfer">${t("转账", "Transfer")}</button>${selectedGroup.purpose !== "cooking" ? `<button class="compact-button" type="button" data-action="open-add-wallet">${t("添加钱包", "Add wallet")}</button>` : ""}</div></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("钱包", "Wallet")}</th><th>${t("地址", "Address")}</th><th>${t("链上余额", "On-chain balance")}</th><th>${t("状态", "Status")}</th></tr></thead><tbody>${walletRows}</tbody></table></div></div>` : ""}</section>`}</div>`;
+  const bindWalletButton = viewRoot.querySelector('[data-action="deposit-disabled"]');
+  if (bindWalletButton) bindWalletButton.textContent = t("绑定钱包", "Bind wallet");
 }
 
 function renderCurrentView() {
@@ -1996,7 +2013,11 @@ function walletProvider(walletId) {
 }
 
 function openOnboarding() {
-  openModal({ kicker: "NarraOps", title: t("欢迎来到叙事发现工作台", "Welcome to the narrative discovery workspace"), content: `<p class="onboarding-lead">${t("NarraOps 帮助 Meme Dev 发现、筛选和解释可 Meme 化的互联网叙事，并把高潜力叙事转成可审阅的发射预案。", "NarraOps helps meme devs discover, filter, and explain memeable internet narratives, then turn high-potential narratives into reviewable launch-ready plans.")}</p><div class="onboarding-grid"><article><i class="fa-solid fa-wave-square"></i><strong>Pulse</strong><span>${t("查看叙事机会、公开证据、风险和机会状态。", "Review narrative opportunities, public evidence, risks, and opportunity status.")}</span></article><article><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Go</strong><span>${t("把链接、文本或 Pulse 机会转成固定 Schema 的预案。", "Turn links, text, or Pulse opportunities into fixed-schema plans.")}</span></article><article><i class="fa-solid fa-wallet"></i><strong>Assets</strong><span>${t("管理钱包组、资产视图和执行准备，真实执行默认关闭。", "Manage wallet groups, asset views, and execution preparation with live execution disabled by default.")}</span></article></div><button class="primary-button onboarding-start" type="button" data-modal-action="complete-onboarding">${t("我知道了，开始使用", "Got it, start using NarraOps")}</button>` });
+  openModal({ kicker: "NarraOps", title: t("欢迎来到叙事发现工作台", "Welcome to the narrative discovery workspace"), content: `<p class="onboarding-lead">${t("NarraOps 帮助 Meme Dev 发现、筛选和解释可 Meme 化的互联网叙事，并把高潜力叙事转成可编辑的发射参数。", "NarraOps helps meme devs discover, filter, and explain memeable internet narratives, then turn high-potential narratives into editable launch parameters.")}</p><div class="onboarding-grid"><article><i class="fa-solid fa-wave-square"></i><strong>Pulse</strong><span>${t("查看实时叙事机会、公开证据、风险和机会状态。", "Review live narrative opportunities, public evidence, risks, and opportunity status.")}</span></article><article><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Go</strong><span>${t("把链接或自然语言转成可编辑的发射参数，并在确认后调用真实服务。", "Turn links or natural language into editable launch parameters and call live services after confirmation.")}</span></article><article><i class="fa-solid fa-wallet"></i><strong>Assets</strong><span>${t("管理真实钱包组，并在发射或交易前选择执行钱包。", "Manage real wallet groups and select execution wallets before a launch or trade.")}</span></article></div><button class="primary-button onboarding-start" type="button" data-modal-action="complete-onboarding">${t("我知道了，开始使用", "Got it, start using NarraOps")}</button>` });
+}
+
+function openOnboardingLegacy() {
+  openModal({ kicker: "NarraOps", title: t("欢迎来到叙事发现工作台", "Welcome to the narrative discovery workspace"), content: `<p class="onboarding-lead">${t("NarraOps 帮助 Meme Dev 发现、筛选和解释可 Meme 化的互联网叙事，并把高潜力叙事转成可编辑的发射参数。", "NarraOps helps Meme Devs discover, filter, and explain memeable internet narratives, then turn high-potential narratives into editable launch parameters.")}</p><div class="onboarding-grid"><article><i class="fa-solid fa-wave-square"></i><strong>Pulse</strong><span>${t("查看实时叙事机会、公开证据、风险和机会状态。", "Review live narrative opportunities, public evidence, risks, and opportunity status.")}</span></article><article><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Go</strong><span>${t("把链接或自然语言转成可编辑的发射参数，并在确认后调用真实服务。", "Turn links or natural language into editable launch parameters and call live services after confirmation.")}</span></article><article><i class="fa-solid fa-wallet"></i><strong>Assets</strong><span>${t("管理真实钱包组，并在发射或交易前选择执行钱包。", "Manage live wallet groups and select execution wallets before a launch or trade.")}</span></article></div><button class="primary-button onboarding-start" type="button" data-modal-action="complete-onboarding">${t("我知道了，开始使用", "Got it, start using NarraOps")}</button>` });
 }
 
 async function linkSolanaIdentity(provider) {
@@ -2078,7 +2099,7 @@ function openTransferDialog(destination = null) {
 }
 
 function openExportDialog() {
-  const groups = state.assets.groups.filter((group) => group.executionMode === "encrypted_vault");
+  const groups = state.assets.groups.filter((group) => group.executionMode === "encrypted_vault" || group.executionMode === "live_ready");
   if (!groups.length) return showToast(t("没有可导出的真实钱包组", "No live wallet group is available for export"));
   openModal({ kicker: t("私钥导出", "Private-key export"), title: t("导出钱包组", "Export wallet group"), content: `<form class="form-stack" id="walletExportForm"><label class="field-label">${t("选择钱包组", "Wallet group")}<select class="field-select" name="groupId">${groups.map((group) => `<option value="${group.groupId}">${escapeHtml(group.name)} · ${group.walletCount}</option>`).join("")}</select></label><div class="export-danger"><i class="fa-solid fa-triangle-exclamation"></i><span>${t("文件包含可直接控制资产的私钥。下载后请离线保存，NarraOps 无法撤销已导出的密钥。", "This file contains keys that directly control funds. Store it offline; exported keys cannot be revoked by NarraOps.")}</span></div><label class="field-label">${t("输入“确认导出私钥”", "Type EXPORT PRIVATE KEYS")}<input class="field-input" name="confirmation" autocomplete="off" required /></label><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="danger-button" type="submit"><i class="fa-solid fa-file-arrow-down"></i>${t("导出文本文件", "Export text file")}</button></div></form>` });
 }
@@ -2089,6 +2110,19 @@ function openAddWallets() {
     kicker: t("钱包组管理", "Wallet-group management"),
     title: t("添加加密钱包", "Add encrypted wallets"),
     content: `<form class="form-stack" id="addWalletsForm"><label class="field-label">${t("添加数量", "Number to add")}<input class="field-input" name="count" type="number" min="1" max="200" value="1" required /></label><p>${t("将为每个钱包生成真实 Solana 与 EVM 地址，密钥仅以加密密文保存。", "Each wallet receives real Solana and EVM addresses; keys are stored only as encrypted ciphertext.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("添加钱包", "Add wallets")}</button></div></form>`,
+  });
+}
+
+function openBindWalletDialog() {
+  const selected = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
+  if (!selected) return showToast(t("请先选择钱包组", "Select a wallet group first"));
+  if (selected.network !== "solana") return showToast(t("当前真实发射只支持 Solana 钱包", "Live launch currently supports Solana wallets only"));
+  const wallets = state.assets.wallets.filter((wallet) => wallet.provisioningStatus !== "active" || !wallet.publicAddress);
+  if (!wallets.length) return showToast(t("该钱包组的钱包已经全部绑定", "All wallets in this group are already bound"));
+  openModal({
+    kicker: t("真实执行准备", "Live execution setup"),
+    title: t("绑定 Solana 执行钱包", "Bind Solana execution wallet"),
+    content: `<form class="form-stack" id="bindWalletForm"><label class="field-label">${t("钱包", "Wallet")}<select class="field-select" name="walletId" required>${wallets.map((wallet) => `<option value="${escapeHtml(wallet.walletId)}">${escapeHtml(wallet.label)}${wallet.publicAddress ? ` · ${escapeHtml(shortAddress(wallet.publicAddress))}` : ""}</option>`).join("")}</select></label><label class="field-label">${t("Solana 公开地址", "Solana public address")}<input class="field-input" name="publicAddress" required placeholder="Solana address" autocomplete="off" /></label><label class="field-label">${t("签名服务引用（可选）", "Signer/provider reference (optional)")}<input class="field-input" name="signerReference" placeholder="e.g. vault key reference" autocomplete="off" /></label><p>${t("只填写公开地址或签名服务引用。不要在网页、聊天框或本表单粘贴私钥。绑定后，发射与交易会使用该真实钱包。", "Enter only the public address or a signer reference. Never paste a private key into the web app, chat, or this form. Live launches and trades will use this wallet after binding.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("保存绑定", "Save binding")}</button></div></form>`,
   });
 }
 
@@ -2104,6 +2138,8 @@ function isFinancialCommand(value) {
   return /(钱包|转账|提取|发射|买入|卖出|wallet|transfer|withdraw|launch|buy|sell)/i.test(value);
 }
 
+/* Legacy client-side response fixtures are intentionally disabled. All Go
+   responses must come from the live Agent API and its real integrations.
 function getAgentResponse(command) {
   if (/(dev-market|链上行情|dev 钱包|dev wallet)/i.test(command)) {
     return {
@@ -2194,7 +2230,7 @@ function getAgentResponse(command) {
       role: "agent",
       timestamp: getMessageTime(),
       contentZh: "已生成模拟执行计划，未访问钱包、私钥、签名服务或链上节点。",
-      contentEn: "A simulated execution plan is ready without accessing wallets, private keys, signing services, or chain nodes.",
+      contentEn: "A live execution request is ready. I will use the selected wallet groups and ask for confirmation immediately before signing and broadcasting.",
       suggestionZh: "补充钱包组、网络、资产和金额，再交由人工审核。",
       suggestionEn: "Add the wallet group, network, asset, and amount before human review.",
       card: { type: "execution_plan" },
@@ -2252,7 +2288,7 @@ async function submitPulsePlan(command, pendingId) {
       role: "agent",
       timestamp: getMessageTime(),
       contentZh: payload.message?.content || "已根据 Pulse 证据生成可审阅执行方案，真实执行仍保持关闭。",
-      contentEn: payload.message?.content || "Built a review-only execution plan from Pulse evidence. Live execution remains disabled.",
+      contentEn: payload.message?.content || "Built a live execution plan from Pulse evidence. Review the fields and confirm immediately before signing and broadcasting.",
       suggestionZh: payload.message?.suggestion || "先核对证据缺口和风险，再进入发射预案。",
       suggestionEn: payload.message?.suggestion || "Review evidence gaps and risks before moving into a launch draft.",
       card: payload.card || {
@@ -2277,6 +2313,8 @@ async function submitPulsePlan(command, pendingId) {
   }
 }
 
+async function loadGoWalletGroups() {
+*/
 async function loadGoWalletGroups() {
   try {
     const result = await apiRequest("/api/v1/wallet-groups");
@@ -2613,7 +2651,7 @@ viewRoot.addEventListener("click", async (event) => {
     state.assets.transferPreview = null;
     renderAssets();
   } else if (action === "deposit-disabled") {
-    openDepositAddresses();
+    openBindWalletDialog();
   } else if (action === "withdraw-disabled") {
     openTransferDialog("login_wallet");
   } else if (action === "confirm-transfer-plan") {
@@ -2641,7 +2679,7 @@ async function saveLaunchDraftForm(form, action) {
   const draftId = card?.dataset.draftId;
   if (!draftId) throw new Error(t("发射预案没有可保存的 ID。", "This launch draft has no saveable ID."));
   const formData = new FormData(form);
-  const token = Object.fromEntries(["name", "symbol", "description", "image_url", "x_url", "website_url", "initial_buy"]
+  const token = Object.fromEntries(["name", "symbol", "description", "image_url", "x_url", "telegram_url", "website_url", "initial_buy", "bundle_buy_per_wallet"]
     .map((field) => [field, String(formData.get(field) || "").trim()]));
   const payload = await apiRequest(`/api/v1/go/launch-drafts/${draftId}`, {
     method: "PATCH",
@@ -2655,7 +2693,7 @@ async function saveLaunchDraftForm(form, action) {
   if (action === "launch") {
     const launched = await apiRequest(`/api/v1/go/launch-drafts/${draftId}/execute`, {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify({ confirm: true }),
     });
     const tokenAddress = launched.token_address || launched.execution?.tokenAddress || launched.execution?.mintAddress || "";
     state.conversation.push({
@@ -2780,6 +2818,16 @@ modal.addEventListener("submit", async (event) => {
       closeModal();
       await loadAssets();
       showToast(t("钱包已添加", "Wallets added"));
+    } catch (error) { showToast(error.message); }
+  }
+  if (event.target.id === "bindWalletForm") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    try {
+      await apiRequest(`/api/v1/wallet-groups/${state.assets.selectedGroupId}/wallets/${form.get("walletId")}/bind`, { method: "POST", body: JSON.stringify({ publicAddress: String(form.get("publicAddress") || "").trim(), signerReference: String(form.get("signerReference") || "").trim() }) });
+      closeModal();
+      await loadAssets({ keepGroup: true });
+      showToast(t("执行钱包已绑定", "Execution wallet bound"));
     } catch (error) { showToast(error.message); }
   }
 });

@@ -2292,6 +2292,9 @@ select:focus-visible {
   }
 }
 
+/* Go is an open natural-language agent; launch/trade cards appear only when needed. */
+.go-quick-actions { display: none !important; }
+
 @media (max-width: 820px) {
   .workspace {
     width: min(100% - 32px, var(--container));

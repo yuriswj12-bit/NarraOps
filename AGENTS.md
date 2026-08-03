@@ -4,7 +4,7 @@ Read this file and `coordination/PROJECT_STATE.md` before changing code.
 
 ## Product
 
-NarraOps is an AI-native narrative discovery and meme operations workspace. It helps Meme Devs discover, filter, and explain memeable internet narratives, then turn selected narratives into reviewable launch-ready plans. Do not describe review-only, disabled, mocked, or planning-only behavior as live execution.
+NarraOps is an AI-native narrative discovery and meme operations workspace that is developed and used live. The Agent is a general LLM wrapped with NarraOps prompts, live Pulse/GMGN/HertzFlow tools, user-session context, and Assets wallet groups. Public narratives are retrieved at request time; they are not treated as a fine-tuning corpus. Go turns a link or instruction into editable launch parameters and can enter real launch/trade execution after explicit confirmation. Do not reintroduce mock, simulated, or disabled user paths.
 
 ## Worktrees and ownership
 
@@ -46,7 +46,7 @@ At handoff, update only the matching handoff file and report the commit hash, te
 ## Security
 
 - Never commit or log private keys, seed phrases, API keys, authorization headers, cookies, signing payload secrets, or production wallet files.
-- Real execution remains disabled until signer isolation, durable idempotency, policy enforcement, authentication, immutable audit, and confirmation reconciliation are implemented and reviewed.
+- Live execution is enabled only through configured production providers and authenticated user-owned wallet groups. Every irreversible launch/trade still requires an explicit final confirmation, durable idempotency, provider order reconciliation, and audit evidence. Never perform real-fund transactions as part of tests.
 - Wallet-group funds and platform treasury use separate identities, policies, and accounting.
 - Do not perform real-fund transactions as part of tests.
 
