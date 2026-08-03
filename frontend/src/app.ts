@@ -778,13 +778,80 @@ function getInitialConversation() {
       role: "agent",
       timestamp: getMessageTime(),
       contentZh: "Go 工作台已就绪。发送链接、文本或命令后，NarraOps 会返回结构化任务卡片和实时事件流。",
-      contentEn: "Go is ready. Send a link, text, or command and NarraOps will return structured task cards and live event updates.",
+      contentEn: "Go is ready. Send a link or describe a task. I’ll show an editable launch form only when a launch is needed.",
     },
   ];
 }
 
+function launchDraftToken(data = {}) {
+  const parameters = data.launch_parameters || {};
+  return { ...(data.token || {}), ...(parameters.token || {}) };
+}
+
+function launchDraftId(data = {}) {
+  return data.launch_draft_id || data.draft_id || data.draft?.launch_draft_id || null;
+}
+
+function walletGroupOptions(groups, selected, { purpose = null, exclude = null } = {}) {
+  const compatible = groups.filter((group) => {
+    if (exclude && group.groupId === exclude) return false;
+    if (!purpose) return true;
+    return purpose === "cooking" ? group.purpose === "cooking" : group.purpose !== "cooking";
+  });
+  const options = compatible.map((group) => `
+    <option value="${escapeHtml(group.groupId)}" ${selected === group.groupId ? "selected" : ""}>
+      ${escapeHtml(group.name)} · ${Number(group.walletCount || 0)} ${t("个钱包", "wallets")}
+    </option>
+  `).join("");
+  return `<option value="">${t("请选择钱包组", "Select a wallet group")}</option>${options}`;
+}
+
+function renderLaunchDraftCard(card) {
+  const data = card.data && typeof card.data === "object" ? card.data : {};
+  const parameters = data.launch_parameters || {};
+  const token = launchDraftToken(data);
+  const chain = parameters.chain || data.chain || "solana";
+  const platform = parameters.platform || data.platform?.id || data.platform || "pump";
+  const draftId = launchDraftId(data);
+  const groups = state.assets.groups.filter((group) => group.network === "solana" || group.network === "multi" || !group.network);
+  const cooking = parameters.cooking_wallet_group_id || data.cooking_wallet_group_id || "";
+  const bundled = parameters.bundled_wallet_group_id || data.bundled_wallet_group_id || "";
+  if (!state.assets.groups.length && !state.assets.loading) window.setTimeout(() => void loadGoWalletGroups(), 0);
+
+  return `
+    <article class="go-launch-card" data-card-type="launch_draft" data-draft-id="${escapeHtml(draftId || "")}">
+      <form class="go-launch-form" data-launch-draft-form>
+        <div class="go-launch-grid">
+          <label class="go-field"><span>${t("代币名称", "Token name")}</span><input name="name" maxlength="32" value="${escapeHtml(token.name || "")}" placeholder="${t("填写代币名称", "Enter token name")}" required /></label>
+          <label class="go-field"><span>${t("代币符号", "Token symbol")}</span><input name="symbol" maxlength="13" value="${escapeHtml(token.symbol || "")}" placeholder="PEPE" required /></label>
+        </div>
+        <label class="go-field"><span>${t("简介", "Description")}</span><textarea name="description" rows="3" maxlength="2000" placeholder="${t("一句话描述这个叙事", "Describe the narrative in one sentence")}" required>${escapeHtml(token.description || "")}</textarea></label>
+        <div class="go-launch-media-row">
+          <label class="go-launch-image-field go-field"><span>${t("代币图片 URL", "Token image URL")}</span><input name="image_url" type="url" value="${escapeHtml(token.image_url || "")}" placeholder="https://.../logo.png" required /><small>${token.image_url ? t("已从链接识别", "Detected from source") : t("需要补充图片", "Image required")}</small></label>
+          <label class="go-field"><span>X</span><input name="x_url" type="url" value="${escapeHtml(token.x_url || "")}" placeholder="https://x.com/..." /></label>
+          <label class="go-field"><span>${t("官网", "Website")}</span><input name="website_url" type="url" value="${escapeHtml(token.website_url || "")}" placeholder="https://..." /></label>
+        </div>
+        <div class="go-launch-grid go-launch-meta-row">
+          <label class="go-field"><span>${t("首买 SOL", "Initial buy SOL")}</span><input name="initial_buy" inputmode="decimal" value="${escapeHtml(token.initial_buy || "0")}" placeholder="0" /></label>
+          <div class="go-launch-readonly"><span>${t("网络 / 发射平台", "Network / launchpad")}</span><strong>${escapeHtml(String(chain))} · ${escapeHtml(String(platform))}</strong></div>
+        </div>
+        <div class="go-wallet-selection">
+          <div class="go-wallet-heading"><div><span>${t("资产", "Assets")}</span><strong>${t("选择钱包组", "Select wallet groups")}</strong></div><button type="button" class="go-assets-link" data-view-trigger="assets">${t("打开 Assets", "Open Assets")}</button></div>
+          <div class="go-launch-grid">
+            <label class="go-field"><span>${t("Cooking 钱包组", "Cooking wallet group")}</span><select name="cooking_wallet_group_id" required>${walletGroupOptions(groups, cooking, { purpose: "cooking" })}</select></label>
+            <label class="go-field"><span>${t("捆绑钱包组", "Bundled wallet group")}</span><select name="bundled_wallet_group_id" required>${walletGroupOptions(groups, bundled, { purpose: "general", exclude: cooking })}</select></label>
+          </div>
+          ${groups.length ? "" : `<p class="go-wallet-hint">${t("请先在 Assets 创建 Solana 钱包组，再回来选择。", "Create Solana wallet groups in Assets before launching.")}</p>`}
+        </div>
+        <div class="go-launch-actions"><span>${t("点击发射前会保存你修改的参数，并再次检查钱包组和执行配置。", "Your edits are saved before launch and execution configuration is checked again.")}</span><button type="submit" data-launch-action="launch" ${draftId ? "" : "disabled"}>${t("发射到 Pump", "Launch to Pump")}</button></div>
+      </form>
+    </article>
+  `;
+}
+
 function renderStructuredCard(card) {
   if (!card) return "";
+  if (card.type === "launch_draft") return renderLaunchDraftCard(card);
   const cardMeta = {
     narrative_snapshot: ["fa-solid fa-wave-square", "叙事快照", "Narrative Snapshot"],
     meme_package: ["fa-solid fa-shapes", "Meme 构建包", "Meme Build Package"],
@@ -844,7 +911,7 @@ function renderMessageContent(message) {
       running: t("Agent 正在处理…", "Agent is working…"),
       reconnecting: t("事件流重连中…", "Reconnecting event stream…"),
     };
-    return `<div class="go-agent-thinking"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>${labels[message.lifecycle] || labels.running}</span></div>${(message.cards || []).map(renderStructuredCard).join("")}`;
+    return `<div class="go-agent-thinking"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>${labels[message.lifecycle] || labels.running}</span></div>${(message.cards || []).filter((card) => card?.type === "launch_draft").map(renderStructuredCard).join("")}`;
   }
 
   const content = message.contentZh ? t(message.contentZh, message.contentEn) : message.content;
@@ -858,7 +925,10 @@ function renderMessageContent(message) {
   const error = message.lifecycle === "failed" ? `
     <div class="go-agent-error"><strong>${t("任务失败", "Task failed")}</strong><span>${escapeHtml(message.error || t("Agent 服务当前不可用。", "The Agent service is currently unavailable."))}</span><button type="button" data-agent-retry>${t("重试", "Retry")}</button></div>
   ` : "";
-  const cards = [...(message.cards || []), ...(message.card ? [message.card] : [])].map(renderStructuredCard).join("");
+  const cards = [...(message.cards || []), ...(message.card ? [message.card] : [])]
+    .filter((card) => card?.type === "launch_draft")
+    .map(renderStructuredCard)
+    .join("");
   return `${content ? `<p>${escapeHtml(content)}</p>` : ""}${suggestion}${cards}${error}`;
 }
 
@@ -2207,6 +2277,80 @@ async function submitPulsePlan(command, pendingId) {
   }
 }
 
+async function loadGoWalletGroups() {
+  try {
+    const result = await apiRequest("/api/v1/wallet-groups");
+    state.assets.groups = result.groups || [];
+    renderConversation();
+  } catch (error) {
+    console.warn("[NarraOps] wallet groups unavailable for launch draft", error);
+  }
+}
+
+async function ensureGoAgentConversation() {
+  if (state.agent.conversationId) return state.agent.conversationId;
+  if (state.agent.conversationPromise) return state.agent.conversationPromise;
+  state.agent.conversationPromise = apiRequest("/api/v1/agent/conversations", {
+    method: "POST",
+    body: JSON.stringify({ context: { language: state.language, currentView: "go" } }),
+  }).then((conversation) => {
+    state.agent.conversationId = conversation.conversationId;
+    return state.agent.conversationId;
+  }).finally(() => {
+    state.agent.conversationPromise = null;
+  });
+  return state.agent.conversationPromise;
+}
+
+function agentMessageFromPayload(payload) {
+  const task = payload?.task || {};
+  const cards = Array.isArray(payload?.cards) && payload.cards.length
+    ? payload.cards
+    : task.result?.card ? [task.result.card] : [];
+  const message = payload?.message || {};
+  const hasLaunch = cards.some((card) => card?.type === "launch_draft");
+  return {
+    role: "agent",
+    timestamp: getMessageTime(),
+    content: message.content || (hasLaunch
+      ? t("已根据链接生成发射参数，请检查并选择钱包组。", "The launch fields are ready. Review them and select wallet groups.")
+      : t("任务已完成。", "Task completed.")),
+    suggestion: message.suggestion || "",
+    cards,
+    taskId: payload?.taskId || task.task_id || task.taskId || null,
+  };
+}
+
+async function submitAgentConversation(command, pendingId) {
+  state.go.busy = true;
+  state.agent.submitting = true;
+  state.agent.retryCommand = command;
+  try {
+    const conversationId = await ensureGoAgentConversation();
+    const payload = await apiRequest(`/api/v1/agent/conversations/${conversationId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({
+        message: command,
+        wait: true,
+        timeout_ms: 15_000,
+        context: { language: state.language, currentView: "go" },
+      }),
+    });
+    if (payload.conversationId) state.agent.conversationId = payload.conversationId;
+    replacePendingMessage(pendingId, agentMessageFromPayload(payload));
+  } catch (error) {
+    replacePendingMessage(pendingId, {
+      role: "agent",
+      timestamp: getMessageTime(),
+      lifecycle: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    state.go.busy = false;
+    state.agent.submitting = false;
+  }
+}
+
 function submitAgentCommand(value) {
   const command = value.trim();
   if (!command || state.go.busy) return;
@@ -2220,14 +2364,7 @@ function submitAgentCommand(value) {
     input.style.height = "";
   }
 
-  if (shouldUsePulsePlan(command)) {
-    void submitPulsePlan(command, pendingId);
-    return;
-  }
-
-  window.setTimeout(() => {
-    replacePendingMessage(pendingId, getAgentResponse(command));
-  }, 0);
+  void submitAgentConversation(command, pendingId);
 }
 
 function switchView(view) {
@@ -2486,7 +2623,72 @@ viewRoot.addEventListener("click", async (event) => {
   }
 });
 
+function updateLaunchCardInConversation(previousDraftId, nextCard) {
+  state.conversation = state.conversation.map((message) => {
+    if (message.role !== "agent") return message;
+    const cards = (message.cards || []).map((card) => {
+      const id = launchDraftId(card?.data || {});
+      return id === previousDraftId ? nextCard : card;
+    });
+    const card = message.card && launchDraftId(message.card.data || {}) === previousDraftId ? nextCard : message.card;
+    return { ...message, cards, ...(card ? { card } : {}) };
+  });
+  renderConversation();
+}
+
+async function saveLaunchDraftForm(form, action) {
+  const card = form.closest("[data-card-type='launch_draft']");
+  const draftId = card?.dataset.draftId;
+  if (!draftId) throw new Error(t("发射预案没有可保存的 ID。", "This launch draft has no saveable ID."));
+  const formData = new FormData(form);
+  const token = Object.fromEntries(["name", "symbol", "description", "image_url", "x_url", "website_url", "initial_buy"]
+    .map((field) => [field, String(formData.get(field) || "").trim()]));
+  const payload = await apiRequest(`/api/v1/go/launch-drafts/${draftId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      token,
+      cooking_wallet_group_id: String(formData.get("cooking_wallet_group_id") || "").trim() || null,
+      bundled_wallet_group_id: String(formData.get("bundled_wallet_group_id") || "").trim() || null,
+    }),
+  });
+  if (payload.card) updateLaunchCardInConversation(draftId, payload.card);
+  if (action === "launch") {
+    const launched = await apiRequest(`/api/v1/go/launch-drafts/${draftId}/execute`, {
+      method: "POST",
+      body: "{}",
+    });
+    const tokenAddress = launched.token_address || launched.execution?.tokenAddress || launched.execution?.mintAddress || "";
+    state.conversation.push({
+      role: "agent",
+      timestamp: getMessageTime(),
+      content: tokenAddress
+        ? t(`已发射成功，代币地址：${tokenAddress}`, `Launch confirmed. Token address: ${tokenAddress}`)
+        : t("发射请求已提交，正在等待链上确认。", "Launch submitted; waiting for on-chain confirmation."),
+      suggestion: t("你可以继续告诉我用哪个钱包组买入或卖出。", "You can now tell me which wallet group should buy or sell."),
+    });
+    renderConversation();
+    showToast(t("已发射到 Pump。", "Launched to Pump."));
+  } else {
+    showToast(t("发射预案已保存。", "Launch draft saved."));
+  }
+  return payload.card;
+}
+
 viewRoot.addEventListener("submit", async (event) => {
+  if (event.target.matches("[data-launch-draft-form]")) {
+    event.preventDefault();
+    const submitter = event.submitter;
+    const action = submitter?.dataset.launchAction || "save";
+    submitter?.setAttribute("disabled", "disabled");
+    try {
+      await saveLaunchDraftForm(event.target, action);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error));
+    } finally {
+      submitter?.removeAttribute("disabled");
+    }
+    return;
+  }
   if (event.target.id === "assetTransferForm") {
     event.preventDefault();
     const idempotencyKey = crypto.randomUUID();
