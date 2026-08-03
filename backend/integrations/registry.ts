@@ -26,9 +26,10 @@ class MockAdapter {
     return {
       adapter: this.name,
       kind: this.kind,
-      mode: "mock",
+      mode: "unavailable",
       source: source.handle || source.focus || this.name,
-      summary: `${this.name} mock signal for ${source.handle || source.focus || "configured source"}`,
+      summary: `${this.name} live collector is not configured for this source`,
+      reason: "live_source_adapter_not_configured",
       requestId: context.requestId,
     };
   }
@@ -47,18 +48,27 @@ export function createIntegrationRegistry(config = {}) {
     ["custom", new MockAdapter("Custom", "custom")],
   ]);
   const gmgnMarket = new GmgnMarketAdapter({
-    enabled: Boolean(config.gmgnLiveEnabled),
+    // GMGN is the product's live market source. Missing credentials or a
+    // failed command becomes an explicit data gap from the adapter; it must
+    // never be converted into fabricated/mock market data here.
+    // The production server passes an explicit true from loadConfig(). Keep
+    // an omitted flag unavailable for isolated app/test factories instead of
+    // accidentally spawning a real GMGN CLI process.
+    enabled: config.gmgnLiveEnabled === true,
     cliPath: config.gmgnCliPath,
     timeoutMs: config.externalTimeoutMs,
     maxRetries: config.externalMaxRetries,
   });
   const gmgnExecution = new GmgnExecutionAdapter({
-    enabled: Boolean(config.realExecutionEnabled && config.gmgnExecutionEnabled),
+    // Real execution is the intended product mode. The adapter still fails
+    // closed when GMGN credentials or wallet binding are not available, but
+    // REAL_EXECUTION_ENABLED is no longer a hidden product kill-switch.
+    enabled: config.gmgnExecutionEnabled === true,
     cliPath: config.gmgnCliPath,
     timeoutMs: config.externalTimeoutMs ? Math.max(Number(config.externalTimeoutMs) * 6, 30_000) : 30_000,
   });
   const hertzflow = new HertzFlowAdapter({
-    enabled: Boolean(config.hertzflowLiveEnabled || config.gmgnLiveEnabled),
+    enabled: config.hertzflowLiveEnabled === true && config.gmgnLiveEnabled === true,
     marketAdapter: gmgnMarket,
     timeoutMs: config.externalTimeoutMs ? Math.max(Number(config.externalTimeoutMs) * 8, 60_000) : 120_000,
   });
@@ -73,8 +83,8 @@ export function createIntegrationRegistry(config = {}) {
         name,
         kind,
         mode: name === "GMGN"
-          ? (gmgnMarket.enabled ? "live_enabled" : "disabled")
-          : "mock",
+          ? (gmgnMarket.enabled ? "live_enabled" : "unavailable")
+          : "unavailable",
       }));
     },
     scanDevWallets(options) {

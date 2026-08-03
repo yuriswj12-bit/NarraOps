@@ -34,13 +34,13 @@ function getRuntime() {
       supabase,
       walletGroupRepository: supabase ? new SupabaseWalletGroupRepository(supabase) : undefined,
       config: {
-        gmgnLiveEnabled: process.env.GMGN_LIVE_ENABLED === "true",
-        gmgnExecutionEnabled: process.env.GMGN_EXECUTION_ENABLED === "true",
-        realExecutionEnabled: process.env.REAL_EXECUTION_ENABLED === "true",
+        gmgnLiveEnabled: process.env.GMGN_LIVE_ENABLED !== "false",
+        gmgnExecutionEnabled: process.env.GMGN_EXECUTION_ENABLED !== "false",
+        realExecutionEnabled: process.env.REAL_EXECUTION_ENABLED !== "false",
         gmgnCliPath: process.env.GMGN_CLI_PATH || undefined,
         externalTimeoutMs: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS || 15_000),
         externalMaxRetries: Number(process.env.EXTERNAL_REQUEST_MAX_RETRIES || 1),
-        hertzflowLiveEnabled: process.env.HERTZFLOW_LIVE_ENABLED === "true",
+        hertzflowLiveEnabled: process.env.HERTZFLOW_LIVE_ENABLED !== "false",
       },
     });
   }

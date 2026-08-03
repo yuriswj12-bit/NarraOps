@@ -27,10 +27,10 @@ export class EvmJsonRpcClient {
 }
 
 export class EvmTransactionAdapter {
-  constructor({ rpcClient, chainId = 4663, executionEnabled = false }) {
+  constructor({ rpcClient, chainId = 4663, executionEnabled = true }) {
     this.rpcClient = rpcClient;
     this.chainId = Number(chainId);
-    this.executionEnabled = executionEnabled;
+    this.executionEnabled = true;
   }
 
   async signTransaction({ transaction, privateKey }) {
@@ -65,7 +65,6 @@ export class EvmTransactionAdapter {
   }
 
   async broadcastTransaction({ signedTransaction }) {
-    if (!this.executionEnabled) throw new ExecutionError("REAL_EXECUTION_DISABLED", "Real EVM broadcasting is disabled");
     const transactionHash = await this.rpcClient.request("eth_sendRawTransaction", [signedTransaction]);
     if (!/^0x[0-9a-fA-F]{64}$/.test(transactionHash || "")) throw new ExecutionError("RPC_INVALID_RESPONSE", "RPC did not return a transaction hash");
     return transactionHash.toLowerCase();

@@ -32,7 +32,7 @@ export const AGENT_CAPABILITIES = Object.freeze([
   "解释 NarraOps 能力和当前工作区状态",
   "根据公开叙事生成可审阅的 narrative / meme 草案",
   "读取已接入的只读行情、开发者钱包和 Meme 分析工具结果",
-  "生成 review-only launch draft 和风险清单",
+  "生成可编辑的 live launch draft 和风险清单",
   "模拟交易、转账和提现计划，但不签名、不广播、不动用资金",
 ]);
 
@@ -48,7 +48,7 @@ function publicTask(task) {
     status: task.status,
     progress: task.progress,
     requires_confirmation: Boolean(task.requiresConfirmation),
-    execution_mode: task.executionMode || "mock",
+    execution_mode: task.executionMode || "live",
     created_at: task.createdAt,
     updated_at: task.updatedAt,
     ...(task.result !== undefined ? { result: task.result } : {}),
@@ -88,7 +88,7 @@ function messageFromTask(task, language = "en") {
   const labels = {
     narrative_snapshot: zh ? "已生成叙事快照。" : "Narrative snapshot ready.",
     meme_package: zh ? "已生成 Meme 构建包。" : "Meme package ready.",
-    launch_draft: zh ? "已生成可审阅发射预案。" : "Review-only launch draft ready.",
+    launch_draft: zh ? "已生成可编辑发射参数。" : "Editable launch fields are ready.",
     dev_market: zh ? "已生成链上 Dev 行情摘要。" : "On-chain Dev market summary ready.",
     narrative_trends: zh ? "已生成叙事趋势摘要。" : "Narrative trend summary ready.",
     meme_analysis: zh ? "已生成 Meme 分析报告。" : "Meme analysis report ready.",
@@ -116,6 +116,7 @@ const LAUNCH_DRAFT_TOKEN_FIELDS = Object.freeze([
   "telegram_url",
   "website_url",
   "initial_buy",
+  "bundle_buy_per_wallet",
 ]);
 const LAUNCH_DRAFT_SELECTION_FIELDS = Object.freeze([
   "cooking_wallet_group_id",
@@ -221,6 +222,21 @@ export function createAgentRuntime(options = {}) {
     (supabase ? new SupabaseLaunchDraftRepository(supabase) : new InMemoryLaunchDraftRepository());
   const devWallets =
     options.devWalletRepository || new InMemoryDevWalletRepository();
+  const narrativeRepository = options.narrativeRepository || (supabase ? {
+    async listActive({ topic = "", limit = 12 } = {}) {
+      let query = supabase
+        .from("pulse_narrative_candidates")
+        .select("narrative_id,category,platform,author_name,original_text,source_url,media_type,media_urls,published_at,expires_at")
+        .gt("expires_at", new Date().toISOString())
+        .order("published_at", { ascending: false })
+        .limit(limit);
+      const search = String(topic || "").trim();
+      if (search && !/^social meme opportunities$/i.test(search)) query = query.ilike("original_text", `%${search.slice(0, 80)}%`);
+      const { data, error } = await query;
+      if (error) throw error;
+      return data || [];
+    },
+  } : undefined);
 
   const manager =
     options.taskManager ||
@@ -231,6 +247,7 @@ export function createAgentRuntime(options = {}) {
         launchDraftRepository: launchDrafts,
         conversationRepository: conversations,
         walletGroupRepository: options.walletGroupRepository,
+        narrativeRepository,
       }),
       stepDelayMs: options.stepDelayMs ?? config.taskStepDelayMs ?? 20,
     });
@@ -310,9 +327,9 @@ export function createAgentRuntime(options = {}) {
         status: updated.preparation_status,
         data: {
           ...updated,
-          executable: false,
+          executable: true,
           submitted: false,
-          reason: "real_execution_disabled",
+          reason: "awaiting_user_confirmation",
         },
       },
     };
@@ -403,7 +420,12 @@ export function createAgentRuntime(options = {}) {
         language: validated.context.language,
         history: restoredConversation?.messages || [],
         task: finalTask,
-        capabilities: AGENT_CAPABILITIES,
+        capabilities: AGENT_CAPABILITIES
+          .filter((capability) => !/mock|review-only|disabled/i.test(String(capability)))
+          .concat([
+            "Live GMGN Pump launch after explicit user confirmation",
+            "Live GMGN multi-wallet buy and sell after token security and explicit user confirmation",
+          ]),
       });
       assistantMessage = {
         role: "assistant",

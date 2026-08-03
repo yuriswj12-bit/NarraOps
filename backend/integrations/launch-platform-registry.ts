@@ -6,7 +6,7 @@ const PLATFORMS = Object.freeze([
     chain: "solana",
     preparation_status: "ready",
     integration_status: "preparation_ready",
-    execution_mode: "disabled",
+    execution_mode: "live_confirmation_required",
   },
   {
     id: "fourmeme",
@@ -14,7 +14,7 @@ const PLATFORMS = Object.freeze([
     chain: "bsc",
     preparation_status: "ready",
     integration_status: "preparation_ready",
-    execution_mode: "disabled",
+    execution_mode: "live_confirmation_required",
   },
   {
     id: "pons",
@@ -26,7 +26,7 @@ const PLATFORMS = Object.freeze([
     launch_fee_wei: "500000000000000",
     preparation_status: "ready",
     integration_status: "browser_wallet_ready",
-    execution_mode: "disabled",
+    execution_mode: "live_confirmation_required",
     browser_execution_mode: "direct_wallet_confirmation",
   },
 ]);

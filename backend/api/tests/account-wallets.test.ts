@@ -88,7 +88,7 @@ test("wallet groups are isolated by authenticated Web3 user", async (t) => {
   assert.equal((await fetch(`${baseUrl}/api/v1/wallet-groups/${group.groupId}/wallets`, { headers: { cookie: "session=user-b" } })).status, 404);
 });
 
-test("portfolio supports every period and returns monetary values as strings", async (t) => {
+test("portfolio reports a provider data gap when no live balance provider is configured", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
   for (const period of ["1d", "7d", "30d", "all"]) {
@@ -97,16 +97,15 @@ test("portfolio supports every period and returns monetary values as strings", a
     const portfolio = await response.json();
     assert.equal(portfolio.period, period);
     for (const field of ["totalBalance", "turnover", "realizedPnl", "unrealizedPnl", "pnlPercent"]) {
-      assert.equal(typeof portfolio[field], "string");
+      assert.equal(portfolio[field], null);
     }
-    assert.ok(portfolio.history.length > 0);
-    assert.ok(portfolio.history.every(({ totalBalance }) => typeof totalBalance === "string"));
+    assert.deepEqual(portfolio.history, []);
   }
   const invalid = await fetch(`${baseUrl}/api/v1/account/portfolio?period=year`);
   assert.equal(invalid.status, 400);
 });
 
-test("wallet groups create simulated public references and can add wallets", async (t) => {
+test("wallet groups create unbound provider references and can add wallets", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
   const createdResponse = await post(baseUrl, "/api/v1/wallet-groups", { name: "Launch Team", walletCount: 2 });
@@ -120,7 +119,7 @@ test("wallet groups create simulated public references and can add wallets", asy
   const added = await addedResponse.json();
   assert.equal(added.group.walletCount, 5);
   assert.equal(added.wallets.length, 3);
-  assert.ok(added.wallets.every(({ provisioningStatus, exportEligible }) => provisioningStatus === "simulation_only" && exportEligible === false));
+  assert.ok(added.wallets.every(({ provisioningStatus, exportEligible, publicAddress }) => provisioningStatus === "planned" && publicAddress === null && exportEligible === false));
   assert.doesNotMatch(JSON.stringify(added), /privateKey|secretKey|mnemonic|seedPhrase/i);
 
   const listed = await fetch(`${baseUrl}/api/v1/wallet-groups/${group.groupId}/wallets`).then((response) => response.json());

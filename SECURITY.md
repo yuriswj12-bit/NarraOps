@@ -4,9 +4,7 @@ NarraOps is an early prototype. Treat every wallet, execution, authentication, a
 
 ## Current security status
 
-Real-fund execution is disabled by default.
-
-The current repository may contain simulation services, adapter skeletons, migrations, and API contracts. Those components must not be described or exposed as production-safe real-fund execution until the required signer isolation, durable idempotency, authenticated actor scoping, immutable audit, policy enforcement, reconciliation, and operational monitoring are implemented and reviewed.
+Real-fund execution is part of the live product when the production GMGN/signer providers are configured. The application must expose provider outages as unavailable/data-gap states, never as fabricated success or simulation. All irreversible launches and trades require authenticated actor scoping, durable idempotency, policy checks, explicit final confirmation, provider reconciliation, immutable audit, and operational monitoring.
 
 ## Supported security scope
 

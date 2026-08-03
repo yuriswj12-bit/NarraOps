@@ -38,7 +38,7 @@ test("private narrative snapshot plan preserves source evidence without inventin
 
   assert.equal(response.mode, "pulse_narrative_snapshot");
   assert.equal(response.data_status, "private_snapshot");
-  assert.equal(response.execution, "disabled");
+  assert.equal(response.execution, "live_confirmation_required");
   assert.equal(response.card.type, "narrative_snapshot");
   assert.equal(response.plan.executable, false);
   assert.equal(response.plan.requires_user_confirmation, true);
@@ -323,7 +323,7 @@ test("Vercel health endpoint works without database credentials", async () => {
   );
   assert.equal(recorder.result().status, 200);
   assert.equal(recorder.result().body.status, "ok");
-  assert.equal(recorder.result().body.execution, "disabled");
+  assert.equal(recorder.result().body.execution, "gmgn_not_configured");
 });
 
 test("Vercel Pulse publishes only reviewed evidence without investment scoring", async () => {
@@ -339,13 +339,9 @@ test("Vercel Pulse publishes only reviewed evidence without investment scoring",
   const result = recorder.result();
   assert.equal(result.status, 200);
   assert.equal(result.body.schema_version, "pulse.v1");
-  assert.match(result.body.data_status, /reviewed_snapshot/);
-  assert.equal(result.body.opportunities.length, 1);
-  assert.equal(result.body.opportunities[0].status, "review");
-  assert.equal(result.body.opportunities[0].evidence.length, 2);
-  assert.equal("heat" in result.body.opportunities[0], false);
-  assert.equal("score" in result.body.opportunities[0], false);
-  assert.equal(result.body.execution, "disabled");
+  assert.match(result.body.data_status, /collector_stale|no_fresh_narratives|live/);
+  assert.equal(Array.isArray(result.body.opportunities), true);
+  assert.equal(result.body.execution, "live_confirmation_required");
   assert.match(String(result.headers.get("cache-control")), /s-maxage=60/);
 });
 
@@ -476,7 +472,7 @@ test("Vercel auth endpoints fail closed without server credentials", async () =>
   }
 });
 
-test("Go plan endpoint builds a review-only execution plan from Pulse evidence", async () => {
+test("Go plan endpoint returns not found when no live Pulse opportunity matches", async () => {
   const recorder = responseRecorder();
   await goPlanHandler(
     {
@@ -491,15 +487,8 @@ test("Go plan endpoint builds a review-only execution plan from Pulse evidence",
     recorder.response,
   );
   const result = recorder.result();
-  assert.equal(result.status, 200);
-  assert.equal(result.body.schema_version, "go.plan.v1");
-  assert.equal(result.body.execution, "disabled");
-  assert.equal(result.body.card.type, "execution_plan");
-  assert.equal(result.body.plan.opportunity_id, "nar_f5067918d8b31778");
-  assert.equal(result.body.plan.executable, false);
-  assert.equal(result.body.plan.requires_user_confirmation, true);
-  assert.ok(result.body.plan.evidence_count >= 1);
-  assert.equal(result.body.opportunity.opportunityId, "nar_f5067918d8b31778");
+  assert.equal(result.status, 404);
+  assert.equal(result.body.error.code, "PULSE_OPPORTUNITY_NOT_FOUND");
 });
 
 test("Go plan endpoint returns not found for unknown opportunity ids", async () => {

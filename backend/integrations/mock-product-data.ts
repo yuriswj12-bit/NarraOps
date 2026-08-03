@@ -1,65 +1,41 @@
 // @ts-nocheck
 export function mockPulse() {
-  const observedAt = new Date().toISOString();
   return {
-    mode: "mock",
-    observed_at: observedAt,
-    opportunities: [
-      {
-        opportunity_id: "pulse_agent_pets",
-        narrative: "Personal AI agents are becoming identity-bearing internet characters",
-        heat: 91,
-        sources: ["X/Twitter", "TikTok"],
-        recommended_chain: "solana",
-        risk_level: "medium",
-      },
-      {
-        opportunity_id: "pulse_short_video_meme",
-        narrative: "Short-video remix formats are crossing into on-chain communities",
-        heat: 84,
-        sources: ["TikTok", "Douyin"],
-        recommended_chain: "bsc",
-        risk_level: "high",
-      },
-      {
-        opportunity_id: "pulse_community_lore",
-        narrative: "Community-native lore is outperforming generic token branding",
-        heat: 76,
-        sources: ["Telegram", "GMGN"],
-        recommended_chain: "solana",
-        risk_level: "low",
-      },
-    ],
+    mode: "unavailable",
+    data_status: "data_gap",
+    opportunities: [],
+    reason: "Live Pulse collection is not available in this server runtime.",
   };
 }
 
 export function mockLaunchPlatforms() {
   return {
-    mode: "mock",
-    execution_enabled: false,
+    mode: "live_confirmation_required",
+    execution_enabled: true,
     platforms: [
-      { id: "pump-fun", name: "Pump.fun", chain: "solana", status: "mock", execution_mode: "disabled" },
-      { id: "bags", name: "BAGS", chain: "solana", status: "mock", execution_mode: "disabled" },
-      { id: "four-meme", name: "FourMeme", chain: "bsc", status: "mock", execution_mode: "disabled" },
+      { id: "pump-fun", name: "Pump.fun", chain: "solana", status: "available", execution_mode: "live_confirmation_required" },
+      { id: "bags", name: "BAGS", chain: "solana", status: "provider_required", execution_mode: "live_confirmation_required" },
+      { id: "four-meme", name: "FourMeme", chain: "bsc", status: "provider_required", execution_mode: "live_confirmation_required" },
     ],
   };
 }
 
 export function mockInviteSummary() {
   return {
-    mode: "mock",
-    invite_code: "NARRA-DEMO",
-    invited_users: 24,
-    valid_launches: 7,
-    current_revenue_share: "0.05",
-    cumulative_revenue_share: "128.40",
-    settlement_asset: "USDC",
+    mode: "unavailable",
+    data_status: "not_configured",
+    invite_code: null,
+    invited_users: null,
+    valid_launches: null,
+    current_revenue_share: null,
+    cumulative_revenue_share: null,
+    settlement_asset: null,
   };
 }
 
 export function mockSettings() {
   return {
-    mode: "mock",
+    mode: "live",
     preferences: {
       language: "zh-CN",
       default_chain: "solana",
@@ -67,10 +43,10 @@ export function mockSettings() {
       require_confirmation_for_funds: true,
     },
     safety: {
-      real_execution_enabled: false,
-      private_key_custody: "disabled",
-      signing: "signing_disabled",
-      broadcasting: "broadcasting_disabled",
+      real_execution_enabled: true,
+      private_key_custody: "server_provider_or_encrypted_vault",
+      signing: "confirmation_required",
+      broadcasting: "confirmation_required",
     },
   };
 }

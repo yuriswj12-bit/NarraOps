@@ -5,8 +5,8 @@ export function walletCapabilities(config = {}) {
     custody_policy: "provider_managed_only",
     raw_private_keys_accepted: false,
     raw_private_keys_stored: false,
-    signing: "signing_disabled",
-    broadcasting: "broadcasting_disabled",
+    signing: "provider_bound",
+    broadcasting: "provider_bound",
     providers: [
       {
         id: "external_wallet",
@@ -18,7 +18,7 @@ export function walletCapabilities(config = {}) {
         id: "privy_embedded",
         login_methods: ["email", "wallet"],
         chains: ["solana", "bsc", "robinhood"],
-        status: embeddedConfigured ? "configured_execution_disabled" : "provider_configuration_required",
+        status: embeddedConfigured ? "configured" : "provider_configuration_required",
       },
     ],
   };

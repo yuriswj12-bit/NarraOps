@@ -2,16 +2,17 @@
 
 NarraOps is an AI-native narrative discovery and meme operations workspace.
 
-It helps Meme Devs reduce the cost of finding, filtering, and understanding memeable internet narratives, then turns selected narratives into reviewable launch-ready plans.
+It helps Meme Devs reduce the cost of finding, filtering, and understanding memeable internet narratives, then turns selected narratives into editable launch parameters and live launch/trade workflows.
 
 ## Product Direction
 
-NarraOps is not trying to become another trading terminal, K-line tool, or launchpad interface. The product focuses on the work before execution:
+NarraOps is not trying to become another trading terminal or generic launchpad interface. The product connects narrative discovery to real execution:
 
 - discover narrative opportunities from public internet signals;
 - explain the story, evidence, risks, and crowding behind each opportunity;
-- turn selected narratives into structured launch-ready plans;
-- keep wallet groups, assets, and execution preparation behind clear safety boundaries.
+- turn selected narratives into editable launch parameters;
+- use Assets wallet groups for real launch and post-launch trading operations;
+- submit irreversible actions only after an explicit final confirmation.
 
 The primary product surfaces are:
 
@@ -23,18 +24,18 @@ Launch adapters remain backend tools. They are not a first-level product surface
 
 ## Current Product State
 
-This repository contains the current NarraOps product implementation. Some capabilities are still review-only or disabled because they involve funds, keys, production data sources, or execution boundaries. Do not describe planning-only behavior as live execution.
+This repository contains the current live product implementation. Pulse, GMGN, HertzFlow, wallet groups, launch, and trade flows use real providers when configured. Provider outages or missing credentials are reported as unavailable/data gaps; they must never be replaced with fabricated data or simulated execution.
 
 Current capabilities include:
 
 - Pulse opportunity cards and public-evidence research fixtures.
 - Go Agent conversations, structured cards, task state, and SSE replay.
-- Launch-ready draft and adapter foundations behind safety boundaries.
+- Editable launch drafts and live launch adapters with explicit confirmation.
 - Wallet groups, transfer previews, and asset views.
 - Supabase auth and analytics migration foundation.
 - GMGN, HertzFlow, and launch-platform integration skeletons.
 
-Live signing, transaction submission, custody, and automated fund execution remain disabled unless explicitly reviewed and enabled.
+Live signing, transaction submission, custody, and fund execution require authenticated provider configuration and an explicit user confirmation at the point of action.
 
 ## Engineering Language Split
 

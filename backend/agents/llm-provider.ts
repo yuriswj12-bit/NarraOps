@@ -1,7 +1,8 @@
 ﻿// @ts-nocheck
 /**
  * OpenAI-compatible provider for Go Agent conversation and content generation.
- * Never executes funds. Fail closed to an explicit safe fallback.
+ * Generates launch metadata only. Execution is handled by the confirmed
+ * GMGN launch/trade boundary, never by the language model.
  */
 export async function generateStructuredLaunchContent({
   prompt,
@@ -14,9 +15,10 @@ export async function generateStructuredLaunchContent({
 
   if (!apiKey) {
     return {
-      provider: "template",
+      provider: "unconfigured",
       used_llm: false,
-      content: templateLaunchContent({ prompt, sourceText, language }),
+      content: emptyLaunchContent(),
+      error: "llm_provider_not_configured",
     };
   }
 
@@ -55,9 +57,9 @@ export async function generateStructuredLaunchContent({
     });
     if (!response.ok) {
       return {
-        provider: "template",
+        provider: "unavailable",
         used_llm: false,
-        content: templateLaunchContent({ prompt, sourceText, language }),
+        content: emptyLaunchContent(),
         error: `llm_http_${response.status}`,
       };
     }
@@ -73,9 +75,9 @@ export async function generateStructuredLaunchContent({
     };
   } catch (error) {
     return {
-      provider: "template",
+      provider: "unavailable",
       used_llm: false,
-      content: templateLaunchContent({ prompt, sourceText, language }),
+      content: emptyLaunchContent(),
       error: error instanceof Error ? error.name : "llm_error",
     };
   }
@@ -85,8 +87,8 @@ const DEFAULT_AGENT_CAPABILITIES = Object.freeze([
   "解释 NarraOps 能力和当前工作区状态",
   "根据公开叙事生成可审阅的 narrative / meme 草案",
   "读取已接入的只读行情、开发者钱包和 Meme 分析工具结果",
-  "生成 review-only launch draft 和风险清单",
-  "模拟交易、转账和提现计划，但不签名、不广播、不动用资金",
+  "根据实时公开来源生成可编辑的 launch draft 和风险清单",
+  "在用户明确确认后进入 GMGN 真实发射或买卖流程",
 ]);
 
 export function getLlmProviderStatus() {
@@ -129,12 +131,12 @@ export async function generateAgentReply({
   }
 
   const system = [
-    "You are the NarraOps Agent, a Chinese-first AI assistant for meme narrative research and review-only launch planning.",
+    "You are the NarraOps Agent, a Chinese-first AI assistant for meme narrative research, live market context, and confirmed launch/trade workflows.",
     "Follow the requested language exactly: language=en means all user-facing text is English; language=zh means all user-facing text is Chinese.",
     "Answer naturally and directly. Use the task result as the only source of current workspace data.",
     "Never invent live prices, wallet balances, social evidence, or completed actions.",
-    "If a result says mock, data-gap, disabled, or review-only, say that clearly.",
-    "Real signing, broadcasting, fund movement, and token launch are disabled. Never claim they happened.",
+    "Never invent live prices, wallet balances, source evidence, order status, or completed actions.",
+    "Real signing, broadcasting, fund movement, and token launch may happen only after the user explicitly confirms the resolved parameters.",
     "Return ONLY valid JSON with exactly two string keys: content and suggestion.",
     "Keep content under 1,200 characters and suggestion under 240 characters.",
   ].join(" ");
@@ -309,8 +311,8 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
       : (params.source_status === "live" ? "the public source was read" : "the source was only partially readable; data gaps are preserved");
     return {
       content: zh
-        ? `已读取公开链接并生成 review-only 发射预案：${sourceStatus}。识别到链：${params.chain || taskResult.chain || "solana"}，平台：${params.platform || taskResult.platform || "待确认"}，代币：${token.name || "待补全"}（${token.symbol || "待补全"}）。预案不会签名、广播或移动资金。`
-        : `I read the public link and generated a review-only launch draft: ${sourceStatus}. Detected chain: ${params.chain || taskResult.chain || "solana"}; platform: ${params.platform || taskResult.platform || "needs confirmation"}; token: ${token.name || "needs enrichment"} (${token.symbol || "needs enrichment"}). No signing, broadcasting, or fund movement occurred.`,
+        ? `已读取公开链接并生成可编辑发射预案：${sourceStatus}。识别到链：${params.chain || taskResult.chain || "solana"}，平台：${params.platform || taskResult.platform || "待确认"}，代币：${token.name || "待补全"}（${token.symbol || "待补全"}）。完成字段和钱包组选择后，点击确认即可进入真实发射。`
+        : `I read the public link and generated an editable launch draft: ${sourceStatus}. Detected chain: ${params.chain || taskResult.chain || "solana"}; platform: ${params.platform || taskResult.platform || "needs confirmation"}; token: ${token.name || "needs enrichment"} (${token.symbol || "needs enrichment"}). Complete the fields and wallet groups, then confirm to enter the live launch flow.`,
       suggestion: zh
         ? "请展开下方发射预案，检查名称、ticker、描述、图片、链和 launchpad 后再人工审阅。"
         : "Expand the launch draft and review the name, ticker, description, image, chain, and launchpad before any approval.",
@@ -337,12 +339,12 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
   if (task?.type === "trade.confirm") {
     const execution = taskResult.execution || {};
     const order = taskResult.order || {};
-    if (taskResult.status === "blocked" || execution.status === "disabled") {
+    if (taskResult.status === "blocked" || ["unavailable", "invalid_request"].includes(execution.status)) {
       return {
         content: zh
-          ? `交易没有执行：${taskResult.reason || "服务端执行配置未开启"}。安全检查和资金操作均已停止。`
-          : `The trade was not executed: ${taskResult.reason || "server-side execution is not enabled"}. Security checks and fund movement were stopped.`,
-        suggestion: zh ? "先检查 GMGN、REAL_EXECUTION 和钱包组配置。" : "Check the GMGN, REAL_EXECUTION, and wallet-group configuration first.",
+          ? `交易没有执行：${taskResult.reason || "GMGN 实时执行服务当前不可用"}。安全检查和资金操作均已停止。`
+          : `The trade was not executed: ${taskResult.reason || "the live GMGN execution service is unavailable"}. Security checks and fund movement were stopped.`,
+        suggestion: zh ? "检查 GMGN 凭据、钱包组地址和链网络配置。" : "Check the GMGN credentials, wallet-group addresses, and chain configuration.",
       };
     }
     return {
@@ -353,6 +355,14 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
     };
   }
   const mode = taskResult?.mode || task?.execution_mode || task?.executionMode || "fallback";
+  if (["live", "live_llm", "live_read_only", "live_confirmation_required"].includes(mode)) {
+    return {
+      content: zh
+        ? "任务已完成。结果来自实时服务；发射或交易只有在你明确确认后才会提交。"
+        : "The task is complete. The result came from live services; a launch or trade is submitted only after your explicit confirmation.",
+      suggestion: zh ? "继续告诉我你要分析的叙事、修改的发射参数，或确认一笔交易。" : "Tell me which narrative to analyze, which launch field to change, or which trade to confirm.",
+    };
+  }
   if (task?.type === "agent.chat" && launchContext) {
     const source = String(launchContext.content || launchContext.summary || launchContext.title || "").trim();
     return {
@@ -408,8 +418,18 @@ function templateLaunchContent({ prompt, sourceText, language }) {
       : "The linked public narrative is the source signal; the original post remains the evidence to review.",
     risk_notes: [
       zh ? "内容由 Agent 生成，需人工审阅" : "Agent-generated content requires human review",
-      zh ? "真实发射默认关闭" : "Live launch remains disabled by default",
+      zh ? "真实发射需要用户明确确认" : "Live launch requires explicit user confirmation",
     ],
+  };
+}
+
+function emptyLaunchContent() {
+  return {
+    name: "",
+    symbol: "",
+    description: "",
+    narrative_thesis: "",
+    risk_notes: ["LLM provider unavailable; complete the fields manually or configure the provider"],
   };
 }
 

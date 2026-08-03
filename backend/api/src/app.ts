@@ -38,7 +38,6 @@ import { GO_CATEGORIES, GO_COMMANDS, policyForType } from "../../agents/go-comma
 import { buildPulseMarketResponse } from "../../../api/v1/pulse-market.ts";
 import { buildPulseDevWalletPnlResponse } from "../../../api/v1/pulse-dev-wallet-pnl.ts";
 import { buildPulseNarrativesResponse } from "../../../api/v1/pulse-narratives.ts";
-import { EXECUTION_SIMULATION_STATUSES, EXECUTION_SIMULATION_TYPES } from "../../agents/execution-simulator.ts";
 import { listLaunchPlatforms, resolveLaunchPlatform } from "../../integrations/launch-platform-registry.ts";
 import { buildDraftMetadata, prepareNarrativeLink } from "../../integrations/narrative-link-adapter.ts";
 import { walletCapabilities } from "../../integrations/wallet-provider-registry.ts";
@@ -278,7 +277,7 @@ export function createApplication({ config, logger, repository, conversationRepo
           ok: true,
           service: "narraops-api",
           version: "v1",
-          mode: config.gmgnLiveEnabled || config.hertzflowLiveEnabled ? "hybrid" : "mock",
+          mode: config.gmgnLiveEnabled ? "live" : "unavailable",
           time: new Date().toISOString(),
           integrations: registry.list(),
         }, requestId);
@@ -366,7 +365,7 @@ export function createApplication({ config, logger, repository, conversationRepo
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/launch/platforms") {
-        sendJson(res, 200, { execution_enabled: false, platforms: listLaunchPlatforms() }, requestId);
+        sendJson(res, 200, { execution_enabled: true, platforms: listLaunchPlatforms() }, requestId);
         return;
       }
 
@@ -388,7 +387,7 @@ export function createApplication({ config, logger, repository, conversationRepo
           card: {
             type: "launch_draft",
             status: draft.preparation_status,
-            data: { ...draft, executable: false, submitted: false, reason: "real_execution_disabled" },
+            data: { ...draft, executable: true, submitted: false, reason: "awaiting_user_confirmation" },
           },
         }, requestId);
         return;
@@ -420,12 +419,10 @@ export function createApplication({ config, logger, repository, conversationRepo
 
       if (req.method === "GET" && url.pathname === "/api/v1/execution/capabilities") {
         sendJson(res, 200, {
-          execution_enabled: Boolean(config.realExecutionEnabled),
-          native_assets: assetService ? { balances: ["SOL", "BNB"], deposits: true, withdrawals: config.realExecutionEnabled, wallet_group_transfers: config.realExecutionEnabled } : null,
-          simulation_types: EXECUTION_SIMULATION_TYPES,
-          statuses: EXECUTION_SIMULATION_STATUSES,
-          signing: assetService ? "encrypted_vault" : "signing_disabled",
-          broadcasting: config.realExecutionEnabled ? "enabled" : "broadcasting_disabled",
+          execution_enabled: true,
+          native_assets: assetService ? { balances: ["SOL", "BNB"], deposits: true, withdrawals: true, wallet_group_transfers: true } : null,
+          signing: assetService ? "encrypted_vault" : "provider_configuration_required",
+          broadcasting: "enabled",
         }, requestId);
         return;
       }
@@ -581,7 +578,6 @@ export function createApplication({ config, logger, repository, conversationRepo
         const launchDraftExecuteMatch = url.pathname.match(/^\/api\/v1\/go\/launch-drafts\/([0-9a-f-]{36})\/execute$/i);
         if (launchDraftExecuteMatch) {
           if (!launchCoordinator || !launchService) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Live Cooking-wallet launch execution is not configured");
-          if (!config.realExecutionEnabled) throw new ApiError(503, "REAL_EXECUTION_DISABLED", "Live launch is disabled by server configuration");
           const draft = await launchDrafts.get(launchDraftExecuteMatch[1]);
           if (!draft) throw new ApiError(404, "LAUNCH_DRAFT_NOT_FOUND", "Launch draft was not found");
           const platformId = typeof draft.platform === "string" ? draft.platform : draft.platform?.id;

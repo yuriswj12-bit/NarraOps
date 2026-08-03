@@ -148,7 +148,7 @@ test("public X links are fetched and become review-only launch parameters", asyn
     assert.equal(result.launch_parameters.chain, "solana");
     assert.equal(result.launch_parameters.platform, "pump");
     assert.match(result.narrative.summary, /真实的公开叙事文本/);
-    assert.equal(result.executable, false);
+    assert.equal(result.executable, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -199,7 +199,7 @@ test("a bare public link routes to the launch draft workflow", () => {
   const parsed = parseGoInput("https://x.com/coolish/status/2083800621321535680?s=20");
   assert.equal(parsed.type, "launch.meme");
   assert.equal(parsed.parsed_by, "public_link");
-  assert.equal(parsed.execution_mode, "disabled");
+  assert.equal(parsed.execution_mode, "live_confirmation_required");
 });
 
 test("launch platform mapping is fixed to the product chain choices", () => {

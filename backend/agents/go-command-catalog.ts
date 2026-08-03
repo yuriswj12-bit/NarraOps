@@ -27,7 +27,7 @@ export const GO_COMMANDS = Object.freeze([
     description: "Scan meme markets and summarize registered developer-wallet performance.",
     usage: "/dev-market [solana|bsc|robinhood]",
     requires_confirmation: false,
-    execution_mode: "mock",
+    execution_mode: "live_read_only",
   },
   {
     command: "/market-trending",
@@ -77,7 +77,7 @@ export const GO_COMMANDS = Object.freeze([
     description: "Discover meme-ready narratives from social and market signals.",
     usage: "/pulse [topic or source]",
     requires_confirmation: false,
-    execution_mode: "mock",
+    execution_mode: "live_llm",
   },
   {
     command: "/meme",
@@ -87,7 +87,7 @@ export const GO_COMMANDS = Object.freeze([
     description: "Create a meme identity, ticker, story, and social draft.",
     usage: "/meme <idea or narrative>",
     requires_confirmation: false,
-    execution_mode: "mock",
+    execution_mode: "live_llm",
   },
   {
     command: "/narrative-trends",
@@ -97,7 +97,7 @@ export const GO_COMMANDS = Object.freeze([
     description: "Score narratives used by recently launched memes across chains.",
     usage: "/narrative-trends [time range]",
     requires_confirmation: false,
-    execution_mode: "mock",
+    execution_mode: "live_read_only",
   },
   {
     command: "/analyze-meme",
@@ -107,7 +107,7 @@ export const GO_COMMANDS = Object.freeze([
     description: "Create a read-only meme forensic report from a contract address.",
     usage: "/analyze-meme <contract address>",
     requires_confirmation: false,
-    execution_mode: "mock",
+    execution_mode: "live_read_only",
   },
   {
     command: "/recent-summary",
@@ -117,27 +117,17 @@ export const GO_COMMANDS = Object.freeze([
     description: "Summarize recent launches, PnL, dev wallets, and wallet-group activity.",
     usage: "/recent-summary [7d|30d]",
     requires_confirmation: false,
-    execution_mode: "mock",
-  },
-  {
-    command: "/wallet-group",
-    aliases: ["/wallet", "/create-wallet-group"],
-    category: "wallet",
-    type: "wallet.group.create",
-    description: "Create a simulated wallet-group plan without generating or storing keys.",
-    usage: "/wallet-group <name> [count]",
-    requires_confirmation: false,
-    execution_mode: "simulation",
+    execution_mode: "live_read_only",
   },
   {
     command: "/launch",
     aliases: ["/launch-meme"],
     category: "launch",
     type: "launch.meme",
-    description: "Build a launch plan. Submission remains disabled.",
+    description: "Build a live launch draft from a narrative or public link and wait for explicit confirmation.",
     usage: "/launch <meme or narrative id>",
     requires_confirmation: true,
-    execution_mode: "disabled",
+    execution_mode: "live_confirmation_required",
   },
   {
     command: "/confirm-trade",
@@ -169,26 +159,6 @@ export const GO_COMMANDS = Object.freeze([
     requires_confirmation: true,
     execution_mode: "confirmation_required",
   },
-  {
-    command: "/transfer",
-    aliases: ["/send"],
-    category: "funds",
-    type: "funds.transfer",
-    description: "Simulate a transfer intent. Fund movement remains disabled.",
-    usage: "/transfer <amount> <asset> <destination>",
-    requires_confirmation: true,
-    execution_mode: "disabled",
-  },
-  {
-    command: "/withdraw",
-    aliases: ["/extract"],
-    category: "funds",
-    type: "funds.withdraw",
-    description: "Simulate a withdrawal intent. Fund movement remains disabled.",
-    usage: "/withdraw <amount> <asset> <destination>",
-    requires_confirmation: true,
-    execution_mode: "disabled",
-  },
 ]);
 
 const POLICY_BY_TYPE = new Map(GO_COMMANDS.map((entry) => [entry.type, entry]));
@@ -204,10 +174,10 @@ export function policyForType(type) {
   const policy = POLICY_BY_TYPE.get(type);
   if (policy) return policy;
   if (type === "narrative.scan" || type === "narrative.generate") {
-    return { type, category: "narrative", requires_confirmation: false, execution_mode: "mock" };
+    return { type, category: "narrative", requires_confirmation: false, execution_mode: type === "narrative.generate" ? "live_llm" : "live_read_only" };
   }
   if (type === "launch.package") {
-    return { type, category: "launch", requires_confirmation: true, execution_mode: "disabled" };
+    return { type, category: "launch", requires_confirmation: true, execution_mode: "live_confirmation_required" };
   }
   if (type === "agent.chat") return AGENT_CHAT_POLICY;
   return null;
