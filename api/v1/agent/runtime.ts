@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { createClient } from "@supabase/supabase-js";
 import { createAgentRuntime } from "../../../backend/agents/agent-runtime.ts";
+import { SupabaseWalletGroupRepository } from "../../../backend/api/src/repositories/supabase-wallet-group-repository.ts";
 import {
   formatTelegramReply,
   parseTelegramUpdate,
@@ -27,15 +28,19 @@ function serverSupabase() {
 
 function getRuntime() {
   if (!runtimeSingleton) {
+    const supabase = serverSupabase();
     runtimeSingleton = createAgentRuntime({
       stepDelayMs: 5,
-      supabase: serverSupabase(),
+      supabase,
+      walletGroupRepository: supabase ? new SupabaseWalletGroupRepository(supabase) : undefined,
       config: {
-        gmgnLiveEnabled: process.env.GMGN_LIVE_ENABLED === "true",
+        gmgnLiveEnabled: process.env.GMGN_LIVE_ENABLED !== "false",
+        gmgnExecutionEnabled: process.env.GMGN_EXECUTION_ENABLED !== "false",
+        realExecutionEnabled: process.env.REAL_EXECUTION_ENABLED !== "false",
         gmgnCliPath: process.env.GMGN_CLI_PATH || undefined,
         externalTimeoutMs: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS || 15_000),
         externalMaxRetries: Number(process.env.EXTERNAL_REQUEST_MAX_RETRIES || 1),
-        hertzflowLiveEnabled: process.env.HERTZFLOW_LIVE_ENABLED === "true",
+        hertzflowLiveEnabled: process.env.HERTZFLOW_LIVE_ENABLED !== "false",
       },
     });
   }

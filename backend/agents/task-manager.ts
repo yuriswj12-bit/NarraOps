@@ -13,9 +13,9 @@ export const AGENT_DOMAIN_EVENTS = Object.freeze([
   "meme_draft_ready",
   "wallet_group_plan_ready",
   "launch_plan_ready",
-  "transfer_simulated",
-  "trade_simulated",
-  "execution_disabled",
+  "trade_confirmation_required",
+  "trade_submitted",
+  "execution_unavailable",
   "revenue_share_updated",
   "agent.started",
   "agent.delta",
@@ -50,7 +50,7 @@ export class TaskManager extends EventEmitter {
       requestId,
       input,
       requiresConfirmation: Boolean(metadata.requires_confirmation),
-      executionMode: metadata.execution_mode || "mock",
+      executionMode: metadata.execution_mode || "live",
       parsedInput: metadata,
       conversationId: metadata.conversation_id || null,
       channel: metadata.channel || null,
@@ -87,7 +87,7 @@ export class TaskManager extends EventEmitter {
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
       requiresConfirmation: Boolean(task.requiresConfirmation),
-      executionMode: task.executionMode || "mock",
+      executionMode: task.executionMode || "live",
     };
     if (includeResult && task.result !== undefined) result.result = task.result;
     if (includeResult && task.failure) result.failure = task.failure;
@@ -132,6 +132,7 @@ export class TaskManager extends EventEmitter {
         requestId: task.requestId,
         executionMode: task.executionMode,
         conversationId: task.conversationId || task.parsedInput?.conversation_id || null,
+        userId: task.input?.context?.userId || task.input?.context?.user_id || task.parsedInput?.user_id || null,
         channel: task.channel || task.parsedInput?.channel || null,
         emitEvent: (type, payload = {}) => this.#emitDomain(type, task, payload),
       });
@@ -177,7 +178,7 @@ export class TaskManager extends EventEmitter {
         ...(task.parsedInput?.conversation_id ? { conversation_id: task.parsedInput.conversation_id } : {}),
         type: task.type,
         status: task.status,
-        execution_mode: task.executionMode || "mock",
+        execution_mode: task.executionMode || "live",
         ...payload,
       },
     });

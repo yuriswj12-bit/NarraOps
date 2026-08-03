@@ -21,12 +21,12 @@ export class HertzFlowAdapter {
     }
     if (!this.enabled) {
       return {
-        status: "disabled",
+        status: "unavailable",
         provider: "hertzflow",
         chain,
         address: tokenAddress,
         report_path: null,
-        reason: "HERTZFLOW_LIVE_ENABLED is false",
+        reason: "HertzFlow provider is not configured",
       };
     }
     if (!this.marketAdapter || typeof this.marketAdapter.fetchSolanaMemeResearch !== "function") {
@@ -51,7 +51,7 @@ export class HertzFlowAdapter {
       ]);
       if (research.status !== "live") {
         return {
-          status: research.status === "disabled" ? "disabled" : "unavailable",
+          status: "unavailable",
           provider: "hertzflow",
           source: "hertzflow",
           chain,

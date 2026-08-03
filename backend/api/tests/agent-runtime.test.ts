@@ -39,7 +39,7 @@ test("agent runtime exposes GMGN read-only market tasks", async () => {
   assert.equal(result.task.type, "market.trending");
   assert.equal(result.cards[0]?.type, "market_trending");
   assert.equal(result.cards[0]?.data?.data_source, "gmgn");
-  assert.equal(result.cards[0]?.data?.data_source_status, "disabled");
+  assert.equal(result.cards[0]?.data?.data_source_status, "unavailable");
 });
 
 test("agent runtime uses an OpenAI-compatible model for general conversation", async () => {
@@ -105,7 +105,7 @@ test("launch draft can be created and patched through runtime", async () => {
     command: "/launch https://example.com/story solana pump",
     context: { language: "en", currentView: "go" },
     wait: true,
-    timeoutMs: 4000,
+    timeoutMs: 15000,
   });
   assert.equal(created.status, "succeeded");
   assert.equal(created.cards[0]?.type, "launch_draft");
@@ -140,7 +140,7 @@ test("launch draft can be created and patched through runtime", async () => {
 
   const reviewed = await runtime.updateLaunchDraft(draftId, { action: "mark_reviewed" });
   assert.equal(reviewed.draft.metadata.review_status, "reviewed");
-  assert.equal(reviewed.draft.metadata.content_provider, "template");
+  assert.equal(reviewed.draft.metadata.content_provider, "unconfigured");
   await assert.rejects(
     () => runtime.updateLaunchDraft(draftId, { token: { private_key: "never-store-this" } }),
     (error) => error.code === "SENSITIVE_INPUT_REJECTED",

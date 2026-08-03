@@ -1,7 +1,8 @@
 ﻿// @ts-nocheck
 /**
  * OpenAI-compatible provider for Go Agent conversation and content generation.
- * Never executes funds. Fail closed to an explicit safe fallback.
+ * Generates launch metadata only. Execution is handled by the confirmed
+ * GMGN launch/trade boundary, never by the language model.
  */
 export async function generateStructuredLaunchContent({
   prompt,
@@ -14,9 +15,10 @@ export async function generateStructuredLaunchContent({
 
   if (!apiKey) {
     return {
-      provider: "template",
+      provider: "unconfigured",
       used_llm: false,
-      content: templateLaunchContent({ prompt, sourceText, language }),
+      content: emptyLaunchContent(),
+      error: "llm_provider_not_configured",
     };
   }
 
@@ -26,6 +28,7 @@ export async function generateStructuredLaunchContent({
     "symbol must be 3-10 uppercase letters/numbers.",
     "Do not include private keys, wallets, or execution instructions.",
     "Keep description under 280 characters.",
+    "If language is en, every human-readable field must be English. If language is zh, every human-readable field must be Chinese.",
   ].join(" ");
 
   const user = JSON.stringify({
@@ -54,9 +57,9 @@ export async function generateStructuredLaunchContent({
     });
     if (!response.ok) {
       return {
-        provider: "template",
+        provider: "unavailable",
         used_llm: false,
-        content: templateLaunchContent({ prompt, sourceText, language }),
+        content: emptyLaunchContent(),
         error: `llm_http_${response.status}`,
       };
     }
@@ -72,9 +75,9 @@ export async function generateStructuredLaunchContent({
     };
   } catch (error) {
     return {
-      provider: "template",
+      provider: "unavailable",
       used_llm: false,
-      content: templateLaunchContent({ prompt, sourceText, language }),
+      content: emptyLaunchContent(),
       error: error instanceof Error ? error.name : "llm_error",
     };
   }
@@ -84,8 +87,8 @@ const DEFAULT_AGENT_CAPABILITIES = Object.freeze([
   "解释 NarraOps 能力和当前工作区状态",
   "根据公开叙事生成可审阅的 narrative / meme 草案",
   "读取已接入的只读行情、开发者钱包和 Meme 分析工具结果",
-  "生成 review-only launch draft 和风险清单",
-  "模拟交易、转账和提现计划，但不签名、不广播、不动用资金",
+  "根据实时公开来源生成可编辑的 launch draft 和风险清单",
+  "在用户明确确认后进入 GMGN 真实发射或买卖流程",
 ]);
 
 export function getLlmProviderStatus() {
@@ -128,11 +131,12 @@ export async function generateAgentReply({
   }
 
   const system = [
-    "You are the NarraOps Agent, a Chinese-first AI assistant for meme narrative research and review-only launch planning.",
+    "You are the NarraOps Agent, a Chinese-first AI assistant for meme narrative research, live market context, and confirmed launch/trade workflows.",
+    "Follow the requested language exactly: language=en means all user-facing text is English; language=zh means all user-facing text is Chinese.",
     "Answer naturally and directly. Use the task result as the only source of current workspace data.",
     "Never invent live prices, wallet balances, social evidence, or completed actions.",
-    "If a result says mock, data-gap, disabled, or review-only, say that clearly.",
-    "Real signing, broadcasting, fund movement, and token launch are disabled. Never claim they happened.",
+    "Never invent live prices, wallet balances, source evidence, order status, or completed actions.",
+    "Real signing, broadcasting, fund movement, and token launch may happen only after the user explicitly confirms the resolved parameters.",
     "Return ONLY valid JSON with exactly two string keys: content and suggestion.",
     "Keep content under 1,200 characters and suggestion under 240 characters.",
   ].join(" ");
@@ -187,13 +191,16 @@ export async function generateAgentReply({
     }
     const payload = await response.json();
     const parsed = parseJsonObject(payload?.choices?.[0]?.message?.content);
+    const fallback = fallbackAgentReply({ message, language, task, capabilities });
+    const content = normalizeReplyText(parsed?.content, fallback.content, 1_200);
+    const suggestion = normalizeReplyText(parsed?.suggestion, fallback.suggestion, 240);
     return {
       provider: "openai_compatible",
       used_llm: true,
       configured: true,
       model: status.model,
-      content: normalizeReplyText(parsed?.content, fallbackAgentReply({ message, language, task, capabilities }).content, 1_200),
-      suggestion: normalizeReplyText(parsed?.suggestion, fallbackAgentReply({ message, language, task, capabilities }).suggestion, 240),
+      content: language === "en" && containsCjk(content) ? fallback.content : content,
+      suggestion: language === "en" && containsCjk(suggestion) ? fallback.suggestion : suggestion,
     };
   } catch (error) {
     return {
@@ -268,9 +275,9 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
   if (capabilityQuestion) {
     return {
       content: zh
-        ? `我是 NarraOps Agent，可以做叙事发现、GMGN 只读行情、HertzFlow SOL Meme 链上取证报告、开发者钱包分析、风险整理和 review-only 方案。${getLlmProviderStatus().configured ? "当前模型暂时未返回，已使用结构化结果安全降级。" : "当前部署没有配置真实模型密钥，已使用结构化结果安全降级。"}`
-        : `I’m the NarraOps Agent. I can do narrative discovery, read-only GMGN market research, HertzFlow Solana meme forensic reports, developer-wallet analysis, risk review, and review-only plans. ${getLlmProviderStatus().configured ? "The model did not return in time, so I used the structured result safely." : "No model key is configured, so I used the structured result safely."}`,
-      suggestion: zh ? "可以直接输入：分析某个 Solana Meme 地址，或继续追问主控集群、分发路径和优先监控地址。" : "Ask me to analyze a Solana meme address, or follow up on clusters, distribution paths, and watchlist addresses.",
+        ? "我是 NarraOps Agent，围绕叙事发现、叙事分析、Meme 发射和发射后的钱包操作工作。可以读取 GMGN 行情、调用 HertzFlow 链上报告、根据公开链接生成可编辑发射参数，并在明确确认后进入发射或买卖流程。"
+        : "I’m the NarraOps Agent for narrative discovery, narrative analysis, meme launch preparation, and post-launch wallet operations. I can read GMGN market data, use HertzFlow forensic reports, turn a public link into editable launch fields, and enter launch or trading flows only after explicit confirmation.",
+      suggestion: zh ? "可以直接发送一个公开链接，或说“分析这个 Solana Meme”，也可以告诉我买入/卖出哪个代币。" : "Send a public link, ask me to analyze a Solana meme, or describe the token and wallet group for a buy or sell request.",
     };
   }
   if (isLiveReport) {
@@ -299,17 +306,63 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
   if (taskResult?.launch_parameters || taskResult?.card?.type === "launch_draft") {
     const params = taskResult.launch_parameters || {};
     const token = params.token || taskResult.token || {};
-    const sourceStatus = params.source_status === "live" ? "已读取公开来源" : "来源读取不完整，已保留数据缺口";
+    const sourceStatus = zh
+      ? (params.source_status === "live" ? "已读取公开来源" : "来源读取不完整，已保留数据缺口")
+      : (params.source_status === "live" ? "the public source was read" : "the source was only partially readable; data gaps are preserved");
     return {
       content: zh
-        ? `已读取公开链接并生成 review-only 发射预案：${sourceStatus}。识别到链：${params.chain || taskResult.chain || "solana"}，平台：${params.platform || taskResult.platform || "待确认"}，代币：${token.name || "待补全"}（${token.symbol || "待补全"}）。预案不会签名、广播或移动资金。`
-        : `I read the public link and generated a review-only launch draft: ${sourceStatus}. Detected chain: ${params.chain || taskResult.chain || "solana"}; platform: ${params.platform || taskResult.platform || "needs confirmation"}; token: ${token.name || "needs enrichment"} (${token.symbol || "needs enrichment"}). No signing, broadcasting, or fund movement occurred.`,
+        ? `已读取公开链接并生成可编辑发射预案：${sourceStatus}。识别到链：${params.chain || taskResult.chain || "solana"}，平台：${params.platform || taskResult.platform || "待确认"}，代币：${token.name || "待补全"}（${token.symbol || "待补全"}）。完成字段和钱包组选择后，点击确认即可进入真实发射。`
+        : `I read the public link and generated an editable launch draft: ${sourceStatus}. Detected chain: ${params.chain || taskResult.chain || "solana"}; platform: ${params.platform || taskResult.platform || "needs confirmation"}; token: ${token.name || "needs enrichment"} (${token.symbol || "needs enrichment"}). Complete the fields and wallet groups, then confirm to enter the live launch flow.`,
       suggestion: zh
         ? "请展开下方发射预案，检查名称、ticker、描述、图片、链和 launchpad 后再人工审阅。"
         : "Expand the launch draft and review the name, ticker, description, image, chain, and launchpad before any approval.",
     };
   }
+  if (["trade.buy.batch", "trade.sell.batch"].includes(task?.type)) {
+    const missing = Array.isArray(taskResult.missing) ? taskResult.missing : [];
+    const side = task?.type === "trade.buy.batch" ? (zh ? "买入" : "buy") : (zh ? "卖出" : "sell");
+    if (missing.length) {
+      return {
+        content: zh
+          ? `我需要补充${missing.join("、")}后才能生成${side}确认摘要。`
+          : `I need ${missing.join(", ")} before I can prepare the ${side} confirmation summary.`,
+        suggestion: zh ? "请补充代币合约地址、钱包组和金额/比例。" : "Provide the token address, wallet group, and amount or percentage.",
+      };
+    }
+    return {
+      content: zh
+        ? `已生成${side}确认摘要：${taskResult.amount || `${taskResult.percent || ""}%`}，钱包组 ${taskResult.wallet_group_name || "未命名"}，共 ${taskResult.accounts || 0} 个钱包。执行前会先做 GMGN 安全检查；如果确认，请回复“确认${side}”。`
+        : `The ${side} confirmation summary is ready: ${taskResult.amount ? `${taskResult.amount} native units` : `${taskResult.percent || ""}%`}, wallet group ${taskResult.wallet_group_name || "unnamed"}, ${taskResult.accounts || 0} wallets. GMGN token security will run before execution. Reply “confirm ${side}” to continue.`,
+      suggestion: zh ? "未收到明确确认前不会签名、广播或移动资金。" : "No signing, broadcasting, or fund movement happens without explicit confirmation.",
+    };
+  }
+  if (task?.type === "trade.confirm") {
+    const execution = taskResult.execution || {};
+    const order = taskResult.order || {};
+    if (taskResult.status === "blocked" || ["unavailable", "invalid_request"].includes(execution.status)) {
+      return {
+        content: zh
+          ? `交易没有执行：${taskResult.reason || "GMGN 实时执行服务当前不可用"}。安全检查和资金操作均已停止。`
+          : `The trade was not executed: ${taskResult.reason || "the live GMGN execution service is unavailable"}. Security checks and fund movement were stopped.`,
+        suggestion: zh ? "检查 GMGN 凭据、钱包组地址和链网络配置。" : "Check the GMGN credentials, wallet-group addresses, and chain configuration.",
+      };
+    }
+    return {
+      content: zh
+        ? `交易请求已提交，订单状态：${order.status || execution.status || taskResult.status}。等待 GMGN 返回最终确认后，才会报告成功。`
+        : `The trade request was submitted. Order status: ${order.status || execution.status || taskResult.status}. I will report success only after GMGN confirms it.`,
+      suggestion: zh ? "可以继续查询订单状态或查看链上交易哈希。" : "You can query the order status or inspect the on-chain transaction hash next.",
+    };
+  }
   const mode = taskResult?.mode || task?.execution_mode || task?.executionMode || "fallback";
+  if (["live", "live_llm", "live_read_only", "live_confirmation_required"].includes(mode)) {
+    return {
+      content: zh
+        ? "任务已完成。结果来自实时服务；发射或交易只有在你明确确认后才会提交。"
+        : "The task is complete. The result came from live services; a launch or trade is submitted only after your explicit confirmation.",
+      suggestion: zh ? "继续告诉我你要分析的叙事、修改的发射参数，或确认一笔交易。" : "Tell me which narrative to analyze, which launch field to change, or which trade to confirm.",
+    };
+  }
   if (task?.type === "agent.chat" && launchContext) {
     const source = String(launchContext.content || launchContext.summary || launchContext.title || "").trim();
     return {
@@ -321,14 +374,11 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
         : "You can ask what it means or request a specific draft-field change.",
     };
   }
-  const configuredMessage = getLlmProviderStatus().configured
-    ? (zh ? "模型暂时超时或返回错误，已保留结构化结果。" : "The configured model timed out or returned an error; the structured result is preserved.")
-    : (zh ? "当前没有配置真实模型密钥，已返回安全的结构化结果。" : "No model key is configured, so a safe structured result was returned.");
   return {
     content: zh
-      ? `我已按受控流程处理这条请求，但${configuredMessage}结果模式：${mode}。不会执行签名、广播或资金操作。`
-      : `I processed this request through the controlled workflow, but ${configuredMessage} Result mode: ${mode}. No signing, broadcasting, or fund movement was performed.`,
-    suggestion: zh ? "可以继续追问结构化结果中的风险、关系集群或监控地址。" : "You can follow up on the risks, relationship clusters, or watchlist in the structured result.",
+      ? `这项任务已完成。当前结果属于${mode === "live" ? "实时读取" : "只读/待确认"}流程；没有签名、广播或移动资金。你可以继续追问结果中的风险、关系集群或监控地址。`
+      : `The task is complete. This result came from a ${mode === "live" ? "live read-only" : "read-only or review"} flow; no signing, broadcasting, or fund movement occurred. You can ask about the risks, relationship clusters, or watchlist next.`,
+    suggestion: zh ? "继续告诉我你要查看或修改的具体对象。" : "Tell me what object or field you want to inspect or change next.",
   };
 }
 
@@ -344,39 +394,64 @@ function templateLaunchContent({ prompt, sourceText, language }) {
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
     .filter(Boolean);
-  const titleSeed = words.slice(0, 5).join(" ") || "Narra Meme";
+  const sourceContainsCjk = containsCjk(base);
+  const titleSeed = language === "en" && sourceContainsCjk
+    ? "Narra Signal"
+    : words.slice(0, 5).join(" ") || "Narra Meme";
   const sourceHandle = String(prompt || "").match(/https?:\/\/(?:www\.)?(?:x|twitter)\.com\/([^/\s]+)/i)?.[1];
+  const validHandle = sourceHandle && /^[a-z][a-z0-9]{2,9}$/i.test(sourceHandle) ? sourceHandle : null;
   const symbolSeed = (
     words.find((word) => /^[a-zA-Z][a-zA-Z0-9]{2,9}$/.test(word) && !/^(the|this|that|with|from|have|what|into|about|because)$/i.test(word))
-    || sourceHandle
+    || validHandle
     || "NARRA"
   ).toUpperCase().slice(0, 10);
   const zh = language === "zh";
+  const description = zh || !sourceContainsCjk
+    ? base.slice(0, 280)
+    : "A meme concept derived from the linked public narrative. Review the source and edit the launch fields before publishing.";
   return {
     name: titleSeed.slice(0, 48),
     symbol: symbolSeed,
-    description: base.slice(0, 280),
-    narrative_thesis: base.slice(0, 240),
+    description,
+    narrative_thesis: zh || !sourceContainsCjk
+      ? base.slice(0, 240)
+      : "The linked public narrative is the source signal; the original post remains the evidence to review.",
     risk_notes: [
       zh ? "内容由 Agent 生成，需人工审阅" : "Agent-generated content requires human review",
-      zh ? "真实发射默认关闭" : "Live launch remains disabled by default",
+      zh ? "真实发射需要用户明确确认" : "Live launch requires explicit user confirmation",
     ],
   };
 }
 
+function emptyLaunchContent() {
+  return {
+    name: "",
+    symbol: "",
+    description: "",
+    narrative_thesis: "",
+    risk_notes: ["LLM provider unavailable; complete the fields manually or configure the provider"],
+  };
+}
+
+function containsCjk(value) {
+  return /[\u3400-\u9fff]/.test(String(value || ""));
+}
+
 function normalizeLaunchContent(value, fallbackInput) {
   const fallback = templateLaunchContent(fallbackInput);
+  const language = fallbackInput?.language === "zh" ? "zh" : "en";
+  const safe = (candidate, fallbackValue) => language === "en" && containsCjk(candidate) ? fallbackValue : candidate;
   const symbol = String(value?.symbol || fallback.symbol)
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, 10) || fallback.symbol;
   return {
-    name: String(value?.name || fallback.name).slice(0, 64),
+    name: String(safe(value?.name || fallback.name, fallback.name)).slice(0, 64),
     symbol,
-    description: String(value?.description || fallback.description).slice(0, 280),
-    narrative_thesis: String(value?.narrative_thesis || fallback.narrative_thesis).slice(0, 400),
+    description: String(safe(value?.description || fallback.description, fallback.description)).slice(0, 280),
+    narrative_thesis: String(safe(value?.narrative_thesis || fallback.narrative_thesis, fallback.narrative_thesis)).slice(0, 400),
     risk_notes: Array.isArray(value?.risk_notes) && value.risk_notes.length
-      ? value.risk_notes.map((item) => String(item).slice(0, 160)).slice(0, 5)
+      ? value.risk_notes.map((item) => String(safe(item, fallback.risk_notes[0])).slice(0, 160)).slice(0, 5)
       : fallback.risk_notes,
   };
 }

@@ -47,7 +47,7 @@ export class GmgnMarketAdapter {
 
   async scanDevWallets({ chain, limit = 20, requestId }) {
     if (!this.enabled) {
-      return { status: "disabled", source: "gmgn", tokens: [], request_id: requestId, reason: "GMGN_LIVE_ENABLED is false" };
+      return { status: "unavailable", source: "gmgn", tokens: [], request_id: requestId, reason: "GMGN market provider is not configured" };
     }
     if (!CHAIN_MAP[chain]) {
       return { status: "unsupported_chain", source: "gmgn", tokens: [], chain, request_id: requestId };
@@ -340,13 +340,13 @@ export class GmgnMarketAdapter {
   async runRawCommand(args, { requestId, operation, chain } = {}) {
     if (!this.enabled) {
       return {
-        status: "disabled",
+        status: "unavailable",
         source: "gmgn",
         operation,
         chain,
         request_id: requestId,
         data: null,
-        reason: "GMGN_LIVE_ENABLED is false",
+        reason: "GMGN market provider is not configured",
       };
     }
     let lastError;

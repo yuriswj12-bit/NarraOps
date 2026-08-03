@@ -10,10 +10,10 @@ import { resolveLaunchPlatform } from "../../integrations/launch-platform-regist
 import { InMemoryDevWalletRepository } from "../src/repositories/in-memory-dev-wallet-repository.ts";
 import { InMemoryLaunchDraftRepository } from "../src/repositories/in-memory-launch-draft-repository.ts";
 
-test("GMGN adapter returns explicit disabled and unsupported states", async () => {
-  const disabled = new GmgnMarketAdapter({ enabled: false });
-  const result = await disabled.scanDevWallets({ chain: "solana", requestId: "request-test" });
-  assert.equal(result.status, "disabled");
+test("GMGN adapter returns explicit provider availability and unsupported states", async () => {
+  const unavailable = new GmgnMarketAdapter({ enabled: false });
+  const result = await unavailable.scanDevWallets({ chain: "solana", requestId: "request-test" });
+  assert.equal(result.status, "unavailable");
   assert.equal(result.request_id, "request-test");
   assert.deepEqual(result.tokens, []);
 
@@ -148,7 +148,7 @@ test("public X links are fetched and become review-only launch parameters", asyn
     assert.equal(result.launch_parameters.chain, "solana");
     assert.equal(result.launch_parameters.platform, "pump");
     assert.match(result.narrative.summary, /真实的公开叙事文本/);
-    assert.equal(result.executable, false);
+    assert.equal(result.executable, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -199,7 +199,7 @@ test("a bare public link routes to the launch draft workflow", () => {
   const parsed = parseGoInput("https://x.com/coolish/status/2083800621321535680?s=20");
   assert.equal(parsed.type, "launch.meme");
   assert.equal(parsed.parsed_by, "public_link");
-  assert.equal(parsed.execution_mode, "disabled");
+  assert.equal(parsed.execution_mode, "live_confirmation_required");
 });
 
 test("launch platform mapping is fixed to the product chain choices", () => {
@@ -216,7 +216,7 @@ test("launch platform mapping is fixed to the product chain choices", () => {
 test("HertzFlow is read-only, opt-in, and currently Solana-only", async () => {
   const adapter = new HertzFlowAdapter({ enabled: false });
   const sol = await adapter.analyze({ chain: "solana", contractAddress: "So11111111111111111111111111111111111111112" });
-  assert.equal(sol.status, "disabled");
+  assert.equal(sol.status, "unavailable");
   const bsc = await adapter.analyze({ chain: "bsc", contractAddress: "0x1111111111111111111111111111111111111111" });
   assert.equal(bsc.status, "unsupported_chain");
 });

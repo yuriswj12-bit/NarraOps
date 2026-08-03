@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { simulateExecution } from "./execution-simulator.ts";
+import { randomUUID } from "node:crypto";
 import { resolveLaunchPlatform } from "../integrations/launch-platform-registry.ts";
 import { buildDraftMetadata, fetchNarrativeLink } from "../integrations/narrative-link-adapter.ts";
 import { generateStructuredLaunchContent } from "./llm-provider.ts";
@@ -9,7 +9,86 @@ function slug(value, fallback) {
   return result || fallback;
 }
 
-export function createMockHandlers(integrations, services = {}) {
+async function parseTradePlan(input, side, services, context) {
+  const prompt = String(input.prompt || input.agent_input?.raw_input || input.agent_input?.arguments || "").trim();
+  const chain = /\b(bsc|bnb)\b/i.test(prompt) ? "bsc" : "solana";
+  const tokenAddress = extractContractAddress(prompt);
+  const amountMatch = prompt.match(/(\d+(?:\.\d+)?)\s*(sol|bnb|eth|usdc)\b/i);
+  const percentMatch = prompt.match(/(\d+(?:\.\d+)?)\s*%/);
+  const namedGroupMatch = prompt.match(/([^\s,，]+)\s*(?:钱包组|组|wallet\s*group|group)/i);
+  const groupMatch = prompt.match(/(?:wallet\s*group|钱包组|cooking\s*group|bundled\s*group)\s*[:：]?\s*([^\s,，]+)/i);
+  const positionalGroup = /^\/(?:buy|sell|batch-buy|batch-sell)\b/i.test(prompt) ? prompt.split(/\s+/).at(-1) : null;
+  const groupRef = namedGroupMatch?.[1] || groupMatch?.[1] || positionalGroup || null;
+  const ownerUserId = context.userId || input.context?.userId || input.context?.user_id || null;
+  const groups = await Promise.resolve(services.walletGroupRepository?.listGroups?.(ownerUserId) || []);
+  const group = groups.find((candidate) => candidate.groupId === groupRef)
+    || groups.find((candidate) => candidate.name?.toLowerCase?.() === String(groupRef || "").toLowerCase())
+    || groups.find((candidate) => groupRef && candidate.name?.toLowerCase?.().includes(String(groupRef).toLowerCase()));
+  const wallets = group ? await Promise.resolve(services.walletGroupRepository?.listWallets?.(group.groupId, ownerUserId) || []) : [];
+  const activeWallets = wallets.filter((wallet) => wallet.provisioningStatus === "active" && wallet.publicAddress);
+  const accounts = activeWallets.map((wallet) => wallet.publicAddress).filter(Boolean);
+  const nativeDecimals = chain === "solana" ? 9 : 18;
+  const nativeAmount = amountMatch ? amountMatch[1] : null;
+  const amountAtomic = nativeAmount ? decimalToAtomic(nativeAmount, nativeDecimals) : null;
+  return {
+    confirmation_id: randomUUID(),
+    side,
+    chain,
+    token_address: tokenAddress,
+    wallet_group_id: group?.groupId || groupRef || null,
+    wallet_group_name: group?.name || groupRef || null,
+    accounts,
+    input_token: side === "buy" ? (chain === "solana" ? "So11111111111111111111111111111111111111112" : "0x0000000000000000000000000000000000000000") : tokenAddress,
+    output_token: side === "buy" ? (tokenAddress || null) : (chain === "solana" ? "So11111111111111111111111111111111111111112" : "0x0000000000000000000000000000000000000000"),
+    amount: nativeAmount,
+    amount_atomic_per_wallet: amountAtomic,
+    percent: percentMatch ? percentMatch[1] : null,
+    percent_bps: percentMatch ? String(Math.round(Number(percentMatch[1]) * 100)) : null,
+    slippage: 30,
+    request_id: context.requestId,
+    status: "requires_user_confirmation",
+    execution_mode: "confirmation_required",
+    missing: [
+      ...(!tokenAddress ? ["token_address"] : []),
+      ...(!group ? ["wallet_group"] : []),
+      ...(side === "buy" && !amountAtomic ? ["native_amount"] : []),
+      ...(side === "sell" && !percentMatch && !amountAtomic ? ["sell_amount_or_percent"] : []),
+      ...(group && !activeWallets.length ? ["wallet_group_not_ready"] : []),
+    ],
+  };
+}
+
+function decimalToAtomic(value, decimals) {
+  const [whole, fraction = ""] = String(value || "0").split(".");
+  if (!/^\d+$/.test(whole) || !/^\d*$/.test(fraction) || fraction.length > decimals) return null;
+  return (BigInt(whole) * (10n ** BigInt(decimals)) + BigInt((fraction + "0".repeat(decimals)).slice(0, decimals))).toString();
+}
+
+function tradeAccounts(plan) {
+  return plan.accounts.reduce((result, address) => {
+    if (plan.side === "sell") result.percentBpsByWallet[address] = plan.percent_bps;
+    else result.inputAmountByWallet[address] = plan.amount_atomic_per_wallet;
+    return result;
+  }, { inputAmountByWallet: {}, percentBpsByWallet: {} });
+}
+
+async function recoverPendingTradePlan(context, services) {
+  const conversationId = context.conversationId;
+  if (!conversationId || !services.conversationRepository?.get) return null;
+  const conversation = await services.conversationRepository.get(conversationId);
+  const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const blocks = Array.isArray(messages[index]?.blocks) ? messages[index].blocks : [];
+    for (const block of blocks) {
+      const candidate = block?.data?.pending_trade_plan || block?.pending_trade_plan;
+      if (candidate?.confirmation_id && Array.isArray(candidate.accounts)) return candidate;
+    }
+  }
+  return null;
+}
+
+export function createAgentHandlers(integrations, services = {}) {
+  const pendingTradePlans = new Map();
   return {
     async "agent.chat"(input, context) {
       const latestDraft = await latestConversationDraft(context, services);
@@ -35,20 +114,21 @@ export function createMockHandlers(integrations, services = {}) {
     },
 
     async "narrative.scan"(input, context) {
-      const sources = input.sources?.length ? input.sources : [{ platform: "X", handle: input.query || "market pulse" }];
-      const observations = await Promise.all(
-        sources.map((source) => integrations.get(source.platform)?.preview(source, context) ?? integrations.get("custom").preview(source, context)),
-      );
+      const sourceUrl = extractPublicUrl(input.prompt || input.query || input.source_url || "");
+      const narrative = sourceUrl
+        ? await fetchNarrativeLink(sourceUrl, { timeoutMs: Number(input.link_timeout_ms || 8_000) })
+        : { status: "data-gap", reason: "A public source URL is required for live narrative scanning" };
       const result = {
         scanId: `scan_${context.taskId}`,
-        mode: "mock",
-        signals: observations.map((observation, index) => ({
-          signalId: `sig_${context.taskId}_${index + 1}`,
-          title: observation.summary,
-          score: Math.max(60, 92 - index * 6),
-          source: observation.source,
+        mode: narrative.status === "live" ? "live" : "data-gap",
+        signals: narrative.status === "live" ? [{
+          signalId: `sig_${context.taskId}_1`,
+          title: narrative.title || narrative.summary || "Live public source",
+          summary: narrative.summary || narrative.content || null,
+          source: narrative.url || sourceUrl,
           observedAt: new Date().toISOString(),
-        })),
+        }] : [],
+        ...(narrative.status === "live" ? {} : { data_gap: narrative.reason || "Live narrative source was unavailable" }),
       };
       context.emitEvent("narrative_detected", { signal_count: result.signals.length });
       return result;
@@ -56,43 +136,60 @@ export function createMockHandlers(integrations, services = {}) {
 
     async "narrative.generate"(input, context) {
       const base = input.brief || input.signalId || "agent narrative";
-      const ticker = slug(base, "narra").replaceAll("-", "").slice(0, 8).toUpperCase();
+      const generated = await generateStructuredLaunchContent({
+        prompt: String(base),
+        sourceText: String(base),
+        language: input?.context?.language === "zh" ? "zh" : "en",
+      });
+      const ticker = slug(generated.content.symbol || base, "narra").replaceAll("-", "").slice(0, 8).toUpperCase();
       const result = {
         narrativeId: `nar_${context.taskId}`,
-        mode: "mock",
-        name: `${base.slice(0, 48)} Protocol`,
+        mode: generated.used_llm ? "live_llm" : "unavailable",
+        name: generated.content.name || null,
         ticker,
-        thesis: `A simulated launch narrative derived from: ${base.slice(0, 240)}`,
-        riskNotes: ["Mock output only", "Requires human review before publication"],
+        thesis: generated.content.narrative_thesis || null,
+        riskNotes: generated.content.risk_notes || [],
+        provider: generated.provider,
+        ...(generated.used_llm ? {} : { reason: "A configured LLM provider is required to generate narrative copy." }),
       };
       context.emitEvent("narrative_detected", { narrative_id: result.narrativeId });
       return result;
     },
 
     async "launch.package"(input, context) {
-      const execution = simulateExecution("launch_simulation", input);
       const result = {
-        ...execution,
         packageId: `pkg_${context.taskId}`,
+        execution_mode: "live",
+        execution_status: "draft",
         chain: input.chain || "solana",
         platform: input.platform || (input.chain === "bsc" ? "FourMeme" : "Pump.fun"),
         narrativeId: input.narrativeId,
         checklist: ["Review narrative", "Review token metadata", "Review community plan", "Require explicit execution approval"],
       };
-      context.emitEvent("launch_plan_ready", { package_id: result.packageId, executable: false });
-      context.emitEvent("execution_disabled", { action: "launch", reason: "real_execution_disabled" });
+      context.emitEvent("launch_plan_ready", { package_id: result.packageId, executable: true });
       return result;
     },
 
     async "narrative.recommend"(input, context) {
       const topic = input.prompt || "social meme opportunities";
+      const candidates = services.narrativeRepository?.listActive
+        ? await services.narrativeRepository.listActive({ topic, limit: 12 })
+        : [];
       const result = {
-        mode: "mock",
+        mode: candidates.length ? "live" : "data-gap",
         topic,
-        recommendations: [
-          { title: `${topic} is accelerating across short-form media`, heat: 86, risk: "medium", recommended_chain: "solana" },
-          { title: `Counter-narrative around ${topic}`, heat: 72, risk: "high", recommended_chain: "bsc" },
-        ],
+        recommendations: candidates.map((candidate) => ({
+          narrative_id: candidate.narrative_id,
+          title: candidate.original_text,
+          source_url: candidate.source_url,
+          category: candidate.category,
+          platform: candidate.platform,
+          author_name: candidate.author_name,
+          published_at: candidate.published_at,
+          media_type: candidate.media_type,
+          media_urls: candidate.media_urls || [],
+        })),
+        ...(candidates.length ? {} : { reason: "No live Pulse narrative candidates are available for this request." }),
       };
       context.emitEvent("narrative_detected", { opportunity_count: result.recommendations.length });
       return { ...result, card: { type: "narrative_snapshot", data: result } };
@@ -100,30 +197,32 @@ export function createMockHandlers(integrations, services = {}) {
 
     async "meme.create"(input, context) {
       const prompt = input.prompt || "agent-native meme";
-      const ticker = slug(prompt, "narra").replaceAll("-", "").slice(0, 8).toUpperCase();
+      const generated = await generateStructuredLaunchContent({
+        prompt: String(prompt),
+        sourceText: String(prompt),
+        language: input?.context?.language === "zh" ? "zh" : "en",
+      });
+      const ticker = slug(generated.content.symbol || prompt, "narra").replaceAll("-", "").slice(0, 8).toUpperCase();
       const result = {
-        mode: "mock",
+        mode: generated.used_llm ? "live_llm" : "unavailable",
         draft_id: `meme_${context.taskId}`,
-        name: `${prompt.slice(0, 48)} Meme`,
+        name: generated.content.name || null,
         ticker,
-        narrative: `Mock meme concept generated from: ${prompt.slice(0, 240)}`,
-        publishable: false,
+        narrative: generated.content.description || generated.content.narrative_thesis || null,
+        publishable: Boolean(generated.used_llm),
+        provider: generated.provider,
+        ...(generated.used_llm ? {} : { reason: "A configured LLM provider is required to generate meme metadata." }),
       };
       context.emitEvent("meme_draft_ready", { draft_id: result.draft_id, ticker });
       return { ...result, card: { type: "meme_package", data: result } };
     },
 
-    async "wallet.group.create"(input, context) {
-      const execution = simulateExecution("wallet_group_create_simulation", input);
-      const result = {
-        ...execution,
-        plan_id: `wgp_${context.taskId}`,
-        name: input.name || input.prompt || "Simulated wallet group",
-        wallet_count: Number.isInteger(input.wallet_count) ? Math.min(Math.max(input.wallet_count, 1), 100) : 10,
-        keys_generated: false,
+    async "wallet.group.create"(_input, _context) {
+      return {
+        status: "unsupported",
+        mode: "live",
+        reason: "Create or provision wallet groups in Assets so every address and signer binding is visible before execution.",
       };
-      context.emitEvent("wallet_group_plan_ready", { plan_id: result.plan_id, wallet_count: result.wallet_count });
-      return result;
     },
 
     async "launch.meme"(input, context) {
@@ -134,10 +233,9 @@ export function createMockHandlers(integrations, services = {}) {
         });
         context.emitEvent("launch_plan_ready", {
           launch_draft_id: result.launch_draft_id,
-          executable: false,
+          executable: true,
           reused_existing_draft: true,
         });
-        context.emitEvent("execution_disabled", { action: "launch", reason: "real_execution_disabled" });
         return { ...result, card: { type: "launch_draft", data: result } };
       }
       const narrativeUrl = launchContext.narrativeUrl;
@@ -202,15 +300,15 @@ export function createMockHandlers(integrations, services = {}) {
             launch_draft_id: null,
             ...draftInput,
             preparation_status: "repository_unavailable",
-            execution_mode: "disabled",
+            execution_mode: "live",
           };
-      const execution = simulateExecution("launch_simulation", input);
       const result = {
-        ...execution,
         ...draft,
-        executable: false,
+        execution_mode: "live",
+        execution_status: "draft",
+        executable: Boolean(draft.launch_draft_id),
         submitted: false,
-        reason: "real_execution_disabled",
+        reason: missingFields.length || !draft.launch_draft_id ? "awaiting_enrichment_or_wallet_selection" : "awaiting_user_confirmation",
         content_provider: generated.provider,
         used_llm: Boolean(generated.used_llm),
         launch_parameters: {
@@ -225,43 +323,95 @@ export function createMockHandlers(integrations, services = {}) {
             description: token.description,
             image_url: token.image_url,
             x_url: token.x_url,
+            telegram_url: token.telegram_url,
             website_url: token.website_url,
+            initial_buy: token.initial_buy,
+            bundle_buy_per_wallet: token.bundle_buy_per_wallet,
           },
           missing_fields: missingFields,
           required_user_selections: ["cooking_wallet_group_id", "bundled_wallet_group_id"],
         },
       };
-      context.emitEvent("launch_plan_ready", { launch_draft_id: result.launch_draft_id, executable: false });
-      context.emitEvent("execution_disabled", { action: "launch", reason: "real_execution_disabled" });
+      context.emitEvent("launch_plan_ready", { launch_draft_id: result.launch_draft_id, executable: result.executable });
       return { ...result, card: { type: "launch_draft", data: result } };
     },
 
     async "funds.transfer"(input, context) {
-      const result = simulateExecution("transfer_simulation", input);
-      context.emitEvent("transfer_simulated", { simulation_id: result.simulation_id, action: "transfer", submitted: false });
-      context.emitEvent("execution_disabled", { action: "transfer", reason: "real_execution_disabled" });
-      return result;
+      return { status: "unsupported", mode: "live", reason: "Use Assets for wallet-group management. Chat transfer execution is not exposed." };
     },
 
     async "funds.withdraw"(input, context) {
-      const result = simulateExecution("withdraw_simulation", input);
-      context.emitEvent("transfer_simulated", { simulation_id: result.simulation_id, action: "withdraw", submitted: false });
-      context.emitEvent("execution_disabled", { action: "withdraw", reason: "real_execution_disabled" });
-      return result;
+      return { status: "unsupported", mode: "live", reason: "Use Assets for wallet-group management. Chat withdrawal execution is not exposed." };
     },
 
     async "trade.buy.batch"(input, context) {
-      const result = simulateExecution("batch_buy_simulation", input);
-      context.emitEvent("trade_simulated", { simulation_id: result.simulation_id, side: "buy", submitted: false });
-      context.emitEvent("execution_disabled", { action: "batch_buy", reason: "real_execution_disabled" });
-      return result;
+      const plan = await parseTradePlan(input, "buy", services, context);
+      pendingTradePlans.set(context.conversationId || context.taskId, plan);
+      context.emitEvent("trade_confirmation_required", { confirmation_id: plan.confirmation_id, side: "buy", missing: plan.missing });
+      return {
+        ...plan,
+        pending_trade_plan: plan,
+        accounts: plan.accounts.length,
+        input_amount_by_wallet: undefined,
+        percent_bps_by_wallet: undefined,
+        requires_confirmation: true,
+        ...(plan.missing.length ? { status: "needs_input" } : {}),
+      };
     },
 
     async "trade.sell.batch"(input, context) {
-      const result = simulateExecution("batch_sell_simulation", input);
-      context.emitEvent("trade_simulated", { simulation_id: result.simulation_id, side: "sell", submitted: false });
-      context.emitEvent("execution_disabled", { action: "batch_sell", reason: "real_execution_disabled" });
-      return result;
+      const plan = await parseTradePlan(input, "sell", services, context);
+      pendingTradePlans.set(context.conversationId || context.taskId, plan);
+      context.emitEvent("trade_confirmation_required", { confirmation_id: plan.confirmation_id, side: "sell", missing: plan.missing });
+      return {
+        ...plan,
+        pending_trade_plan: plan,
+        accounts: plan.accounts.length,
+        input_amount_by_wallet: undefined,
+        percent_bps_by_wallet: undefined,
+        requires_confirmation: true,
+        ...(plan.missing.length ? { status: "needs_input" } : {}),
+      };
+    },
+
+    async "trade.confirm"(input, context) {
+      const key = context.conversationId || context.taskId;
+      const plan = pendingTradePlans.get(key) || await recoverPendingTradePlan(context, services);
+      if (!plan) return { status: "needs_input", reason: "No pending buy or sell plan is waiting for confirmation." };
+      if (plan.missing.length) return { status: "needs_input", confirmation_id: plan.confirmation_id, missing: plan.missing };
+
+      const security = await integrations.tokenSecurity?.({ chain: plan.chain, address: plan.token_address, requestId: context.requestId })
+        || await integrations.analyzeToken?.({ chain: plan.chain, address: plan.token_address, includeWallets: false, requestId: context.requestId });
+      if (!security || security.status !== "live") {
+        return { status: "blocked", confirmation_id: plan.confirmation_id, reason: "Token security check did not return live GMGN data.", security_status: security?.status || "unavailable" };
+      }
+      const data = security.data || {};
+      const securityRisk = data.security || data;
+      if (securityRisk.honeypot === true || securityRisk.is_honeypot === true) {
+        return { status: "blocked", confirmation_id: plan.confirmation_id, reason: "GMGN security check flagged this token as a honeypot.", security: securityRisk };
+      }
+
+      const { inputAmountByWallet, percentBpsByWallet } = tradeAccounts(plan);
+      const execution = await integrations.executeMultiSwap?.({
+        chain: plan.chain,
+        accounts: plan.accounts,
+        inputToken: plan.input_token,
+        outputToken: plan.output_token,
+        inputAmountByWallet: plan.side === "buy" ? inputAmountByWallet : undefined,
+        percentBpsByWallet: plan.side === "sell" ? percentBpsByWallet : undefined,
+        slippage: plan.slippage,
+        requestId: context.requestId,
+      });
+      pendingTradePlans.delete(key);
+      const orderId = execution?.data?.order_id || execution?.data?.orderId || execution?.data?.report?.order_id || null;
+      const final = orderId ? await integrations.getTradeOrder?.({ chain: plan.chain, orderId, requestId: context.requestId }) : null;
+      context.emitEvent(execution?.status === "live" ? "trade_submitted" : "execution_unavailable", {
+        confirmation_id: plan.confirmation_id,
+        side: plan.side,
+        order_id: orderId,
+        status: execution?.status,
+      });
+      return { ...plan, accounts: plan.accounts.length, security, execution, order: final, order_id: orderId, status: execution?.status || "unavailable" };
     },
 
     async "dev.market.scan"(input, context) {
@@ -426,6 +576,10 @@ export function createMockHandlers(integrations, services = {}) {
   };
 }
 
+// Backward-compatible export for integrations that still import the legacy
+// module name. The handlers themselves are live-provider handlers.
+export const createMockHandlers = createAgentHandlers;
+
 function normalizeMarketChain(value) {
   const text = String(value || "").toLowerCase();
   if (text.includes("bsc") || text.includes("bnb")) return "bsc";
@@ -529,10 +683,10 @@ function launchResultFromDraft(draft, { reusedExistingDraft = false } = {}) {
   ];
   return {
     ...draft,
-    mode: "review-only",
-    executable: false,
+    mode: "live",
+    executable: Boolean(draft.launch_draft_id),
     submitted: false,
-    reason: "real_execution_disabled",
+    reason: requiredUserSelections.length ? "awaiting_wallet_selection" : "awaiting_user_confirmation",
     reused_existing_draft: reusedExistingDraft,
     required_user_selections: requiredUserSelections,
     launch_parameters: {

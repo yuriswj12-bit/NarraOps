@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { GmgnMarketAdapter } from "./gmgn-market-adapter.ts";
+import { GmgnExecutionAdapter } from "./gmgn-execution-adapter.ts";
 import { HertzFlowAdapter } from "./hertzflow-adapter.ts";
 
 const PLATFORM_ALIASES = new Map([
@@ -15,7 +16,7 @@ const PLATFORM_ALIASES = new Map([
   ["bsc", "bsc"],
 ]);
 
-class MockAdapter {
+class UnavailableAdapter {
   constructor(name, kind) {
     this.name = name;
     this.kind = kind;
@@ -25,9 +26,10 @@ class MockAdapter {
     return {
       adapter: this.name,
       kind: this.kind,
-      mode: "mock",
+      mode: "unavailable",
       source: source.handle || source.focus || this.name,
-      summary: `${this.name} mock signal for ${source.handle || source.focus || "configured source"}`,
+      summary: `${this.name} live collector is not configured for this source`,
+      reason: "live_source_adapter_not_configured",
       requestId: context.requestId,
     };
   }
@@ -35,24 +37,38 @@ class MockAdapter {
 
 export function createIntegrationRegistry(config = {}) {
   const adapters = new Map([
-    ["x", new MockAdapter("X/Twitter", "social")],
-    ["tiktok", new MockAdapter("TikTok", "social")],
-    ["douyin", new MockAdapter("Douyin", "social")],
-    ["instagram", new MockAdapter("Instagram", "social")],
-    ["telegram", new MockAdapter("Telegram", "community")],
-    ["gmgn", new MockAdapter("GMGN", "market-data")],
-    ["solana", new MockAdapter("Solana", "chain-data")],
-    ["bsc", new MockAdapter("BSC", "chain-data")],
-    ["custom", new MockAdapter("Custom", "custom")],
+    ["x", new UnavailableAdapter("X/Twitter", "social")],
+    ["tiktok", new UnavailableAdapter("TikTok", "social")],
+    ["douyin", new UnavailableAdapter("Douyin", "social")],
+    ["instagram", new UnavailableAdapter("Instagram", "social")],
+    ["telegram", new UnavailableAdapter("Telegram", "community")],
+    ["gmgn", new UnavailableAdapter("GMGN", "market-data")],
+    ["solana", new UnavailableAdapter("Solana", "chain-data")],
+    ["bsc", new UnavailableAdapter("BSC", "chain-data")],
+    ["custom", new UnavailableAdapter("Custom", "custom")],
   ]);
   const gmgnMarket = new GmgnMarketAdapter({
-    enabled: Boolean(config.gmgnLiveEnabled),
+    // GMGN is the product's live market source. Missing credentials or a
+    // failed command becomes an explicit data gap from the adapter; it must
+    // never be converted into fabricated market data here.
+    // The production server passes an explicit true from loadConfig(). Keep
+    // an omitted flag unavailable for isolated app/test factories instead of
+    // accidentally spawning a real GMGN CLI process.
+    enabled: config.gmgnLiveEnabled === true,
     cliPath: config.gmgnCliPath,
     timeoutMs: config.externalTimeoutMs,
     maxRetries: config.externalMaxRetries,
   });
+  const gmgnExecution = new GmgnExecutionAdapter({
+    // Real execution is the intended product mode. The adapter still fails
+    // closed when GMGN credentials or wallet binding are not available, but
+    // REAL_EXECUTION_ENABLED is no longer a hidden product kill-switch.
+    enabled: config.gmgnExecutionEnabled === true,
+    cliPath: config.gmgnCliPath,
+    timeoutMs: config.externalTimeoutMs ? Math.max(Number(config.externalTimeoutMs) * 6, 30_000) : 30_000,
+  });
   const hertzflow = new HertzFlowAdapter({
-    enabled: Boolean(config.hertzflowLiveEnabled || config.gmgnLiveEnabled),
+    enabled: config.hertzflowLiveEnabled === true && config.gmgnLiveEnabled === true,
     marketAdapter: gmgnMarket,
     timeoutMs: config.externalTimeoutMs ? Math.max(Number(config.externalTimeoutMs) * 8, 60_000) : 120_000,
   });
@@ -66,7 +82,9 @@ export function createIntegrationRegistry(config = {}) {
       return [...adapters.values()].filter((adapter) => adapter.name !== "Custom").map(({ name, kind }) => ({
         name,
         kind,
-        mode: name === "GMGN" ? (gmgnMarket.enabled ? "live_enabled" : "disabled") : "mock",
+        mode: name === "GMGN"
+          ? (gmgnMarket.enabled ? "live_enabled" : "unavailable")
+          : "unavailable",
       }));
     },
     scanDevWallets(options) {
@@ -83,6 +101,18 @@ export function createIntegrationRegistry(config = {}) {
     },
     marketSignals(options) {
       return gmgnMarket.marketSignals(options);
+    },
+    analyzeToken(options) {
+      return gmgnMarket.analyzeToken(options);
+    },
+    tokenSecurity(options) {
+      return gmgnExecution.tokenSecurity(options);
+    },
+    executeMultiSwap(options) {
+      return gmgnExecution.multiSwap(options);
+    },
+    getTradeOrder(options) {
+      return gmgnExecution.waitForOrder(options);
     },
     async analyzeMeme(options) {
       const normalizedOptions = {

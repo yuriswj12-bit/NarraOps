@@ -83,27 +83,44 @@ export async function fetchNarrativeLink(rawUrl, { fetchImpl = globalThis.fetch,
 async function fetchXPost(url, { fetchImpl, timeoutMs }) {
   const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}&omit_script=true`;
   const response = await fetchPublicPage(oembedUrl, { fetchImpl, timeoutMs, accept: "application/json" });
-  if (response.status !== "live") return response;
-  let payload;
-  try { payload = JSON.parse(response.body); } catch { return { status: "unavailable", reason: "x_oembed_invalid_json" }; }
-  const content = stripXEmbedHtml(payload.html || "");
-  if (!content) return { status: "unavailable", reason: "x_post_text_unavailable" };
-  const author = String(payload.author_name || "").trim();
-  const enhanced = shouldEnhanceXPost(payload.html, content)
+  let payload = null;
+  let content = "";
+  let author = "";
+  if (response.status === "live") {
+    try {
+      payload = JSON.parse(response.body);
+      content = stripXEmbedHtml(payload.html || "");
+      author = String(payload.author_name || "").trim();
+    } catch {
+      payload = null;
+    }
+  }
+
+  // X frequently blocks oEmbed from serverless regions. Always try the public
+  // FxTwitter mirror when oEmbed is unavailable or returns an empty preview.
+  const shouldTryMirror = !content || shouldEnhanceXPost(payload?.html, content);
+  const enhanced = shouldTryMirror
     ? await fetchFxTwitterPost(url, { fetchImpl, timeoutMs }).catch(() => null)
     : null;
+  const resolvedContent = enhanced?.content || content;
+  if (!resolvedContent) {
+    return {
+      status: response.status === "live" ? "unavailable" : response.status,
+      reason: response.reason || (payload ? "x_post_text_unavailable" : "x_public_reader_unavailable"),
+    };
+  }
   return {
     status: "live",
     fetched: true,
     fetched_at: new Date().toISOString(),
     title: author ? `X post by ${author}` : "X post",
-    summary: String(enhanced?.content || content).slice(0, 500),
-    content: enhanced?.content || content,
+    summary: String(resolvedContent).slice(0, 500),
+    content: resolvedContent,
     author_name: author || null,
-    author_url: payload.author_url || null,
+    author_url: payload?.author_url || null,
     image_url: enhanced?.image_url || null,
     canonical_url: url,
-    content_type: "application/json+oembed",
+    content_type: enhanced ? "application/json+fxtwitter" : "application/json+oembed",
     fetch_method: enhanced ? "twitter_oembed+fxtwitter" : "twitter_oembed",
   };
 }

@@ -36,7 +36,7 @@ async function waitForTask(baseUrl, taskId) {
   throw new Error("Task did not reach a terminal state");
 }
 
-test("health describes v1 mock mode and all requested adapters", async (t) => {
+test("health describes live integrations and their availability", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
   const response = await fetch(`${baseUrl}/api/v1/health`);
@@ -44,11 +44,11 @@ test("health describes v1 mock mode and all requested adapters", async (t) => {
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.equal(body.version, "v1");
-  assert.equal(body.mode, "mock");
+  assert.equal(body.mode, "unavailable");
   assert.deepEqual(body.integrations.map(({ name }) => name), ["X/Twitter", "TikTok", "Douyin", "Instagram", "Telegram", "GMGN", "Solana", "BSC"]);
 });
 
-test("narrative scan returns queued task and simulated result", async (t) => {
+test("narrative scan returns a live data-gap result when no public URL is supplied", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
   const response = await post(baseUrl, "/api/v1/narratives/scan", {
@@ -64,8 +64,8 @@ test("narrative scan returns queued task and simulated result", async (t) => {
   const completed = await waitForTask(baseUrl, queued.taskId);
   assert.equal(completed.status, "succeeded");
   assert.equal(completed.progress, 100);
-  assert.equal(completed.result.mode, "mock");
-  assert.equal(completed.result.signals.length, 1);
+  assert.equal(completed.result.mode, "data-gap");
+  assert.equal(completed.result.signals.length, 0);
 });
 
 test("generate, launch package, and generic task endpoints use async contract", async (t) => {
@@ -95,7 +95,7 @@ test("Go command catalog exposes all requested categories and safe execution pol
   assert.ok(body.commands.some(({ command }) => command === "/meme"));
   for (const command of body.commands.filter(({ category }) => ["launch", "trade", "funds"].includes(category))) {
     assert.equal(command.requires_confirmation, true);
-    assert.equal(command.execution_mode, "disabled");
+    assert.equal(command.execution_mode, command.category === "trade" ? "confirmation_required" : "live_confirmation_required");
   }
 });
 
@@ -108,25 +108,14 @@ test("Go accepts natural language and slash commands with snake_case task contra
   const memeTask = await memeResponse.json();
   assert.equal(memeTask.type, "meme.create");
   assert.equal(memeTask.requires_confirmation, false);
-  assert.equal(memeTask.execution_mode, "mock");
+  assert.equal(memeTask.execution_mode, "live_llm");
   const memeCompleted = await waitForTask(baseUrl, memeTask.task_id);
   assert.equal(memeCompleted.status, "succeeded");
   assert.equal(memeCompleted.result.publishable, false);
 
-  const transferResponse = await post(baseUrl, "/api/v1/agent/tasks", { command: "/transfer 1 SOL wallet-demo" });
-  assert.equal(transferResponse.status, 202);
-  const transferTask = await transferResponse.json();
-  assert.equal(transferTask.type, "funds.transfer");
-  assert.equal(transferTask.requires_confirmation, true);
-  assert.equal(transferTask.execution_mode, "disabled");
-  const transferCompleted = await waitForTask(baseUrl, transferTask.task_id);
-  assert.equal(transferCompleted.status, "succeeded");
-  assert.equal(transferCompleted.result.executable, false);
-  assert.equal(transferCompleted.result.submitted, false);
-  assert.equal(transferCompleted.result.reason, "real_execution_disabled");
 });
 
-test("Pulse, launch platforms, and invite summary return explicit mock data", async (t) => {
+test("Pulse, launch platforms, and invite summary expose live availability", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
   const [pulse, platforms, invite] = await Promise.all([
@@ -134,83 +123,50 @@ test("Pulse, launch platforms, and invite summary return explicit mock data", as
     fetch(`${baseUrl}/api/v1/launch/platforms`).then((response) => response.json()),
     fetch(`${baseUrl}/api/v1/invite/summary`).then((response) => response.json()),
   ]);
-  assert.equal(pulse.mode, "mock");
-  assert.ok(pulse.opportunities.every(({ heat, sources, recommended_chain, risk_level }) => (
-    Number.isInteger(heat) && Array.isArray(sources) && recommended_chain && risk_level
-  )));
-  assert.equal(platforms.execution_enabled, false);
-  assert.ok(platforms.platforms.every(({ execution_mode }) => execution_mode === "disabled"));
-  assert.equal(invite.mode, "mock");
-  assert.match(invite.current_revenue_share, /^\d+\.\d+$/);
-  assert.match(invite.cumulative_revenue_share, /^\d+\.\d+$/);
+  assert.equal(pulse.mode, "unavailable");
+  assert.deepEqual(pulse.opportunities, []);
+  assert.equal(platforms.execution_enabled, true);
+  assert.ok(platforms.platforms.every(({ execution_mode }) => execution_mode === "live_confirmation_required"));
+  assert.equal(invite.mode, "unavailable");
+  assert.equal(invite.current_revenue_share, null);
+  assert.equal(invite.cumulative_revenue_share, null);
 });
 
-test("Settings and execution capabilities keep signing and broadcasting disabled", async (t) => {
+test("Settings and execution capabilities expose live provider binding", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
   const [settings, capabilities] = await Promise.all([
     fetch(`${baseUrl}/api/v1/settings`).then((response) => response.json()),
     fetch(`${baseUrl}/api/v1/execution/capabilities`).then((response) => response.json()),
   ]);
-  assert.equal(settings.safety.real_execution_enabled, false);
-  assert.equal(settings.safety.private_key_custody, "disabled");
-  assert.equal(settings.safety.signing, "signing_disabled");
-  assert.equal(settings.safety.broadcasting, "broadcasting_disabled");
-  assert.equal(capabilities.execution_enabled, false);
-  assert.deepEqual(capabilities.simulation_types, [
-    "wallet_group_create_simulation",
-    "transfer_simulation",
-    "withdraw_simulation",
-    "launch_simulation",
-    "batch_buy_simulation",
-    "batch_sell_simulation",
-  ]);
-  assert.deepEqual(capabilities.statuses, [
-    "planned",
-    "validating",
-    "simulated",
-    "requires_user_confirmation",
-    "signing_disabled",
-    "broadcasting_disabled",
-    "failed_simulation",
-    "cancelled",
-  ]);
+  assert.equal(settings.safety.real_execution_enabled, true);
+  assert.equal(settings.safety.private_key_custody, "server_provider_or_encrypted_vault");
+  assert.equal(settings.safety.signing, "confirmation_required");
+  assert.equal(settings.safety.broadcasting, "confirmation_required");
+  assert.equal(capabilities.execution_enabled, true);
+  assert.equal("simulation_types" in capabilities, false);
+  assert.equal("statuses" in capabilities, false);
 });
 
-test("all six execution simulations use the unified state model without execution", async (t) => {
+test("legacy simulation endpoint is not exposed", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
-  const cases = [
-    ["/wallet-group demo 12", "wallet_group_create_simulation", "simulation", "simulated", false],
-    ["/transfer 1 SOL wallet-demo", "transfer_simulation", "disabled", "requires_user_confirmation", true],
-    ["/withdraw 1 SOL wallet-demo", "withdraw_simulation", "disabled", "requires_user_confirmation", true],
-    ["/launch meme-demo", "launch_simulation", "disabled", "requires_user_confirmation", true],
-    ["/buy TOKEN 1 SOL group-a", "batch_buy_simulation", "disabled", "requires_user_confirmation", true],
-    ["/sell TOKEN 50% group-a", "batch_sell_simulation", "disabled", "requires_user_confirmation", true],
-  ];
+  const response = await post(baseUrl, "/api/v1/execution/simulations", {});
+  assert.equal(response.status, 404);
+});
 
-  for (const [command, simulationType, mode, executionStatus, requiresConfirmation] of cases) {
-    const response = await post(baseUrl, "/api/v1/agent/tasks", { command });
-    assert.equal(response.status, 202);
-    const accepted = await response.json();
-    const completed = await waitForTask(baseUrl, accepted.task_id);
-    assert.equal(completed.status, "succeeded");
-    assert.equal(completed.result.simulation_type, simulationType);
-    assert.equal(completed.result.execution_mode, mode);
-    assert.equal(completed.result.execution_status, executionStatus);
-    assert.equal(completed.result.requires_user_confirmation, requiresConfirmation);
-    assert.equal(completed.result.signing_status, "signing_disabled");
-    assert.equal(completed.result.broadcasting_status, "broadcasting_disabled");
-    assert.equal(completed.result.executable, false);
-    assert.equal(completed.result.submitted, false);
-    assert.equal(completed.result.tx_hash, null);
-    assert.deepEqual(completed.result.safety, {
-      private_keys_read: false,
-      private_keys_generated: false,
-      transaction_signed: false,
-      transaction_broadcast: false,
-    });
-  }
+test("trade commands create an explicit confirmation plan instead of a fake simulation", async (t) => {
+  const { application, baseUrl } = await startApi();
+  t.after(() => application.close());
+  const response = await post(baseUrl, "/api/v1/agent/tasks", { command: "/buy TOKEN 1 SOL group-a" });
+  assert.equal(response.status, 202);
+  const accepted = await response.json();
+  const completed = await waitForTask(baseUrl, accepted.task_id);
+  assert.equal(completed.status, "succeeded");
+  assert.equal(completed.result.execution_mode, "confirmation_required");
+  assert.equal(completed.result.requires_confirmation, true);
+  assert.equal(completed.result.status, "needs_input");
+  assert.ok(completed.result.missing.includes("token_address"));
 });
 
 test("validation and missing routes use the unified error shape", async (t) => {
@@ -267,7 +223,7 @@ test("SSE emits created, progress, and completed events", async (t) => {
   controller.abort();
 });
 
-test("SSE covers Go domain events and execution-disabled actions", async (t) => {
+test("SSE covers Go domain events and unavailable provider actions", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
   assert.deepEqual(AGENT_DOMAIN_EVENTS, [
@@ -277,9 +233,9 @@ test("SSE covers Go domain events and execution-disabled actions", async (t) => 
     "meme_draft_ready",
     "wallet_group_plan_ready",
     "launch_plan_ready",
-    "transfer_simulated",
-    "trade_simulated",
-    "execution_disabled",
+    "trade_confirmation_required",
+    "trade_submitted",
+    "execution_unavailable",
     "revenue_share_updated",
     "agent.started",
     "agent.delta",
@@ -293,7 +249,7 @@ test("SSE covers Go domain events and execution-disabled actions", async (t) => 
   const reader = streamResponse.body.getReader();
   const eventsPromise = (async () => {
     let text = "";
-    while (!text.includes("event: execution_disabled")) {
+  while (!text.includes("event: trade_confirmation_required")) {
       const { value, done } = await reader.read();
       if (done) break;
       text += new TextDecoder().decode(value);
@@ -305,8 +261,7 @@ test("SSE covers Go domain events and execution-disabled actions", async (t) => 
   const eventText = await eventsPromise;
   assert.match(eventText, /event: agent_task_created/);
   assert.match(eventText, /event: command_parsed/);
-  assert.match(eventText, /event: trade_simulated/);
-  assert.match(eventText, /event: execution_disabled/);
+  assert.match(eventText, /event: trade_confirmation_required/);
   controller.abort();
 });
 
@@ -401,7 +356,7 @@ test("Go conversation contract accepts a quick action and stores the resulting c
   assert.equal(task.status, "succeeded");
   assert.equal(task.result.card.type, "dev_market");
   assert.equal(task.result.data_source, "gmgn");
-  assert.equal(task.result.data_source_status, "disabled");
+  assert.equal(task.result.data_source_status, "unavailable");
   assert.deepEqual(task.result.dev_wallets, []);
 
   const conversation = await fetch(`${baseUrl}/api/v1/agent/conversations/${created.conversationId}`).then((response) => response.json());
@@ -448,7 +403,7 @@ test("market scan exposes explicit GMGN data gaps without fabricated Dev wallets
   const accepted = await response.json();
   const completed = await waitForTask(baseUrl, accepted.task_id);
   assert.equal(completed.result.data_source, "gmgn");
-  assert.equal(completed.result.data_source_status, "disabled");
+  assert.equal(completed.result.data_source_status, "unavailable");
   const wallets = await fetch(`${baseUrl}/api/v1/market/dev-wallets?chain=solana`).then((item) => item.json());
   assert.deepEqual(wallets.wallets, []);
 });
@@ -472,9 +427,9 @@ test("launch drafts map Solana, BSC, and Robinhood to the required platforms", a
     const draft = await response.json();
     assert.equal(draft.platform.name, expectedName);
     assert.equal(draft.preparation_status, "ready_for_user_review");
-    assert.equal(draft.execution_mode, "disabled");
-    assert.equal(draft.signing_status, "signing_disabled");
-    assert.equal(draft.broadcasting_status, "broadcasting_disabled");
+    assert.equal(draft.execution_mode, "live");
+    assert.equal(draft.signing_status, "awaiting_confirmation");
+    assert.equal(draft.broadcasting_status, "awaiting_confirmation");
 
     const updateResponse = await fetch(`${baseUrl}/api/v1/go/launch-drafts/${draft.launch_draft_id}`, {
       method: "PATCH",
@@ -516,7 +471,7 @@ test("Go /launch turns a narrative link into a review-only launch draft card", a
   assert.equal(completed.result.platform.id, "pons");
   assert.equal(completed.result.narrative.url, "https://example.com/story");
   assert.equal(completed.result.requires_user_confirmation, true);
-  assert.equal(completed.result.execution_mode, "disabled");
+  assert.equal(completed.result.execution_mode, "live");
   assert.equal(completed.result.submitted, false);
 });
 
@@ -526,6 +481,6 @@ test("wallet capabilities expose references only and never backend key custody",
   const capabilities = await fetch(`${baseUrl}/api/v1/wallets/capabilities`).then((response) => response.json());
   assert.equal(capabilities.raw_private_keys_accepted, false);
   assert.equal(capabilities.raw_private_keys_stored, false);
-  assert.equal(capabilities.signing, "signing_disabled");
+  assert.equal(capabilities.signing, "provider_bound");
   assert.equal(capabilities.providers.find(({ id }) => id === "privy_embedded").status, "provider_configuration_required");
 });

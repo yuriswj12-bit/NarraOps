@@ -15,6 +15,7 @@ const NATURAL_RULES = [
   { pattern: /(叙事.*趋势|narrative\s*trend)/i, type: "narrative.trends" },
   { pattern: /(提取|提现|withdraw|extract)/i, type: "funds.withdraw" },
   { pattern: /(转账|转到|打款|transfer|send\s+.+\s+to)/i, type: "funds.transfer" },
+  { pattern: /(^|\s)(确认|确认买入|确认卖出|confirm(?:\s+(?:buy|sell|trade))?|execute)(\s|$)/i, type: "trade.confirm" },
   { pattern: /(批量卖|卖出|batch\s*sell|\bsell\b)/i, type: "trade.sell.batch" },
   { pattern: /(批量买|买入|batch\s*buy|\bbuy\b)/i, type: "trade.buy.batch" },
   { pattern: /(发射|发行|launch)/i, type: "launch.meme" },
