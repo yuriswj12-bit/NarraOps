@@ -32,7 +32,7 @@ export class SupabaseWalletGroupRepository {
     if (!groupId || !ownerUserId) return [];
     const { data, error } = await this.#supabase
       .from("asset_wallets")
-      .select("wallet_id,group_id,public_address,provisioning_status,wallet_index")
+      .select("wallet_id,group_id,public_address,provisioning_status,wallet_index,signer_reference")
       .eq("group_id", groupId)
       .eq("user_id", ownerUserId)
       .order("wallet_index", { ascending: true });
@@ -42,6 +42,7 @@ export class SupabaseWalletGroupRepository {
       groupId: wallet.group_id,
       publicAddress: wallet.public_address,
       provisioningStatus: wallet.provisioning_status,
+      providerReference: wallet.signer_reference || null,
     }));
   }
 

@@ -21,9 +21,11 @@ export function loadConfig() {
     gmgnLiveEnabled: process.env.GMGN_LIVE_ENABLED == null
       ? !TEST_RUNTIME
       : process.env.GMGN_LIVE_ENABLED !== "false",
-    gmgnExecutionEnabled: process.env.GMGN_EXECUTION_ENABLED == null
-      ? !TEST_RUNTIME
-      : process.env.GMGN_EXECUTION_ENABLED !== "false",
+    gmgnExecutionEnabled: process.env.GMGN_TRADE_ENABLED === "true",
+    gmgnAuthorizedWallets: String(process.env.GMGN_AUTHORIZED_WALLETS || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
     gmgnCliPath: process.env.GMGN_CLI_PATH || undefined,
     privyAppId: process.env.PRIVY_APP_ID || undefined,
     hertzflowLiveEnabled: process.env.HERTZFLOW_LIVE_ENABLED == null

@@ -35,7 +35,11 @@ function getRuntime() {
       walletGroupRepository: supabase ? new SupabaseWalletGroupRepository(supabase) : undefined,
       config: {
         gmgnLiveEnabled: process.env.GMGN_LIVE_ENABLED !== "false",
-        gmgnExecutionEnabled: process.env.GMGN_EXECUTION_ENABLED !== "false",
+        gmgnExecutionEnabled: process.env.GMGN_TRADE_ENABLED === "true",
+        gmgnAuthorizedWallets: String(process.env.GMGN_AUTHORIZED_WALLETS || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
         realExecutionEnabled: process.env.REAL_EXECUTION_ENABLED !== "false",
         gmgnCliPath: process.env.GMGN_CLI_PATH || undefined,
         externalTimeoutMs: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS || 15_000),

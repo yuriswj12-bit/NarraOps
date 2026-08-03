@@ -27,6 +27,10 @@ async function parseTradePlan(input, side, services, context) {
   const wallets = group ? await Promise.resolve(services.walletGroupRepository?.listWallets?.(group.groupId, ownerUserId) || []) : [];
   const activeWallets = wallets.filter((wallet) => wallet.provisioningStatus === "active" && wallet.publicAddress);
   const accounts = activeWallets.map((wallet) => wallet.publicAddress).filter(Boolean);
+  const authorizedAccounts = activeWallets
+    .filter((wallet) => /^gmgn(?::|$)/i.test(String(wallet.providerReference || "")))
+    .map((wallet) => wallet.publicAddress)
+    .filter(Boolean);
   const nativeDecimals = chain === "solana" ? 9 : 18;
   const nativeAmount = amountMatch ? amountMatch[1] : null;
   const amountAtomic = nativeAmount ? decimalToAtomic(nativeAmount, nativeDecimals) : null;
@@ -38,6 +42,7 @@ async function parseTradePlan(input, side, services, context) {
     wallet_group_id: group?.groupId || groupRef || null,
     wallet_group_name: group?.name || groupRef || null,
     accounts,
+    authorized_accounts: authorizedAccounts,
     input_token: side === "buy" ? (chain === "solana" ? "So11111111111111111111111111111111111111112" : "0x0000000000000000000000000000000000000000") : tokenAddress,
     output_token: side === "buy" ? (tokenAddress || null) : (chain === "solana" ? "So11111111111111111111111111111111111111112" : "0x0000000000000000000000000000000000000000"),
     amount: nativeAmount,
@@ -395,6 +400,7 @@ export function createAgentHandlers(integrations, services = {}) {
       const execution = await integrations.executeMultiSwap?.({
         chain: plan.chain,
         accounts: plan.accounts,
+        authorizedAccounts: plan.authorized_accounts,
         inputToken: plan.input_token,
         outputToken: plan.output_token,
         inputAmountByWallet: plan.side === "buy" ? inputAmountByWallet : undefined,

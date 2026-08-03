@@ -9,8 +9,13 @@ const CHAIN_MAP = Object.freeze({ solana: "sol", sol: "sol", bsc: "bsc", base: "
 const SOL = "So11111111111111111111111111111111111111112";
 
 export class GmgnExecutionAdapter {
-  constructor({ enabled = false, cliPath, timeoutMs = 30_000, execFileImpl } = {}) {
+  constructor({ enabled = false, readOnlyEnabled = enabled, authorizedWallets = [], cliPath, timeoutMs = 30_000, execFileImpl } = {}) {
     this.enabled = Boolean(enabled);
+    this.readOnlyEnabled = Boolean(readOnlyEnabled);
+    this.authorizedWallets = new Set([
+      ...String(process.env.GMGN_AUTHORIZED_WALLETS || "").split(","),
+      ...(Array.isArray(authorizedWallets) ? authorizedWallets : []),
+    ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean));
     this.cliCommand = resolveCliCommand(cliPath);
     this.timeoutMs = Math.min(Math.max(Number(timeoutMs) || 30_000, 5_000), 120_000);
     this.credentialsRequired = !execFileImpl;
@@ -20,9 +25,9 @@ export class GmgnExecutionAdapter {
   async tokenSecurity({ chain = "solana", address, requestId } = {}) {
     const normalized = normalizeChain(chain);
     if (!normalized || !address) return { status: "invalid_request", source: "gmgn", request_id: requestId };
-    if (!this.enabled) return { status: "unavailable", source: "gmgn", operation: "token.security", chain: normalized.name, address, request_id: requestId, reason: "GMGN live provider is not configured" };
+    if (!this.readOnlyEnabled) return { status: "unavailable", source: "gmgn", operation: "token.security", chain: normalized.name, address, request_id: requestId, reason: "GMGN read-only market access is not configured" };
     return this.run(["token", "security", "--chain", normalized.cli, "--address", String(address), "--raw"], {
-      operation: "token.security", chain: normalized.name, requestId,
+      operation: "token.security", chain: normalized.name, requestId, requiresTrading: false,
     });
   }
 
@@ -48,9 +53,7 @@ export class GmgnExecutionAdapter {
     if (!normalized || !fromAddress || !name || !symbol || !buyAmount || (!imageUrl && !imageBase64)) {
       return { status: "invalid_request", source: "gmgn", operation: "cooking.create", request_id: requestId };
     }
-    if (!this.enabled) {
-      return { status: "unavailable", source: "gmgn", operation: "cooking.create", chain: normalized.name, request_id: requestId, reason: "GMGN cooking executor is not configured" };
-    }
+    return { status: "unsupported", source: "gmgn", operation: "cooking.create", chain: normalized.name, request_id: requestId, reason: "Pump launches use the direct wallet-signing path; GMGN is not a launch executor" };
 
     const args = [
       "cooking", "create",
@@ -76,13 +79,29 @@ export class GmgnExecutionAdapter {
     return this.run(args, { operation: "cooking.create", chain: normalized.name, requestId });
   }
 
-  async multiSwap({ chain = "solana", accounts = [], inputToken, outputToken, inputAmountByWallet, percentBpsByWallet, slippage = 30, autoSlippage = false, requestId } = {}) {
+  async multiSwap({ chain = "solana", accounts = [], authorizedAccounts = [], inputToken, outputToken, inputAmountByWallet, percentBpsByWallet, slippage = 30, autoSlippage = false, requestId } = {}) {
     const normalized = normalizeChain(chain);
     if (!normalized || !Array.isArray(accounts) || !accounts.length || !inputToken || !outputToken) {
       return { status: "invalid_request", source: "gmgn", operation: "multi_swap", request_id: requestId };
     }
+    const authorized = new Set([
+      ...this.authorizedWallets,
+      ...(Array.isArray(authorizedAccounts) ? authorizedAccounts : []),
+    ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean));
+    const unauthorized = accounts.filter((account) => !authorized.has(String(account).toLowerCase()));
+    if (unauthorized.length) {
+      return {
+        status: "wallet_not_authorized",
+        source: "gmgn",
+        operation: "multi_swap",
+        chain: normalized.name,
+        request_id: requestId,
+        unauthorized_accounts: unauthorized,
+        reason: "GMGN trading is limited to wallets authorized by the GMGN account; the selected Assets wallet is not marked as authorized",
+      };
+    }
     if (!this.enabled) {
-      return { status: "unavailable", source: "gmgn", operation: "multi_swap", chain: normalized.name, request_id: requestId, reason: "GMGN live provider is not configured" };
+      return { status: "unavailable", source: "gmgn", operation: "multi_swap", chain: normalized.name, request_id: requestId, reason: "GMGN trading is not enabled for this server" };
     }
     const args = [
       "multi-swap", "--chain", normalized.cli,
@@ -104,7 +123,7 @@ export class GmgnExecutionAdapter {
     if (!normalized || !orderId) return { status: "invalid_request", source: "gmgn", operation: "order.get", request_id: requestId };
     if (!this.enabled) return { status: "unavailable", source: "gmgn", operation: "order.get", chain: normalized.name, request_id: requestId, reason: "GMGN live provider is not configured" };
     return this.run(["order", "get", "--chain", normalized.cli, "--order-id", String(orderId), "--raw"], {
-      operation: "order.get", chain: normalized.name, requestId,
+      operation: "order.get", chain: normalized.name, requestId, requiresTrading: false,
     });
   }
 
@@ -129,15 +148,25 @@ export class GmgnExecutionAdapter {
     return last;
   }
 
-  async run(args, { operation, chain, requestId } = {}) {
-    if (this.credentialsRequired && (!String(process.env.GMGN_API_KEY || "").trim() || !String(process.env.GMGN_PRIVATE_KEY || "").trim())) {
+  async run(args, { operation, chain, requestId, requiresTrading = true } = {}) {
+    if (this.credentialsRequired && !String(process.env.GMGN_API_KEY || "").trim()) {
       return {
         status: "unavailable",
         source: "gmgn",
         operation,
         chain,
         request_id: requestId,
-        reason: "GMGN_API_KEY and GMGN_PRIVATE_KEY are required for live execution",
+        reason: "GMGN_API_KEY is required for live market access",
+      };
+    }
+    if (requiresTrading && this.credentialsRequired && !String(process.env.GMGN_PRIVATE_KEY || "").trim()) {
+      return {
+        status: "trade_not_authorized",
+        source: "gmgn",
+        operation,
+        chain,
+        request_id: requestId,
+        reason: "GMGN trading requires an API credential with trading permission and a wallet authorized by that GMGN account",
       };
     }
     try {

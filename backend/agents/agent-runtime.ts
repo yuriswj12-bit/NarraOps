@@ -29,6 +29,8 @@ export const AGENT_CAPABILITIES = Object.freeze([
   "NarraOps domain agent: narrative discovery -> analysis -> meme launch -> post-launch wallet operations",
   "Read-only GMGN market data: trending tokens, launchpad trenches, K-lines, token signals, and token due diligence",
   "HertzFlow Solana meme forensics: concentration, MM/bot, distribution, cash-out, relationship clusters, and monitoring report",
+  "Direct Pump.fun launch through the connected Cooking wallet after explicit confirmation",
+  "GMGN buy and sell only for wallets explicitly authorized by the GMGN account; no generic Assets wallet is treated as authorized",
   "解释 NarraOps 能力和当前工作区状态",
   "根据公开叙事生成可审阅的 narrative / meme 草案",
   "读取已接入的只读行情、开发者钱包和 Meme 分析工具结果",
@@ -423,8 +425,8 @@ export function createAgentRuntime(options = {}) {
         capabilities: AGENT_CAPABILITIES
           .filter((capability) => !/mock|review-only|disabled/i.test(String(capability)))
           .concat([
-            "Live GMGN Pump launch after explicit user confirmation",
-            "Live GMGN multi-wallet buy and sell after token security and explicit user confirmation",
+            "Direct Pump.fun launch signed by the selected Cooking wallet after explicit user confirmation",
+            "GMGN multi-wallet buy and sell only for GMGN-authorized wallets after token security and explicit user confirmation",
           ]),
       });
       assistantMessage = {

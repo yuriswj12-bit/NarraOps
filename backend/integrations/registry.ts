@@ -60,10 +60,11 @@ export function createIntegrationRegistry(config = {}) {
     maxRetries: config.externalMaxRetries,
   });
   const gmgnExecution = new GmgnExecutionAdapter({
-    // Real execution is the intended product mode. The adapter still fails
-    // closed when GMGN credentials or wallet binding are not available, but
-    // REAL_EXECUTION_ENABLED is no longer a hidden product kill-switch.
+    // GMGN is only a trade executor for wallets explicitly authorized by the
+    // GMGN account. Pump launches use the direct wallet-signing path instead.
     enabled: config.gmgnExecutionEnabled === true,
+    readOnlyEnabled: config.gmgnLiveEnabled === true,
+    authorizedWallets: config.gmgnAuthorizedWallets || [],
     cliPath: config.gmgnCliPath,
     timeoutMs: config.externalTimeoutMs ? Math.max(Number(config.externalTimeoutMs) * 6, 30_000) : 30_000,
   });

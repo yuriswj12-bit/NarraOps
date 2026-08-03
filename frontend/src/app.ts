@@ -1347,6 +1347,44 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
+async function signAndSubmitDirectPumpLaunch({ draftId, plan, cookingWalletGroupId }) {
+  if (!window.solanaWeb3) {
+    throw new Error(t("当前浏览器没有可用的 Solana 钱包组件", "No Solana wallet component is available in this browser"));
+  }
+  const group = await apiRequest(`/api/v1/wallet-groups/${cookingWalletGroupId}/wallets`);
+  const cookingWallet = group.wallets?.find((wallet) => wallet.provisioningStatus === "active" && wallet.publicAddress)
+    || group.wallets?.[0];
+  const address = cookingWallet?.publicAddress || "";
+  if (!address) {
+    throw new Error(t("Cooking 钱包组还没有绑定 Solana 地址", "The Cooking wallet group has no bound Solana address"));
+  }
+  const providers = [window.okxwallet?.solana, window.phantom?.solana, window.solflare].filter(Boolean);
+  let provider = providers.find((candidate) => candidate.publicKey?.toString() === address);
+  if (!provider) {
+    for (const candidate of providers) {
+      try {
+        const connected = await candidate.connect();
+        const connectedAddress = connected?.publicKey?.toString() || candidate.publicKey?.toString();
+        if (connectedAddress === address) {
+          provider = candidate;
+          break;
+        }
+      } catch {}
+    }
+  }
+  if (!provider || typeof provider.signTransaction !== "function") {
+    throw new Error(t("请在浏览器钱包中切换到所选 Cooking 地址后重试", "Switch your browser wallet to the selected Cooking address and try again"));
+  }
+  const transaction = window.solanaWeb3.Transaction.from(
+    Uint8Array.from(atob(plan.transactionBase64), (character) => character.charCodeAt(0)),
+  );
+  const signed = await provider.signTransaction(transaction);
+  return apiRequest(`/api/v1/go/launch-drafts/${draftId}/submit`, {
+    method: "POST",
+    body: JSON.stringify({ signedTransactionBase64: bytesToBase64(signed.serialize()) }),
+  });
+}
+
 async function activeEvmProvider(address) {
   const candidates = [window.okxwallet?.ethereum, window.binancew3w?.ethereum, ...(window.ethereum?.providers || []), window.ethereum].filter(Boolean);
   for (const provider of [...new Set(candidates)]) {
@@ -2876,10 +2914,17 @@ async function saveLaunchDraftForm(form, action) {
   });
   if (payload.card) updateLaunchCardInConversation(draftId, payload.card);
   if (action === "launch") {
-    const launched = await apiRequest(`/api/v1/go/launch-drafts/${draftId}/execute`, {
+    const prepared = await apiRequest(`/api/v1/go/launch-drafts/${draftId}/execute`, {
       method: "POST",
       body: JSON.stringify({ confirm: true }),
     });
+    const launched = prepared.status === "requires_user_signature"
+      ? await signAndSubmitDirectPumpLaunch({
+        draftId,
+        plan: prepared.plan,
+        cookingWalletGroupId: String(formData.get("cooking_wallet_group_id") || "").trim(),
+      })
+      : prepared;
     const tokenAddress = launched.token_address || launched.execution?.tokenAddress || launched.execution?.mintAddress || "";
     state.conversation.push({
       role: "agent",

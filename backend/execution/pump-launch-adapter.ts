@@ -24,7 +24,6 @@ export class PumpLaunchAdapter {
   async uploadMetadata({ image, imageName = "cooking.png", imageType = "image/png", name, symbol, description = "", twitter = "", telegram = "", website = "" }) {
     if (!image || !name || !symbol) throw new ExecutionError("INVALID_LAUNCH_METADATA", "Pump metadata upload requires image, name, and symbol");
     if (this.pinataJwt) return this.uploadMetadataToPinata({ image, imageName, imageType, name, symbol, description, twitter, telegram, website });
-    throw new ExecutionError("IPFS_PINNING_NOT_CONFIGURED", "Pump launch requires IPFS metadata pinning. Configure PINATA_JWT or provide metadataUri.");
     const form = new FormData();
     form.append("file", new Blob([image], { type: imageType }), imageName);
     form.append("name", name);

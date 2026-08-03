@@ -323,7 +323,8 @@ test("Vercel health endpoint works without database credentials", async () => {
   );
   assert.equal(recorder.result().status, 200);
   assert.equal(recorder.result().body.status, "ok");
-  assert.equal(recorder.result().body.execution, "gmgn_not_configured");
+  assert.equal(recorder.result().body.execution, "direct_wallet_signature");
+  assert.equal(recorder.result().body.gmgn_trade, "not_enabled");
 });
 
 test("Vercel Pulse publishes only reviewed evidence without investment scoring", async () => {

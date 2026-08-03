@@ -2,7 +2,7 @@
 /**
  * OpenAI-compatible provider for Go Agent conversation and content generation.
  * Generates launch metadata only. Execution is handled by the confirmed
- * GMGN launch/trade boundary, never by the language model.
+ * Direct Pump launch and GMGN trade boundaries are enforced by adapters, never by the language model.
  */
 export async function generateStructuredLaunchContent({
   prompt,

@@ -15,6 +15,9 @@
       "config": {
         "includeFiles": [
           "backend/integrations/gmgn-execution-adapter.ts",
+          "api/v1/launch-planner.cjs",
+          "node_modules/@pump-fun/pump-sdk/**",
+          "node_modules/@solana/web3.js/**",
           "node_modules/gmgn-cli/**",
           "node_modules/commander/**",
           "node_modules/dotenv/**",
