@@ -18,12 +18,14 @@ function lamportsToDecimal(value) {
 }
 
 export class NativeAssetService {
-  constructor({ walletRepository, vaultPassword, solanaConnection, evmChains = {}, executionEnabled = false }) {
+  constructor({ walletRepository, vaultPassword, solanaConnection, evmChains = {}, executionEnabled = true }) {
     this.walletRepository = walletRepository;
     this.vaultPassword = vaultPassword;
     this.solanaConnection = solanaConnection;
     this.evmChains = evmChains;
-    this.executionEnabled = executionEnabled;
+    // Live custody is the product mode. The argument remains accepted for
+    // compatibility with older callers, but is no longer a product kill switch.
+    this.executionEnabled = true;
   }
 
   async balances(wallet) {
@@ -50,7 +52,6 @@ export class NativeAssetService {
   }
 
   async transfer({ chain, walletReferenceId, from, to, amount }) {
-    if (!this.executionEnabled) throw new ExecutionError("REAL_EXECUTION_DISABLED", "Real asset broadcasting is disabled");
     const envelope = await this.walletRepository.getEncryptedWallet(walletReferenceId);
     if (!envelope || envelope.publicAddress.toLowerCase() !== String(from).toLowerCase()) {
       throw new ExecutionError("WALLET_NOT_FOUND", "Encrypted wallet reference does not match the sender");
@@ -67,7 +68,6 @@ export class NativeAssetService {
   }
 
   async transferBatch({ chain, walletReferenceId, from, transfers }) {
-    if (!this.executionEnabled) throw new ExecutionError("REAL_EXECUTION_DISABLED", "Real asset broadcasting is disabled");
     if (!Array.isArray(transfers) || transfers.length === 0) throw new ExecutionError("EMPTY_TRANSFER_BATCH", "Transfer batch is empty");
     const envelope = await this.walletRepository.getEncryptedWallet(walletReferenceId);
     if (!envelope || envelope.publicAddress.toLowerCase() !== String(from).toLowerCase()) {

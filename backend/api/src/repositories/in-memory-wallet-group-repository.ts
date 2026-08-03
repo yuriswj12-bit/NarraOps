@@ -105,7 +105,7 @@ export class InMemoryWalletGroupRepository {
   }
 
   mode() {
-    return [...this.#wallets.values()].some(({ provisioningStatus }) => provisioningStatus === "active") ? "encrypted_vault" : "mock";
+    return [...this.#wallets.values()].some(({ provisioningStatus }) => provisioningStatus === "active") ? "encrypted_vault" : "unavailable";
   }
 
   previewBatchDelete(groupId, walletIds, requestId) {
@@ -225,11 +225,11 @@ export class InMemoryWalletGroupRepository {
       walletId: randomUUID(),
       groupId,
       label: `Wallet ${sequence}`,
-      publicAddress: `SIM-${randomUUID().replaceAll("-", "").slice(0, 24).toUpperCase()}`,
+      publicAddress: null,
       balance,
       balanceAsset: "USD",
       custodyMode: "provider_managed_reference",
-      provisioningStatus: "simulation_only",
+      provisioningStatus: "planned",
       exportEligible: false,
       createdAt: now,
       updatedAt: now,
@@ -248,7 +248,7 @@ export class InMemoryWalletGroupRepository {
       walletCount: wallets.length,
       totalBalance: addMoney(wallets.map(({ balance }) => balance)),
       balanceAsset: "USD",
-      executionMode: wallets.length && wallets.every(({ provisioningStatus }) => provisioningStatus === "active") ? "encrypted_vault" : "simulation",
+      executionMode: wallets.length && wallets.every(({ provisioningStatus }) => provisioningStatus === "active") ? "encrypted_vault" : "unavailable",
       createdAt: group.createdAt,
       updatedAt: group.updatedAt,
     };

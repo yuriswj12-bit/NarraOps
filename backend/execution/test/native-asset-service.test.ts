@@ -24,7 +24,7 @@ test("reads live native balances without exposing wallet secrets", async () => {
   assert.equal(balances.bsc.amount, "1.0");
 });
 
-test("native transfer broadcasting stays disabled by default", async () => {
-  const service = new NativeAssetService({ walletRepository: {}, vaultPassword: "test-password-1234", solanaConnection: {}, executionEnabled: false });
-  await assert.rejects(() => service.transfer({ chain: "solana", walletReferenceId: "wallet", from: "a", to: "b", amount: "0.01" }), { code: "REAL_EXECUTION_DISABLED" });
+test("native transfer requires a bound provider wallet", async () => {
+  const service = new NativeAssetService({ walletRepository: { getEncryptedWallet: async () => null }, vaultPassword: "test-password-1234", solanaConnection: {} });
+  await assert.rejects(() => service.transfer({ chain: "solana", walletReferenceId: "wallet", from: "a", to: "b", amount: "0.01" }), { code: "WALLET_NOT_FOUND" });
 });

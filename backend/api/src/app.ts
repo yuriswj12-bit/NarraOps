@@ -29,18 +29,19 @@ import { InMemoryLaunchDraftRepository } from "./repositories/in-memory-launch-d
 import { InMemoryWalletGroupRepository } from "./repositories/in-memory-wallet-group-repository.ts";
 import { InMemoryTransferRepository } from "./repositories/in-memory-transfer-repository.ts";
 import { TaskManager } from "../../agents/task-manager.ts";
-import { createMockHandlers } from "../../agents/mock-handlers.ts";
+import { AGENT_CAPABILITIES, normalizeLaunchDraftPatch } from "../../agents/agent-runtime.ts";
+import { generateAgentReply } from "../../agents/llm-provider.ts";
+import { createAgentHandlers } from "../../agents/mock-handlers.ts";
 import { createIntegrationRegistry } from "../../integrations/registry.ts";
-import { mockInviteSummary, mockPulse, mockSettings } from "../../integrations/mock-product-data.ts";
+import { liveSettings, unavailableInviteSummary, unavailablePulse } from "../../integrations/product-state-data.ts";
 import { GO_CATEGORIES, GO_COMMANDS, policyForType } from "../../agents/go-command-catalog.ts";
 import { buildPulseMarketResponse } from "../../../api/v1/pulse-market.ts";
 import { buildPulseDevWalletPnlResponse } from "../../../api/v1/pulse-dev-wallet-pnl.ts";
 import { buildPulseNarrativesResponse } from "../../../api/v1/pulse-narratives.ts";
-import { EXECUTION_SIMULATION_STATUSES, EXECUTION_SIMULATION_TYPES } from "../../agents/execution-simulator.ts";
 import { listLaunchPlatforms, resolveLaunchPlatform } from "../../integrations/launch-platform-registry.ts";
 import { buildDraftMetadata, prepareNarrativeLink } from "../../integrations/narrative-link-adapter.ts";
 import { walletCapabilities } from "../../integrations/wallet-provider-registry.ts";
-import { mockAccountPortfolio } from "../../integrations/mock-account-data.ts";
+import { unavailablePortfolio } from "../../integrations/account-state-data.ts";
 
 function sendJson(res, statusCode, payload, requestId, extraHeaders = {}) {
   const body = statusCode === 204 ? "" : JSON.stringify(payload);
@@ -91,6 +92,39 @@ function readJson(req, limit) {
     });
     req.on("error", reject);
   });
+}
+
+async function imageUrlToDataUrl(imageUrl, timeoutMs = 8_000) {
+  const value = String(imageUrl || "").trim();
+  if (value.startsWith("data:image/")) return value;
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new ApiError(400, "INVALID_TOKEN_IMAGE", "Token image must be a public HTTP(S) URL");
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol) || /^(localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|::1)$/i.test(parsed.hostname)) {
+    throw new ApiError(400, "INVALID_TOKEN_IMAGE", "Token image must be a public HTTP(S) URL");
+  }
+  const response = await fetch(parsed, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) throw new ApiError(502, "TOKEN_IMAGE_UNAVAILABLE", "The token image could not be downloaded");
+  const contentType = response.headers.get("content-type")?.split(";", 1)[0] || "";
+  if (!contentType.startsWith("image/")) throw new ApiError(400, "INVALID_TOKEN_IMAGE", "The token image URL did not return an image");
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (contentLength > 5_500_000) throw new ApiError(413, "TOKEN_IMAGE_TOO_LARGE", "The token image must be smaller than 5.5 MB");
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > 5_500_000) throw new ApiError(413, "TOKEN_IMAGE_TOO_LARGE", "The token image must be smaller than 5.5 MB");
+  return `data:${contentType};base64,${bytes.toString("base64")}`;
+}
+
+async function waitForTaskCompletion(manager, taskId, timeoutMs = 8_000) {
+  const deadline = Date.now() + timeoutMs;
+  let task = await manager.get(taskId);
+  while (task && !["succeeded", "failed"].includes(task.status) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    task = await manager.get(taskId);
+  }
+  return task;
 }
 
 function startSse(req, res, manager, config, requestId, taskIdFilter) {
@@ -195,30 +229,39 @@ export function createApplication({ config, logger, repository, conversationRepo
   };
   const manager = taskManager || new TaskManager({
     repository: repo,
-    handlers: createMockHandlers(registry, { devWalletRepository: devWallets, launchDraftRepository: launchDrafts }),
+    handlers: createAgentHandlers(registry, {
+      devWalletRepository: devWallets,
+      launchDraftRepository: launchDrafts,
+      conversationRepository: conversations,
+      walletGroupRepository: walletGroups,
+    }),
     stepDelayMs: config.taskStepDelayMs,
   });
+  const inlineWaitingTaskIds = new Set();
 
   manager.on("taskEvent", (event) => {
+    void (async () => {
     if (event.type !== "task.completed" && event.type !== "task.failed") return;
     const task = event.task;
-    const conversationId = conversations.conversationIdForTask(task?.taskId);
+    if (inlineWaitingTaskIds.has(task?.taskId)) return;
+    const conversationId = await conversations.conversationIdForTask(task?.taskId);
     if (!conversationId) return;
     if (event.type === "task.completed") {
-      conversations.addMessage(conversationId, {
+      await conversations.addMessage(conversationId, {
         role: "assistant",
         taskId: task.taskId,
         status: "completed",
         blocks: task.result?.card ? [task.result.card] : [{ type: "text", text: "Task completed" }],
       });
     } else {
-      conversations.addMessage(conversationId, {
+      await conversations.addMessage(conversationId, {
         role: "assistant",
         taskId: task.taskId,
         status: "failed",
         blocks: [{ type: "error", error: task.failure }],
       });
     }
+    })();
   });
 
   const server = http.createServer(async (req, res) => {
@@ -234,7 +277,7 @@ export function createApplication({ config, logger, repository, conversationRepo
           ok: true,
           service: "narraops-api",
           version: "v1",
-          mode: config.gmgnLiveEnabled || config.hertzflowLiveEnabled ? "hybrid" : "mock",
+          mode: config.gmgnLiveEnabled ? "live" : "unavailable",
           time: new Date().toISOString(),
           integrations: registry.list(),
         }, requestId);
@@ -248,7 +291,7 @@ export function createApplication({ config, logger, repository, conversationRepo
 
       const conversationMatch = req.method === "GET" && url.pathname.match(/^\/api\/v1\/agent\/conversations\/([0-9a-f-]{36})$/i);
       if (conversationMatch) {
-        const conversation = conversations.get(conversationMatch[1]);
+        const conversation = await conversations.get(conversationMatch[1]);
         if (!conversation) throw new ApiError(404, "CONVERSATION_NOT_FOUND", "Agent conversation was not found");
         sendJson(res, 200, conversation, requestId);
         return;
@@ -262,7 +305,7 @@ export function createApplication({ config, logger, repository, conversationRepo
       if (req.method === "GET" && url.pathname === "/api/v1/account/portfolio") {
         const ownerUserId = assetActor(req);
         const period = validatePortfolioPeriod(url.searchParams.get("period"));
-        sendJson(res, 200, assetService ? await livePortfolio(period, ownerUserId) : mockAccountPortfolio(period), requestId);
+        sendJson(res, 200, assetService ? await livePortfolio(period, ownerUserId) : unavailablePortfolio(period), requestId);
         return;
       }
 
@@ -281,7 +324,7 @@ export function createApplication({ config, logger, repository, conversationRepo
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/pulse") {
-        sendJson(res, 200, mockPulse(), requestId);
+        sendJson(res, 200, unavailablePulse(), requestId);
         return;
       }
 
@@ -322,15 +365,31 @@ export function createApplication({ config, logger, repository, conversationRepo
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/launch/platforms") {
-        sendJson(res, 200, { execution_enabled: false, platforms: listLaunchPlatforms() }, requestId);
+        sendJson(res, 200, { execution_enabled: true, platforms: listLaunchPlatforms() }, requestId);
         return;
       }
 
       const launchDraftMatch = req.method === "GET" && url.pathname.match(/^\/api\/v1\/launch\/drafts\/([0-9a-f-]{36})$/i);
       if (launchDraftMatch) {
-        const draft = launchDrafts.get(launchDraftMatch[1]);
+        const draft = await launchDrafts.get(launchDraftMatch[1]);
         if (!draft) throw new ApiError(404, "LAUNCH_DRAFT_NOT_FOUND", "Launch draft was not found");
         sendJson(res, 200, draft, requestId);
+        return;
+      }
+
+      const launchDraftPatchMatch = req.method === "PATCH" && url.pathname.match(/^\/api\/v1\/go\/launch-drafts\/([0-9a-f-]{36})$/i);
+      if (launchDraftPatchMatch) {
+        const draft = await launchDrafts.update(launchDraftPatchMatch[1], normalizeLaunchDraftPatch(await readJson(req, config.bodyLimitBytes)));
+        if (!draft) throw new ApiError(404, "LAUNCH_DRAFT_NOT_FOUND", "Launch draft was not found");
+        sendJson(res, 200, {
+          schema_version: "go.launch_draft.v1",
+          draft,
+          card: {
+            type: "launch_draft",
+            status: draft.preparation_status,
+            data: { ...draft, executable: true, submitted: false, reason: "awaiting_user_confirmation" },
+          },
+        }, requestId);
         return;
       }
 
@@ -344,12 +403,12 @@ export function createApplication({ config, logger, repository, conversationRepo
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/invite/summary") {
-        sendJson(res, 200, mockInviteSummary(), requestId);
+        sendJson(res, 200, unavailableInviteSummary(), requestId);
         return;
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/settings") {
-        sendJson(res, 200, mockSettings(), requestId);
+        sendJson(res, 200, liveSettings(), requestId);
         return;
       }
 
@@ -360,19 +419,17 @@ export function createApplication({ config, logger, repository, conversationRepo
 
       if (req.method === "GET" && url.pathname === "/api/v1/execution/capabilities") {
         sendJson(res, 200, {
-          execution_enabled: Boolean(config.realExecutionEnabled),
-          native_assets: assetService ? { balances: ["SOL", "BNB"], deposits: true, withdrawals: config.realExecutionEnabled, wallet_group_transfers: config.realExecutionEnabled } : null,
-          simulation_types: EXECUTION_SIMULATION_TYPES,
-          statuses: EXECUTION_SIMULATION_STATUSES,
-          signing: assetService ? "encrypted_vault" : "signing_disabled",
-          broadcasting: config.realExecutionEnabled ? "enabled" : "broadcasting_disabled",
+          execution_enabled: true,
+          native_assets: assetService ? { balances: ["SOL", "BNB"], deposits: true, withdrawals: true, wallet_group_transfers: true } : null,
+          signing: assetService ? "encrypted_vault" : "provider_configuration_required",
+          broadcasting: "enabled",
         }, requestId);
         return;
       }
 
       const taskMatch = req.method === "GET" && url.pathname.match(/^\/api\/v1\/agent\/tasks\/([0-9a-f-]{36})$/i);
       if (taskMatch) {
-        const task = manager.get(taskMatch[1]);
+        const task = await manager.get(taskMatch[1]);
         if (!task) throw new ApiError(404, "TASK_NOT_FOUND", "Agent task was not found");
         sendJson(res, 200, toGoTask(task), requestId);
         return;
@@ -518,6 +575,35 @@ export function createApplication({ config, logger, repository, conversationRepo
           return;
         }
 
+        const launchDraftExecuteMatch = url.pathname.match(/^\/api\/v1\/go\/launch-drafts\/([0-9a-f-]{36})\/execute$/i);
+        if (launchDraftExecuteMatch) {
+          if (!launchCoordinator || !launchService) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Live Cooking-wallet launch execution is not configured");
+          const draft = await launchDrafts.get(launchDraftExecuteMatch[1]);
+          if (!draft) throw new ApiError(404, "LAUNCH_DRAFT_NOT_FOUND", "Launch draft was not found");
+          const platformId = typeof draft.platform === "string" ? draft.platform : draft.platform?.id;
+          const token = draft.token || {};
+          if (platformId !== "pump") throw new ApiError(400, "UNSUPPORTED_LAUNCH_PLATFORM", "The Go launch button currently supports Pump only");
+          if (!draft.cooking_wallet_group_id || !draft.bundled_wallet_group_id) throw new ApiError(400, "WALLET_GROUP_SELECTION_REQUIRED", "Select both a Cooking wallet group and a bundled wallet group before launching");
+          const input = validateInternalLaunchPrepare({
+            platform: "pump",
+            name: token.name,
+            symbol: token.symbol,
+            description: token.description,
+            imageBase64: await imageUrlToDataUrl(token.image_url, config.externalTimeoutMs || 8_000),
+            imageName: "narraops-token-image",
+            imageType: "image/png",
+            twitter: token.x_url || "",
+            website: token.website_url || "",
+            developerBuyAmount: token.initial_buy || "0",
+            cookingWalletGroupId: draft.cooking_wallet_group_id,
+            boundBuy: { enabled: false },
+          });
+          const prepared = await launchCoordinator.prepare(input);
+          const launched = await launchCoordinator.confirm({ executionId: prepared.executionId, confirmationToken: prepared.confirmationToken });
+          sendJson(res, 202, { draft_id: draft.launch_draft_id, status: launched.status, execution: launched, token_address: launched.tokenAddress || null, transaction_hash: launched.transactionHash || null }, requestId);
+          return;
+        }
+
         const launchConfirmMatch = url.pathname.match(/^\/api\/v1\/launch\/executions\/([0-9a-f-]{36})\/confirm$/i);
         if (launchConfirmMatch) {
           if (!launchCoordinator) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Internal Cooking-wallet launch execution is not configured");
@@ -588,8 +674,8 @@ export function createApplication({ config, logger, repository, conversationRepo
             throw new ApiError(403, "MFA_REQUIRED", "Wallet export requires a verified MFA challenge");
           }
           if (!walletExportService) {
-            walletGroups.recordExportAttempt({ requestId, groupId, outcome: "export_service_disabled" });
-            throw new ApiError(503, "WALLET_EXPORT_DISABLED", "Wallet export requires the encrypted wallet vault", { ordinaryJsonResponseAllowed: false, requiresOneTimeEncryptedDownload: true, privateKeyMaterialReturned: false });
+            walletGroups.recordExportAttempt({ requestId, groupId, outcome: "export_service_unavailable" });
+            throw new ApiError(503, "WALLET_EXPORT_UNAVAILABLE", "Wallet export requires the encrypted wallet vault", { ordinaryJsonResponseAllowed: false, requiresOneTimeEncryptedDownload: true, privateKeyMaterialReturned: false });
           }
           const result = await walletExportService.exportText(group, walletGroups.getExportWallets(groupId));
           walletGroups.recordExportAttempt({ requestId, groupId, outcome: "export_completed" });
@@ -611,7 +697,7 @@ export function createApplication({ config, logger, repository, conversationRepo
 
         if (url.pathname === "/api/v1/agent/conversations") {
           const context = validateConversationCreate(body);
-          const conversation = conversations.create(context);
+          const conversation = await conversations.create(context);
           sendJson(res, 201, conversation, requestId);
           return;
         }
@@ -629,7 +715,7 @@ export function createApplication({ config, logger, repository, conversationRepo
           const token = buildDraftMetadata({ narrative, token: input.token });
           const required = ["name", "symbol", "description", "image_url"];
           const missingFields = required.filter((field) => !token[field]);
-          const draft = launchDrafts.create({
+          const draft = await launchDrafts.create({
             chain: input.chain,
             platform,
             narrative,
@@ -650,10 +736,10 @@ export function createApplication({ config, logger, repository, conversationRepo
 
         const messageMatch = url.pathname.match(/^\/api\/v1\/agent\/conversations\/([0-9a-f-]{36})\/messages$/i);
         if (messageMatch) {
-          const conversation = conversations.get(messageMatch[1]);
+          const conversation = await conversations.get(messageMatch[1]);
           if (!conversation) throw new ApiError(404, "CONVERSATION_NOT_FOUND", "Agent conversation was not found");
           const message = validateConversationMessage(body);
-          conversations.addMessage(conversation.conversationId, {
+          await conversations.addMessage(conversation.conversationId, {
             role: "user",
             content: message.message,
             command: message.command,
@@ -662,33 +748,69 @@ export function createApplication({ config, logger, repository, conversationRepo
             ...(message.command ? { command: message.command } : { input: message.message }),
             parameters: { context: message.context },
           });
-          task = manager.create(parsed.type, parsed.input, requestId, {
+          task = await manager.create(parsed.type, parsed.input, requestId, {
             ...parsed.metadata,
             conversation_id: conversation.conversationId,
           });
-          conversations.bindTask(conversation.conversationId, task.taskId);
-          sendJson(res, 202, {
-            taskId: task.taskId,
+          if (message.wait) inlineWaitingTaskIds.add(task.taskId);
+          await conversations.bindTask(conversation.conversationId, task.taskId);
+          const resultTask = message.wait
+            ? await waitForTaskCompletion(manager, task.taskId, message.timeout_ms)
+            : task;
+          inlineWaitingTaskIds.delete(task.taskId);
+          let assistantMessage = null;
+          if (message.wait) {
+            const restoredConversation = await conversations.get(conversation.conversationId);
+            const reply = await generateAgentReply({
+              message: message.message,
+              language: message.context.language,
+              history: restoredConversation?.messages || [],
+              task: resultTask,
+              capabilities: AGENT_CAPABILITIES,
+            });
+            assistantMessage = {
+              role: "assistant",
+              content: reply.content,
+              suggestion: reply.suggestion,
+              provider: reply.provider,
+              used_llm: Boolean(reply.used_llm),
+              ...(reply.model ? { model: reply.model } : {}),
+            };
+            await conversations.addMessage(conversation.conversationId, {
+              role: "assistant",
+              content: reply.content,
+              taskId: resultTask?.taskId || task.taskId,
+              status: resultTask?.status || task.status,
+              blocks: resultTask?.result?.card
+                ? [resultTask.result.card]
+                : [{ type: "text", text: reply.content }],
+            });
+          }
+          sendJson(res, message.wait && resultTask?.status === "succeeded" ? 200 : 202, {
+            taskId: resultTask?.taskId || task.taskId,
             conversationId: conversation.conversationId,
-            status: task.status,
+            status: resultTask?.status || task.status,
+            task: resultTask,
+            message: assistantMessage,
+            cards: resultTask?.result?.card ? [resultTask.result.card] : [],
           }, requestId);
           return;
         }
 
         if (url.pathname === "/api/v1/narratives/scan") {
-          task = manager.create("narrative.scan", validateNarrativeScan(body), requestId, policyForType("narrative.scan"));
+          task = await manager.create("narrative.scan", validateNarrativeScan(body), requestId, policyForType("narrative.scan"));
         } else if (url.pathname === "/api/v1/narratives/generate") {
-          task = manager.create("narrative.generate", validateNarrativeGenerate(body), requestId, policyForType("narrative.generate"));
+          task = await manager.create("narrative.generate", validateNarrativeGenerate(body), requestId, policyForType("narrative.generate"));
         } else if (url.pathname === "/api/v1/launch/packages") {
-          task = manager.create("launch.package", validateLaunchPackage(body), requestId, policyForType("launch.package"));
+          task = await manager.create("launch.package", validateLaunchPackage(body), requestId, policyForType("launch.package"));
         } else if (url.pathname === "/api/v1/agent/tasks") {
           const command = validateAgentTask(body);
-          task = manager.create(command.type, command.input, requestId, command.metadata);
+          task = await manager.create(command.type, command.input, requestId, command.metadata);
           sendJson(res, 202, toGoTask(task), requestId);
           return;
         } else if (url.pathname === "/api/v1/market/dev-wallets/scan") {
           const command = validateAgentTask({ type: "dev.market.scan", input: body });
-          task = manager.create(command.type, command.input, requestId, command.metadata);
+          task = await manager.create(command.type, command.input, requestId, command.metadata);
           sendJson(res, 202, toGoTask(task), requestId);
           return;
         }

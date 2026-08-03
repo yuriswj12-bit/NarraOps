@@ -4,11 +4,12 @@ import assert from "node:assert/strict";
 import { createApplication } from "../src/app.ts";
 import { createLogger } from "../src/security.ts";
 import { LaunchExecutionCoordinator } from "../src/launch-execution-coordinator.ts";
+import { InMemoryLaunchDraftRepository } from "../src/repositories/in-memory-launch-draft-repository.ts";
 
 const config = { bodyLimitBytes: 9_000_000, taskStepDelayMs: 0, sseHeartbeatMs: 1_000 };
 
-async function start(launchService, overrides = {}) {
-  const application = createApplication({ config, logger: createLogger("silent"), launchService, ...overrides });
+async function start(launchService, overrides = {}, configOverrides = {}) {
+  const application = createApplication({ config: { ...config, ...configOverrides }, logger: createLogger("silent"), launchService, ...overrides });
   await new Promise((resolve) => application.server.listen(0, "127.0.0.1", resolve));
   return { application, baseUrl: `http://127.0.0.1:${application.server.address().port}` };
 }
@@ -41,6 +42,37 @@ test("internal Cooking-wallet launch uses prepare then explicit confirmation", a
   assert.equal((await confirmed.json()).status, "submitted");
   assert.deepEqual(calls.map(([name]) => name), ["prepare", "confirm"]);
   assert.deepEqual(calls[0][1].boundBuy.window, { earliestBlockOffset: 1, latestBlockOffset: 5 });
+});
+
+test("Go launch draft button converts the edited card into a confirmed Pump execution", async (t) => {
+  const draftRepository = new InMemoryLaunchDraftRepository();
+  const draft = await draftRepository.create({
+    platform: { id: "pump", name: "Pump.fun" },
+    chain: "solana",
+    token: {
+      name: "Narra",
+      symbol: "NARRA",
+      description: "A reviewed narrative",
+      image_url: "data:image/png;base64,aW1hZ2U=",
+      initial_buy: "0.05",
+    },
+    cooking_wallet_group_id: "cook-group",
+    bundled_wallet_group_id: "bundle-group",
+  });
+  const calls = [];
+  const launchCoordinator = {
+    prepare: async (input) => { calls.push(["prepare", input]); return { executionId: "22222222-2222-4222-8222-222222222222", confirmationToken: "token" }; },
+    confirm: async (input) => { calls.push(["confirm", input]); return { status: "confirmed", tokenAddress: "Mint111111111111111111111111111111111111111" }; },
+  };
+  const { application, baseUrl } = await start({}, { launchCoordinator, launchDraftRepository: draftRepository }, { realExecutionEnabled: true });
+  t.after(() => application.close());
+  const response = await post(baseUrl, `/api/v1/go/launch-drafts/${draft.launch_draft_id}/execute`, {});
+  assert.equal(response.status, 202);
+  const body = await response.json();
+  assert.equal(body.status, "confirmed");
+  assert.equal(body.token_address, "Mint111111111111111111111111111111111111111");
+  assert.deepEqual(calls.map(([name]) => name), ["prepare", "confirm"]);
+  assert.equal(calls[0][1].boundBuy.enabled, false);
 });
 
 test("launch-bound buys accept a fixed-total random allocation", async (t) => {

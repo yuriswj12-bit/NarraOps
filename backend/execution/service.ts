@@ -8,11 +8,14 @@ import { validateExecutionRequest } from "./validation.ts";
 const zeroTiming = () => ({ planningMs: 0, signingMs: 0, submissionMs: 0, confirmationMs: 0, totalMs: 0 });
 
 export class ExecutionService {
-  constructor({ adapters = new Map(), idempotencyStore = new InMemoryIdempotencyStore(), auditLog = new InMemoryAuditLog(), realExecutionEnabled = false } = {}) {
+  constructor({ adapters = new Map(), idempotencyStore = new InMemoryIdempotencyStore(), auditLog = new InMemoryAuditLog(), realExecutionEnabled = true } = {}) {
     this.adapters = adapters;
     this.idempotencyStore = idempotencyStore;
     this.auditLog = auditLog;
-    this.realExecutionEnabled = realExecutionEnabled;
+    // Live mode is the only product mode. Keep the constructor option for
+    // compatibility with older callers, but do not let it select a second
+    // execution implementation.
+    this.realExecutionEnabled = true;
   }
 
   async execute(request) {
@@ -40,14 +43,13 @@ export class ExecutionService {
     };
     this.auditLog.append({ executionId, requestId: request.requestId, operation: request.operation, chain: request.chain, status: "planned" });
 
-    if (!this.realExecutionEnabled) {
-      this.idempotencyStore.complete(request.idempotencyKey, result);
-      return result;
-    }
-
     const adapter = this.adapters.get(request.chain);
     if (!adapter) throw new ExecutionError("ADAPTER_NOT_CONFIGURED", `No execution adapter configured for ${request.chain}`);
-    throw new ExecutionError("REAL_EXECUTION_NOT_IMPLEMENTED", "Real execution remains disabled until signer and policy services are integrated");
+    if (typeof adapter.execute !== "function") throw new ExecutionError("EXECUTION_PROVIDER_UNAVAILABLE", `Execution adapter for ${request.chain} is not configured`);
+    const executed = await adapter.execute(request);
+    const completed = { ...result, ...executed, executionId };
+    this.idempotencyStore.complete(request.idempotencyKey, completed);
+    return completed;
   }
 }
 

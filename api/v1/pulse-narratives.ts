@@ -75,14 +75,16 @@ export function buildPulseNarrativesResponse(
     ]),
   );
   const collector = buildCollectorHealth(latestRun, now);
-  let dataStatus = active.length ? "live" : "no_fresh_narratives";
+  let dataStatus = active.length
+    ? (collector.stale ? "delayed_live_snapshot" : "live")
+    : "no_fresh_narratives";
   if (collector.stale && !active.length) dataStatus = "collector_stale";
   return {
     schema_version: "pulse.narratives.v1",
     data_status: dataStatus,
     generated_at: now.toISOString(),
-    source_window_minutes: 60,
-    maximum_display_minutes: 30,
+    source_window_minutes: 240,
+    maximum_display_minutes: 240,
     refresh_intervals_minutes: [3, 5, 15],
     default_refresh_interval_minutes: 5,
     total: active.length,

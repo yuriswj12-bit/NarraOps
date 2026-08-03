@@ -11,7 +11,18 @@
     },
     {
       "src": "api/v1/**/*.ts",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "node_modules/gmgn-cli/**",
+          "node_modules/commander/**",
+          "node_modules/dotenv/**",
+          "node_modules/socks/**",
+          "node_modules/smart-buffer/**",
+          "node_modules/ip-address/**",
+          "node_modules/undici/**"
+        ]
+      }
     }
   ],
   "cleanUrls": true,
@@ -35,6 +46,22 @@
     }
   ],
   "routes": [
+    {
+      "src": "/api/v1/agent/(.*)",
+      "dest": "/api/v1/[...path].ts"
+    },
+    {
+      "src": "/api/v1/go/launch-drafts/([^/]+)",
+      "dest": "/api/v1/[...path].ts"
+    },
+    {
+      "src": "/api/v1/launch/drafts/([^/]+)",
+      "dest": "/api/v1/[...path].ts"
+    },
+    {
+      "src": "/api/v1/telegram/webhook",
+      "dest": "/api/v1/[...path].ts"
+    },
     {
       "src": "/api/v1/wallet-groups/([^/]+)/wallets",
       "dest": "/api/v1/wallet-groups/[groupId]/wallets.ts"

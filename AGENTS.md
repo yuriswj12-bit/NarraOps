@@ -48,7 +48,6 @@ At handoff, update only the matching handoff file and report the commit hash, te
 - Never commit or log private keys, seed phrases, API keys, authorization headers, cookies, signing payload secrets, or production wallet files.
 - Live execution is enabled only through configured production providers and authenticated user-owned wallet groups. Every irreversible launch/trade still requires an explicit final confirmation, durable idempotency, provider order reconciliation, and audit evidence. Never perform real-fund transactions as part of tests.
 - Wallet-group funds and platform treasury use separate identities, policies, and accounting.
-- Do not perform real-fund transactions as part of tests.
 
 ## Git
 

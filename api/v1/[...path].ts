@@ -4,7 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
 import { getAddress, verifyMessage } from "ethers";
-import { REVIEWED_PULSE_SNAPSHOT } from "./pulse-snapshot";
 import { buildPulsePlanResponse } from "./go/pulse-plan";
 import { buildNarrativeSnapshotPlanResponse } from "./go/narrative-snapshot-plan";
 import { loadPulseMarketResponse } from "./pulse-market";
@@ -14,6 +13,16 @@ import {
   loadPulseNarrativesResponse,
   usePulseNarrative,
 } from "./pulse-narratives";
+import {
+  createAgentConversation,
+  createAgentTask,
+  getAgentConversation,
+  handleTelegramWebhook,
+  getSharedAgentRuntime,
+  postAgentConversationMessage,
+  updateAgentLaunchDraft,
+} from "./agent/runtime.cjs";
+import { GmgnExecutionAdapter } from "../../backend/integrations/gmgn-execution-adapter.ts";
 
 const COOKIE_NAME = "narraops_session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -49,17 +58,47 @@ function requestPath(request) {
   return new URL(request.url || "/", "https://narraops.invalid").pathname;
 }
 
-function pulseStatus() {
-  const observedAt = REVIEWED_PULSE_SNAPSHOT.observedAt;
-  const snapshotAgeMs = Date.now() - Date.parse(observedAt);
-  const stale = snapshotAgeMs > 24 * 60 * 60 * 1000;
+async function pulseStatus(supabase) {
+  const live = await loadPulseNarrativesResponse(supabase);
+  const rows = Object.values(live.columns || {}).flat();
+  const opportunities = rows.map((row) => ({
+    opportunityId: row.narrative_id,
+    title: row.original_text,
+    summary: row.original_text,
+    status: "review",
+    stage: "spreading",
+    evidence: [{
+      evidenceId: row.narrative_id,
+      sourceType: row.source_type,
+      url: row.source_url,
+      publisher: row.author_name || row.platform,
+      title: row.original_text,
+      excerpt: null,
+      publishedAt: row.published_at,
+      capturedAt: live.generated_at,
+      status: "available",
+    }],
+    riskFlags: [],
+    missingEvidence: [],
+    similarTokenCount: null,
+    firstObservedAt: row.published_at,
+    updatedAt: row.published_at,
+  }));
+  const observedAt = live.generated_at || new Date().toISOString();
   return {
     schema_version: "pulse.v1",
     mode: "evidence_pipeline",
-    data_status: stale ? "stale_reviewed_snapshot" : "reviewed_snapshot",
+    data_status: live.data_status || "no_fresh_narratives",
     observed_at: observedAt,
-    opportunities: REVIEWED_PULSE_SNAPSHOT.opportunities,
-    collector: REVIEWED_PULSE_SNAPSHOT.collector,
+    opportunities,
+    collector: {
+      sourceCount: live.collector?.source_count || 0,
+      healthySourceCount: live.collector?.successful_source_count || 0,
+      candidateCount: live.collector?.collected_item_count || 0,
+      clusterCount: 0,
+      activeCandidateCount: opportunities.length,
+      reviewedOpportunityCount: opportunities.length,
+    },
     gates: ["evidence_eligibility", "narrative", "amplification"],
     states: ["watch", "review", "high_priority"],
     limitations: [
@@ -67,7 +106,7 @@ function pulseStatus() {
       "Social-platform evidence is deferred until an official or authenticated adapter is configured.",
       "Only manually reviewed candidates are published; the remaining collector output stays in the review queue.",
     ],
-    execution: "disabled",
+    execution: "live_confirmation_required",
   };
 }
 
@@ -245,6 +284,264 @@ async function requireAssetsResult(promise, fallbackMessage) {
   return data;
 }
 
+function gmgnCredentialsConfigured() {
+  return Boolean(
+    String(process.env.GMGN_API_KEY || "").trim() &&
+      String(process.env.GMGN_PRIVATE_KEY || "").trim(),
+  );
+}
+
+function validSolanaAddress(value) {
+  try {
+    return bs58.decode(String(value || "")).length === 32;
+  } catch {
+    return false;
+  }
+}
+
+function positiveDecimal(value, field) {
+  const text = String(value ?? "").trim();
+  if (!/^\d+(?:\.\d+)?$/.test(text) || Number(text) <= 0) {
+    throw Object.assign(new Error(`${field} must be a positive decimal amount`), {
+      status: 400,
+      code: "INVALID_LAUNCH_AMOUNT",
+    });
+  }
+  return text;
+}
+
+function launchPlatformId(platform) {
+  if (platform && typeof platform === "object") return String(platform.id || platform.name || "").toLowerCase();
+  return String(platform || "").toLowerCase();
+}
+
+function nestedGmgnValue(result, keys) {
+  const roots = [result, result?.data, result?.data?.report, result?.report];
+  for (const root of roots) {
+    if (!root || typeof root !== "object") continue;
+    for (const key of keys) {
+      const value = root[key];
+      if (value !== undefined && value !== null && String(value).trim()) return String(value);
+    }
+  }
+  return null;
+}
+
+function gmgnOrderId(result) {
+  return nestedGmgnValue(result, ["order_id", "orderId"]);
+}
+
+function gmgnTokenAddress(result) {
+  return nestedGmgnValue(result, ["output_token", "outputToken", "token_address", "tokenAddress", "mint_address", "mintAddress"]);
+}
+
+function gmgnTxHash(result) {
+  return nestedGmgnValue(result, ["hash", "tx_hash", "txHash", "transaction_hash", "transactionHash"]);
+}
+
+function gmgnStatus(result) {
+  return String(
+    result?.data?.status || result?.data?.state || result?.data?.order_status || result?.data?.report?.status || result?.status || "",
+  ).toLowerCase();
+}
+
+async function ownedLaunchDraft(supabase, userId, draftId) {
+  if (!supabase || !userId) {
+    throw Object.assign(new Error("Connect a wallet before using a live launch draft"), {
+      status: 401,
+      code: "AUTHENTICATION_REQUIRED",
+    });
+  }
+  return requireAssetsResult(
+    supabase
+      .from("go_launch_drafts")
+      .select("*")
+      .eq("launch_draft_id", draftId)
+      .eq("user_id", userId)
+      .maybeSingle(),
+    "Unable to read the launch draft",
+  );
+}
+
+async function ownedExecutionGroup(supabase, userId, groupId, purpose) {
+  const group = await requireAssetsResult(
+    supabase
+      .from("asset_wallet_groups")
+      .select("group_id,name,purpose,network")
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .maybeSingle(),
+    "Unable to read the selected wallet group",
+  );
+  if (!group) {
+    throw Object.assign(new Error("The selected wallet group was not found"), {
+      status: 404,
+      code: "WALLET_GROUP_NOT_FOUND",
+    });
+  }
+  if (group.network !== "solana" || (purpose && group.purpose !== purpose)) {
+    throw Object.assign(new Error("The selected wallet group is not compatible with this Pump launch"), {
+      status: 400,
+      code: "WALLET_GROUP_NETWORK_MISMATCH",
+    });
+  }
+  const wallets = await requireAssetsResult(
+    supabase
+      .from("asset_wallets")
+      .select("wallet_id,public_address,provisioning_status,wallet_index")
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .order("wallet_index", { ascending: true }),
+    "Unable to read the selected wallet group wallets",
+  );
+  const active = (wallets || []).filter((wallet) => wallet.provisioning_status === "active" && validSolanaAddress(wallet.public_address));
+  if (!active.length) {
+    throw Object.assign(new Error("The selected wallet group has no active Solana addresses. Provision or bind its wallets in Assets first."), {
+      status: 400,
+      code: "WALLET_GROUP_NOT_READY",
+    });
+  }
+  return { group, wallets: active };
+}
+
+async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
+  if (!gmgnCredentialsConfigured()) {
+    throw Object.assign(new Error("GMGN live launch credentials are not configured on the server"), {
+      status: 503,
+      code: "GMGN_LIVE_NOT_CONFIGURED",
+    });
+  }
+  const draft = await ownedLaunchDraft(supabase, userId, draftId);
+  if (!draft) {
+    throw Object.assign(new Error("The launch draft was not found"), {
+      status: 404,
+      code: "LAUNCH_DRAFT_NOT_FOUND",
+    });
+  }
+  if (String(draft.chain || "").toLowerCase() !== "solana" || launchPlatformId(draft.platform) !== "pump") {
+    throw Object.assign(new Error("The live Go launcher currently supports Solana Pump.fun drafts only"), {
+      status: 400,
+      code: "UNSUPPORTED_LAUNCH_PLATFORM",
+    });
+  }
+  const token = draft.token || {};
+  const cookingId = draft.metadata?.cooking_wallet_group_id || null;
+  const bundledId = draft.metadata?.bundled_wallet_group_id || null;
+  if (!cookingId || !bundledId) {
+    throw Object.assign(new Error("Select both a Cooking wallet group and a bundled wallet group before launching"), {
+      status: 400,
+      code: "WALLET_GROUP_SELECTION_REQUIRED",
+    });
+  }
+  const [cooking, bundled] = await Promise.all([
+    ownedExecutionGroup(supabase, userId, cookingId, "cooking"),
+    ownedExecutionGroup(supabase, userId, bundledId, "general"),
+  ]);
+  if (cooking.wallets.length !== 1) {
+    throw Object.assign(new Error("A Cooking wallet group must contain exactly one active Solana wallet"), {
+      status: 400,
+      code: "COOKING_WALLET_INVALID",
+    });
+  }
+  const initialBuy = positiveDecimal(token.initial_buy, "initial_buy");
+  const bundleBuy = token.bundle_buy_per_wallet ? positiveDecimal(token.bundle_buy_per_wallet, "bundle_buy_per_wallet") : null;
+  if (!token.name || !token.symbol || !token.description || !token.image_url) {
+    throw Object.assign(new Error("Complete token name, symbol, description, and image URL before launching"), {
+      status: 400,
+      code: "LAUNCH_DRAFT_INCOMPLETE",
+    });
+  }
+
+  const adapter = new GmgnExecutionAdapter({
+    enabled: true,
+    cliPath: process.env.GMGN_CLI_PATH || undefined,
+    timeoutMs: 45_000,
+  });
+  const existing = draft.metadata?.gmgn_execution || {};
+  let createResult = null;
+  let orderId = existing.order_id || null;
+  if (!orderId && !["failed", "expired"].includes(String(existing.status || "").toLowerCase())) {
+    const bundleWallets = bundleBuy
+      ? bundled.wallets.map((wallet) => ({ from_address: wallet.public_address, buy_amt: bundleBuy }))
+      : [];
+    createResult = await adapter.cookingCreate({
+      chain: "solana",
+      dex: "pump",
+      fromAddress: cooking.wallets[0].public_address,
+      name: token.name,
+      symbol: token.symbol,
+      buyAmount: initialBuy,
+      imageUrl: token.image_url,
+      description: token.description,
+      twitter: token.x_url,
+      website: token.website_url,
+      bundleWallets,
+      requestId: draftId,
+    });
+    orderId = gmgnOrderId(createResult);
+    if (!orderId) {
+      throw Object.assign(new Error("GMGN did not return a cooking order id"), {
+        status: 502,
+        code: createResult?.status === "unavailable" ? "GMGN_LAUNCH_UNAVAILABLE" : "GMGN_ORDER_ID_MISSING",
+      });
+    }
+  }
+  const finalResult = orderId
+    ? await adapter.waitForCookingOrder({ chain: "solana", orderId, requestId: draftId })
+    : createResult;
+  const tokenAddress = gmgnTokenAddress(finalResult) || gmgnTokenAddress(createResult);
+  const txHash = gmgnTxHash(finalResult) || gmgnTxHash(createResult);
+  const finalState = gmgnStatus(finalResult);
+  const status = ["failed", "expired"].includes(finalState)
+    ? finalState
+    : tokenAddress && ["confirmed", "successful"].includes(finalState)
+      ? "confirmed"
+      : "submitted";
+  const execution = {
+    provider: "gmgn",
+    launchpad: "pump",
+    status,
+    order_id: orderId,
+    tx_hash: txHash,
+    token_address: tokenAddress,
+    cooking_wallet_group_id: cookingId,
+    bundled_wallet_group_id: bundledId,
+    bundled_wallet_count: bundleBuy ? bundled.wallets.length : 0,
+    updated_at: new Date().toISOString(),
+  };
+  await requireAssetsResult(
+    supabase
+      .from("go_launch_drafts")
+      .update({
+        status,
+        confirmation_status: status === "confirmed" ? "confirmed" : status,
+        execution_mode: "live",
+        signing_status: "signed",
+        broadcasting_status: status === "confirmed" ? "confirmed" : status === "submitted" ? "submitted" : "failed",
+        metadata: { ...(draft.metadata || {}), gmgn_execution: execution },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("launch_draft_id", draftId)
+      .eq("user_id", userId)
+      .select("*")
+      .single(),
+    "Unable to save the GMGN launch receipt",
+  );
+  return {
+    schema_version: "go.launch_execution.v1",
+    status,
+    provider: "gmgn",
+    launchpad: "pump",
+    order_id: orderId,
+    tx_hash: txHash,
+    token_address: tokenAddress,
+    cooking_wallet_group_id: cookingId,
+    bundled_wallet_group_id: bundledId,
+    bundled_wallet_count: execution.bundled_wallet_count,
+    ...(status !== "confirmed" ? { message: "GMGN accepted the launch and is still confirming it on-chain." } : {}),
+  };
+}
+
 function validateGroupInput(body) {
   const name = String(body?.name || "").trim();
   const purpose = String(body?.purpose || "general").toLowerCase();
@@ -295,6 +592,7 @@ function validateWalletCount(body) {
 }
 
 function publicWallet(wallet, network) {
+  const isBound = wallet.provisioning_status === "active" && Boolean(wallet.public_address);
   return {
     walletId: wallet.wallet_id,
     groupId: wallet.group_id,
@@ -304,9 +602,9 @@ function publicWallet(wallet, network) {
       ? { [network === "solana" ? "solana" : "bsc"]: wallet.public_address }
       : {},
     balances: {},
-    balance: "0.00",
-    balanceAsset: "USD",
-    custodyMode: "unprovisioned",
+    balance: null,
+    balanceAsset: null,
+    custodyMode: isBound ? "provider_bound" : "unprovisioned",
     provisioningStatus: wallet.provisioning_status,
     exportEligible: false,
     createdAt: wallet.created_at,
@@ -314,7 +612,7 @@ function publicWallet(wallet, network) {
   };
 }
 
-function publicGroup(group, walletCount) {
+function publicGroup(group, walletCount, activeWalletCount = 0) {
   return {
     groupId: group.group_id,
     name: group.name,
@@ -322,9 +620,10 @@ function publicGroup(group, walletCount) {
     network: group.network,
     walletCount,
     balances: {},
-    totalBalance: "0.00",
-    balanceAsset: "USD",
-    executionMode: "persistence_only",
+    totalBalance: null,
+    balanceAsset: null,
+    activeWalletCount,
+    executionMode: activeWalletCount > 0 ? "live_ready" : "provider_binding_required",
     createdAt: group.created_at,
     updatedAt: group.updated_at,
   };
@@ -362,17 +661,21 @@ async function listWalletGroups(supabase, userId) {
     requireAssetsResult(
       supabase
         .from("asset_wallets")
-        .select("group_id")
+      .select("group_id,public_address,provisioning_status")
         .eq("user_id", userId),
       "Unable to count wallets",
     ),
   ]);
   const counts = new Map();
+  const activeCounts = new Map();
   for (const wallet of wallets || []) {
     counts.set(wallet.group_id, (counts.get(wallet.group_id) || 0) + 1);
+    if (wallet.provisioning_status === "active" && wallet.public_address) {
+      activeCounts.set(wallet.group_id, (activeCounts.get(wallet.group_id) || 0) + 1);
+    }
   }
   return (groups || []).map((group) =>
-    publicGroup(group, counts.get(group.group_id) || 0),
+    publicGroup(group, counts.get(group.group_id) || 0, activeCounts.get(group.group_id) || 0),
   );
 }
 
@@ -427,7 +730,11 @@ async function listGroupWallets(supabase, userId, groupId) {
   return {
     mode: "supabase",
     balanceMode: "unavailable",
-    group: publicGroup(group, wallets.length),
+    group: publicGroup(
+      group,
+      wallets.length,
+      wallets.filter((wallet) => wallet.provisioning_status === "active" && wallet.public_address).length,
+    ),
     wallets: wallets.map((wallet) => publicWallet(wallet, group.network)),
   };
 }
@@ -472,6 +779,81 @@ async function addGroupWallets(supabase, userId, groupId, body) {
     "Unable to add planned wallets",
   );
   return listGroupWallets(supabase, userId, groupId);
+}
+
+async function bindWalletAddress(supabase, userId, groupId, walletId, body) {
+  const group = await ownedGroup(supabase, userId, groupId);
+  if (group.network !== "solana") {
+    throw Object.assign(new Error("Only Solana provider wallets can be bound to live Go execution right now"), {
+      status: 400,
+      code: "WALLET_NETWORK_UNSUPPORTED",
+    });
+  }
+  const publicAddress = String(body?.publicAddress || body?.public_address || "").trim();
+  if (!validSolanaAddress(publicAddress)) {
+    throw Object.assign(new Error("publicAddress must be a valid Solana address"), {
+      status: 400,
+      code: "INVALID_PUBLIC_ADDRESS",
+    });
+  }
+  const wallet = await requireAssetsResult(
+    supabase
+      .from("asset_wallets")
+      .select("wallet_id,group_id,user_id")
+      .eq("wallet_id", walletId)
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .maybeSingle(),
+    "Unable to read the wallet to bind",
+  );
+  if (!wallet) {
+    throw Object.assign(new Error("Wallet was not found in the selected group"), {
+      status: 404,
+      code: "WALLET_NOT_FOUND",
+    });
+  }
+  const duplicate = await requireAssetsResult(
+    supabase
+      .from("asset_wallets")
+      .select("wallet_id")
+      .eq("user_id", userId)
+      .eq("public_address", publicAddress)
+      .neq("wallet_id", walletId)
+      .maybeSingle(),
+    "Unable to verify the wallet address",
+  );
+  if (duplicate) {
+    throw Object.assign(new Error("This Solana address is already bound to another wallet in your account"), {
+      status: 409,
+      code: "PUBLIC_ADDRESS_ALREADY_BOUND",
+    });
+  }
+  const signerReference = String(body?.signerReference || body?.signer_reference || "").trim();
+  const updated = await requireAssetsResult(
+    supabase
+      .from("asset_wallets")
+      .update({
+        public_address: publicAddress,
+        provisioning_status: "active",
+        signer_reference: signerReference || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("wallet_id", walletId)
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .select("wallet_id,group_id,user_id,wallet_index,public_address,provisioning_status,created_at,updated_at")
+      .single(),
+    "Unable to bind the provider wallet",
+  );
+  const listing = await listGroupWallets(supabase, userId, groupId);
+  return {
+    mode: "live",
+    provider: "external_wallet",
+    group: listing.group,
+    wallet: publicWallet(updated, group.network),
+    wallets: listing.wallets,
+    note: "Only the public address and optional provider reference were stored. Private keys are never accepted by this endpoint.",
+  };
 }
 
 export async function handleAssetsRoute({
@@ -521,6 +903,20 @@ export async function handleAssetsRoute({
     sendJson(response, 201, result);
     return true;
   }
+  const bindWalletMatch = path.match(
+    /^\/api\/v1\/wallet-groups\/([0-9a-f-]{36})\/wallets\/([0-9a-f-]{36})\/bind$/i,
+  );
+  if (bindWalletMatch && request.method === "POST") {
+    const result = await bindWalletAddress(
+      supabase,
+      userId,
+      bindWalletMatch[1],
+      bindWalletMatch[2],
+      await readBody(request),
+    );
+    sendJson(response, 200, result);
+    return true;
+  }
   if (request.method === "GET" && path === "/api/v1/account/portfolio") {
     const period = new URL(
       request.url || "/",
@@ -537,16 +933,16 @@ export async function handleAssetsRoute({
       mode: "supabase",
       period,
       currency: "USD",
-      totalBalance: "0.00",
-      turnover: "0.00",
-      realizedPnl: "0.00",
-      unrealizedPnl: "0.00",
-      pnlPercent: "0.00",
-      balances: { SOL: "0", BNB: "0" },
+      totalBalance: null,
+      turnover: null,
+      realizedPnl: null,
+      unrealizedPnl: null,
+      pnlPercent: null,
+      balances: {},
       history: [],
       walletGroupCount: groups.length,
       walletCount: groups.reduce((sum, group) => sum + group.walletCount, 0),
-      dataStatus: "persistence_only",
+      dataStatus: "live_balance_provider_required",
       updatedAt: new Date().toISOString(),
     });
     return true;
@@ -773,11 +1169,11 @@ export default async function handler(request, response) {
       status: "ok",
       version: "v1",
       persistence: serverSupabase() ? "supabase" : "unconfigured",
-      execution: "disabled",
+      execution: gmgnCredentialsConfigured() ? "gmgn_live" : "gmgn_not_configured",
     });
   }
   if (request.method === "GET" && path === "/api/v1/pulse") {
-    return sendJson(response, 200, pulseStatus(), {
+    return sendJson(response, 200, await pulseStatus(serverSupabase()), {
       "cache-control": "public, max-age=0, s-maxage=60, stale-while-revalidate=300",
     });
   }
@@ -825,8 +1221,198 @@ export default async function handler(request, response) {
     );
   }
 
+
+  if (request.method === "POST" && path === "/api/v1/agent/conversations") {
+    try {
+      const body = await readBody(request);
+      const authSupabase = serverSupabase();
+      const session = authSupabase ? await loadSession(authSupabase, request) : null;
+      const { userId: _ignoredUserId, user_id: _ignoredSnakeUserId, ...clientContext } = body.context || {};
+      const userId = authenticatedUserId(session);
+      const conversation = await createAgentConversation({
+        ...body,
+        context: { ...clientContext, ...(userId ? { userId } : {}) },
+      });
+      return sendJson(response, 201, conversation, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "INTERNAL_ERROR",
+        error.message || "Unable to create agent conversation",
+      );
+    }
+  }
+
+  if (request.method === "GET" && path.startsWith("/api/v1/agent/conversations/")) {
+    const conversationId = path.slice("/api/v1/agent/conversations/".length);
+    if (!conversationId || conversationId.includes("/")) {
+      // allow message subpath to fall through if needed
+    }
+    if (conversationId && !conversationId.includes("/")) {
+      const conversation = await getAgentConversation(conversationId);
+      if (!conversation) {
+        return apiError(response, 404, "CONVERSATION_NOT_FOUND", "Agent conversation was not found");
+      }
+      return sendJson(response, 200, conversation, { "cache-control": "private, no-store" });
+    }
+  }
+
+  if (request.method === "POST" && /^\/api\/v1\/agent\/conversations\/[^/]+\/messages$/.test(path)) {
+    try {
+      const conversationId = path.split("/")[5];
+      const body = await readBody(request);
+      const authSupabase = serverSupabase();
+      const session = authSupabase ? await loadSession(authSupabase, request) : null;
+      const { userId: _ignoredUserId, user_id: _ignoredSnakeUserId, ...clientContext } = body.context || {};
+      const userId = authenticatedUserId(session);
+      const result = await postAgentConversationMessage(conversationId, {
+        ...body,
+        channel: body.channel || "web",
+        wait: body.wait !== false,
+        context: { ...clientContext, ...(userId ? { userId } : {}) },
+      });
+      return sendJson(response, 200, result, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "INTERNAL_ERROR",
+        error.message || "Unable to process agent message",
+      );
+    }
+  }
+
+  if (request.method === "POST" && path === "/api/v1/agent/tasks") {
+    try {
+      const body = await readBody(request);
+      const authSupabase = serverSupabase();
+      const session = authSupabase ? await loadSession(authSupabase, request) : null;
+      const userId = authenticatedUserId(session);
+      const context = body.context || body.parameters?.context || {};
+      const { userId: _ignoredUserId, user_id: _ignoredSnakeUserId, ...clientContext } = context;
+      const result = await createAgentTask({
+        ...body,
+        context: { ...clientContext, ...(userId ? { userId } : {}) },
+        parameters: { ...(body.parameters || {}), context: { ...clientContext, ...(userId ? { userId } : {}) } },
+      });
+      return sendJson(response, 202, result, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "INTERNAL_ERROR",
+        error.message || "Unable to create agent task",
+      );
+    }
+  }
+
+  if (request.method === "PATCH" && path.startsWith("/api/v1/go/launch-drafts/")) {
+    try {
+      const draftId = path.slice("/api/v1/go/launch-drafts/".length);
+      if (!draftId) {
+        return apiError(response, 400, "VALIDATION_ERROR", "launch draft id is required");
+      }
+      const draftSupabase = serverSupabase();
+      const session = draftSupabase ? await loadSession(draftSupabase, request) : null;
+      const userId = authenticatedUserId(session);
+      const owned = await ownedLaunchDraft(draftSupabase, userId, draftId);
+      if (!owned) return apiError(response, 404, "LAUNCH_DRAFT_NOT_FOUND", "The launch draft was not found");
+      const body = await readBody(request);
+      const result = await updateAgentLaunchDraft(draftId, body);
+      return sendJson(response, 200, result, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "INTERNAL_ERROR",
+        error.message || "Unable to update launch draft",
+      );
+    }
+  }
+
+  if (request.method === "POST" && /^\/api\/v1\/go\/launch-drafts\/[0-9a-f-]{36}\/execute$/i.test(path)) {
+    try {
+      const body = await readBody(request);
+      if (body.confirm !== true) {
+        return apiError(response, 409, "LAUNCH_CONFIRMATION_REQUIRED", "Set confirm=true after reviewing the launch fields and wallet groups");
+      }
+      const launchSupabase = serverSupabase();
+      const session = launchSupabase ? await loadSession(launchSupabase, request) : null;
+      const userId = authenticatedUserId(session);
+      const draftId = path.split("/")[5];
+      const result = await executeLiveLaunchDraft({ supabase: launchSupabase, userId, draftId });
+      return sendJson(response, 200, result, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "LIVE_LAUNCH_FAILED",
+        error.message || "Unable to complete the live Pump launch",
+      );
+    }
+  }
+
+  if (request.method === "POST" && path === "/api/v1/telegram/webhook") {
+    try {
+      const secret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+      if (secret) {
+        const provided =
+          request.headers["x-telegram-bot-api-secret-token"] ||
+          request.headers["x-narraops-telegram-secret"] ||
+          "";
+        if (provided !== secret) {
+          return apiError(response, 401, "TELEGRAM_WEBHOOK_UNAUTHORIZED", "Invalid Telegram webhook secret");
+        }
+      }
+      const body = await readBody(request);
+      const result = await handleTelegramWebhook(body);
+      return sendJson(response, 200, result, { "cache-control": "no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "INTERNAL_ERROR",
+        error.message || "Unable to handle Telegram webhook",
+      );
+    }
+  }
+
   if (request.method === "POST" && path === "/api/v1/go/plan") {
     const body = await readBody(request);
+    const directAgentInput = [
+      body.command,
+      body.message,
+      typeof body.input === "string" ? body.input : null,
+    ].find((value) => typeof value === "string" && value.trim());
+    if (/^\s*\/(?:analyze-meme|analyze)\b/i.test(String(directAgentInput || ""))) {
+      try {
+        const agentResult = await getSharedAgentRuntime().handleMessage({
+          channel: "web",
+          message: String(directAgentInput).trim(),
+          command: String(directAgentInput).trim(),
+          context: body.context || { language: "zh", currentView: "go" },
+          wait: true,
+          timeoutMs: Number(body.timeoutMs || 20_000),
+        });
+        return sendJson(
+          response,
+          200,
+          {
+            ...agentResult,
+            card: agentResult.cards?.[0] || null,
+          },
+          { "cache-control": "private, no-store" },
+        );
+      } catch (error) {
+        return apiError(
+          response,
+          error.status || 500,
+          error.code || "AGENT_RUNTIME_ERROR",
+          error.message || "Unable to analyze the meme contract",
+        );
+      }
+    }
     const snapshotId = body.snapshotId || body.snapshot_id || null;
     if (snapshotId) {
       const narrativeSupabase = serverSupabase();
@@ -888,7 +1474,7 @@ export default async function handler(request, response) {
         );
       }
     }
-    const result = buildPulsePlanResponse(REVIEWED_PULSE_SNAPSHOT, {
+    const result = buildPulsePlanResponse(await pulseStatus(serverSupabase()), {
       opportunityId: body.opportunityId || body.opportunity_id || null,
       message: body.message || body.input || null,
       command: body.command || null,
@@ -971,7 +1557,8 @@ export default async function handler(request, response) {
       path === "/api/v1/wallet-groups" ||
       path === "/api/v1/account/portfolio" ||
       path === "/api/v1/account/login-wallet-assets" ||
-      /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}\/wallets$/i.test(path)
+      /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}\/wallets$/i.test(path) ||
+      /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}\/wallets\/[0-9a-f-]{36}\/bind$/i.test(path)
     ) {
       const session = await loadSession(supabase, request);
       if (

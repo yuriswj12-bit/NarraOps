@@ -5,6 +5,7 @@ import { parseGoInput } from "../../agents/go-command-parser.ts";
 import { policyForType } from "../../agents/go-command-catalog.ts";
 
 const TASK_TYPES = new Set([
+  "agent.chat",
   "narrative.scan",
   "narrative.generate",
   "narrative.recommend",
@@ -14,9 +15,14 @@ const TASK_TYPES = new Set([
   "launch.meme",
   "trade.buy.batch",
   "trade.sell.batch",
+  "trade.confirm",
   "funds.transfer",
   "funds.withdraw",
   "dev.market.scan",
+  "market.trending",
+  "market.trenches",
+  "market.kline",
+  "market.signal",
   "narrative.trends",
   "meme.analyze",
   "account.recent-summary",
@@ -246,9 +252,10 @@ export function validateConversationCreate(body) {
   const context = isObject(body.context) ? body.context : {};
   base(context);
   return {
-    language: context.language === "en" ? "en" : "zh",
+    language: context.language === "zh" ? "zh" : "en",
     currentView: string(context.currentView, "context.currentView", { max: 50 }) || "go",
     projectId: string(context.projectId, "context.projectId", { max: 100 }),
+    userId: string(context.userId || context.user_id, "context.userId", { max: 128 }),
   };
 }
 
@@ -261,10 +268,15 @@ export function validateConversationMessage(body) {
   return {
     message,
     command,
+    wait: body.wait === true,
+    timeout_ms: Number.isInteger(body.timeout_ms)
+      ? Math.min(Math.max(body.timeout_ms, 250), 15_000)
+      : 8_000,
     context: {
-      language: context.language === "en" ? "en" : "zh",
+      language: context.language === "zh" ? "zh" : "en",
       currentView: string(context.currentView, "context.currentView", { max: 50 }) || "go",
       projectId: string(context.projectId, "context.projectId", { max: 100 }),
+      userId: string(context.userId || context.user_id, "context.userId", { max: 128 }),
     },
   };
 }

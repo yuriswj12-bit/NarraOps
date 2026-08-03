@@ -111,6 +111,12 @@ const state = {
     pendingNarrative: null,
     pendingNarrativeSnapshot: null,
     busy: false,
+    launchWalletGroups: [],
+    launchWalletGroupsLoading: false,
+    launchWalletGroupsLoaded: false,
+    launchWalletGroupsError: null,
+    launchWalletGroupsRetryTimer: null,
+    savingDraftIds: new Set(),
   },
   assets: {
     mode: "live",
@@ -641,14 +647,14 @@ function renderNarrativeDiscovery() {
     `;
   }).join("");
   const status = state.pulse.narrativesError
-    ? t("????????", "Source temporarily unavailable")
+    ? t("来源暂时不可用", "Source temporarily unavailable")
     : state.pulse.loading
-      ? t("????", "Updating")
-      : total
-        ? t("??", "Live")
-        : state.pulse.narratives?.data_status === "collector_stale"
-          ? t("????", "Collector delayed")
-          : t("?????", "Waiting for signals");
+      ? t("更新中", "Updating")
+      : ["collector_stale", "delayed_live_snapshot"].includes(state.pulse.narratives?.data_status)
+        ? t("采集延迟", "Collector delayed")
+        : total
+          ? t("实时", "Live")
+          : t("等待信号", "Waiting for signals");
   return `
     <section class="section-block narrative-discovery">
       <div class="narrative-discovery-header">
@@ -866,7 +872,6 @@ function renderStructuredCard(card) {
   const cardMeta = {
     narrative_snapshot: ["fa-solid fa-wave-square", "叙事快照", "Narrative Snapshot"],
     meme_package: ["fa-solid fa-shapes", "Meme 构建包", "Meme Build Package"],
-    launch_draft: ["fa-solid fa-file-signature", "发射预案", "Launch-ready Plan"],
     execution_plan: ["fa-solid fa-diagram-project", "执行计划", "Execution Plan"],
     community_plan: ["fa-solid fa-users-rays", "社区运营计划", "Community Operations Plan"],
     dev_market: ["fa-solid fa-chart-line", "链上行情", "On-chain Market"],
@@ -876,30 +881,23 @@ function renderStructuredCard(card) {
   };
   const [icon, titleZh, titleEn] = cardMeta[card.type] || ["fa-solid fa-table-list", "任务结果", "Task Result"];
   const data = card.data && typeof card.data === "object" ? card.data : {};
-  const entries = Object.entries(data);
-  const scalarEntries = entries.filter(([, value]) => value === null || ["string", "number", "boolean"].includes(typeof value));
-  const complexEntries = entries.filter(([, value]) => value && typeof value === "object");
-  const metrics = scalarEntries.slice(0, 6).map(([key, value]) => `
+  const scalarEntries = Object.entries(data)
+    .filter(([key, value]) => !hiddenAgentCardKeys.has(key) && (value === null || ["string", "number", "boolean"].includes(typeof value)))
+    .slice(0, 6);
+  const metrics = scalarEntries.map(([key, value]) => `
     <div class="go-card-metric">
       <span>${formatAgentKey(key)}</span>
       <strong>${formatAgentValue(value)}</strong>
     </div>
   `).join("");
-  const details = complexEntries.map(([key, value]) => `
-    <details class="go-card-data-group">
-      <summary>${formatAgentKey(key)} <span>${Array.isArray(value) ? value.length : Object.keys(value).length}</span></summary>
-      <pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>
-    </details>
-  `).join("");
 
   return `
-    <article class="go-structured-card" data-card-type="${card.type}">
+    <article class="go-structured-card" data-card-type="${escapeHtml(String(card.type || ""))}">
       <header>
         <div><i class="${icon}" aria-hidden="true"></i><strong>${t(titleZh, titleEn)}</strong></div>
-        <span>${escapeHtml(String(data.data_status || data.status || data.mode || card.status || t("已返回", "Returned")))}</span>
+        <span>${t("已完成", "Completed")}</span>
       </header>
-      ${metrics ? `<div class="go-card-metrics">${metrics}</div>` : ""}
-      ${details || (!entries.length ? `<p class="go-card-empty">${t("后端未返回可展示的数据。", "The backend returned no displayable data.")}</p>` : "")}
+      ${metrics ? `<div class="go-card-metrics">${metrics}</div>` : `<p class="go-card-empty">${t("结果已生成，可继续追问关键信息。", "The result is ready. Ask a follow-up for the details you need.")}</p>`}
     </article>
   `;
 }
@@ -973,7 +971,10 @@ function renderConversation() {
 }
 
 function renderGo() {
-  if (!state.conversation.length) state.conversation = getInitialConversation();
+  if (!state.conversation.length) {
+    state.conversation = getInitialConversation();
+    void restoreGoConversation().then((id) => { if (id) renderConversation(); });
+  }
   const quickActions = [
     ["/narrative-trends", "fa-solid fa-arrow-trend-up", "叙事趋势", "Narrative Trends", "查看正在加速的互联网叙事和证据来源。", "Review accelerating internet narratives and public evidence."],
     ["/analyze-meme", "fa-solid fa-magnifying-glass-chart", "分析叙事", "Analyze Narrative", "输入链接或合约，提取故事、来源、风险和重复度。", "Submit a link or contract to extract story, sources, risks, and crowding."],
@@ -1062,6 +1063,42 @@ async function loadAssets({ keepGroup = true } = {}) {
   } finally {
     state.assets.loading = false;
     renderAssets();
+  }
+}
+
+async function ensureLaunchWalletGroups({ force = false } = {}) {
+  if (state.go.launchWalletGroupsLoading) return;
+  if (!force && state.go.launchWalletGroupsLoaded) return;
+  if (!state.auth.session) {
+    state.go.launchWalletGroupsLoaded = false;
+    state.go.launchWalletGroupsError = null;
+    return;
+  }
+  state.go.launchWalletGroupsLoading = true;
+  state.go.launchWalletGroupsError = null;
+  if (state.view === "go") renderConversation();
+  try {
+    const result = await apiRequest("/api/v1/wallet-groups");
+    state.go.launchWalletGroups = Array.isArray(result.groups) ? result.groups : [];
+    state.go.launchWalletGroupsLoaded = true;
+    state.go.launchWalletGroupsError = null;
+    if (state.go.launchWalletGroupsRetryTimer) {
+      window.clearTimeout(state.go.launchWalletGroupsRetryTimer);
+      state.go.launchWalletGroupsRetryTimer = null;
+    }
+  } catch (error) {
+    state.go.launchWalletGroups = [];
+    state.go.launchWalletGroupsLoaded = false;
+    state.go.launchWalletGroupsError = error instanceof Error ? error.message : String(error);
+    if (!state.go.launchWalletGroupsRetryTimer && state.auth.session) {
+      state.go.launchWalletGroupsRetryTimer = window.setTimeout(() => {
+        state.go.launchWalletGroupsRetryTimer = null;
+        void ensureLaunchWalletGroups({ force: true });
+      }, 5_000);
+    }
+  } finally {
+    state.go.launchWalletGroupsLoading = false;
+    if (state.view === "go") renderConversation();
   }
 }
 
@@ -1999,6 +2036,7 @@ async function loadAuthSession() {
   finally {
     state.auth.loading = false;
     updateAuthButtons();
+    if (state.auth.session) void ensureLaunchWalletGroups({ force: true });
     if (state.auth.session && !state.auth.session.user.onboardingCompleted) window.setTimeout(openOnboarding, 250);
   }
 }
@@ -2065,6 +2103,7 @@ async function web3Login(walletId) {
     }
     closeModal();
     updateAuthButtons();
+    await ensureLaunchWalletGroups({ force: true });
     if (state.view === "assets") await loadAssets();
     showToast(t("钱包登录成功", "Wallet sign-in successful"));
     if (!state.auth.session.user.onboardingCompleted) window.setTimeout(openOnboarding, 180);
@@ -2248,11 +2287,137 @@ function getAgentResponse(command) {
   };
 }
 
+
+
+async function restoreGoConversation() {
+  const savedId = window.localStorage.getItem("narraops.go.conversationId");
+  if (!savedId) return null;
+  try {
+    const payload = await apiRequest(`/api/v1/agent/conversations/${savedId}`, { method: "GET" });
+    state.agent.conversationId = payload.conversationId || payload.conversation_id || savedId;
+    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    if (messages.length) {
+      state.conversation = [
+        ...getInitialConversation(),
+        ...messages.map((message) => {
+          if (message.role === "user") {
+            return {
+              role: "user",
+              content: message.content || "",
+              timestamp: getMessageTime(),
+            };
+          }
+          const cards = Array.isArray(message.blocks) ? message.blocks.filter((block) => block?.type) : [];
+          return {
+            role: "agent",
+            contentZh: message.content || "",
+            contentEn: message.content || "",
+            cards,
+            timestamp: getMessageTime(),
+            status: message.status || null,
+            taskId: message.taskId || message.task_id || null,
+          };
+        }),
+      ];
+    }
+    if (state.conversation.some((message) =>
+      [message.card, ...(message.cards || [])].some((card) => card?.type === "launch_draft")
+    )) {
+      void ensureLaunchWalletGroups();
+    }
+    return state.agent.conversationId;
+  } catch {
+    window.localStorage.removeItem("narraops.go.conversationId");
+    return null;
+  }
+}
+
+async function patchLaunchDraft(draftId, patch) {
+  const payload = await apiRequest(`/api/v1/go/launch-drafts/${draftId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  const card = payload.card || {
+    type: "launch_draft",
+    status: payload.draft?.preparation_status || "draft",
+    data: payload.draft,
+  };
+  state.conversation = state.conversation.map((message) => {
+    const next = { ...message };
+    if (next.card?.type === "launch_draft" && String(next.card.data?.launch_draft_id || "") === String(draftId)) {
+      next.card = card;
+    }
+    if (Array.isArray(next.cards)) {
+      next.cards = next.cards.map((item) =>
+        item?.type === "launch_draft" && String(item.data?.launch_draft_id || "") === String(draftId) ? card : item
+      );
+    }
+    return next;
+  });
+  renderConversation();
+  return payload;
+}
+
+async function ensureGoConversation() {
+  if (state.agent.conversationId) return state.agent.conversationId;
+  if (state.agent.conversationPromise) return state.agent.conversationPromise;
+  state.agent.conversationPromise = (async () => {
+    const payload = await apiRequest("/api/v1/agent/conversations", {
+      method: "POST",
+      body: JSON.stringify({
+        channel: "web",
+        context: {
+          language: state.language,
+          currentView: state.view || "go",
+        },
+      }),
+    });
+    state.agent.conversationId = payload.conversationId || payload.conversation_id;
+    if (state.agent.conversationId) window.localStorage.setItem("narraops.go.conversationId", state.agent.conversationId);
+    return state.agent.conversationId;
+  })();
+  try {
+    return await state.agent.conversationPromise;
+  } finally {
+    state.agent.conversationPromise = null;
+  }
+}
+
+function cardFromRuntimeResult(result) {
+  if (result?.cards?.length) return result.cards[0];
+  if (result?.task?.result?.card) return result.task.result.card;
+  if (result?.card) return result.card;
+  return null;
+}
+
+function agentMessageFromRuntime(result, fallbackCommand = "") {
+  const card = cardFromRuntimeResult(result);
+  const isLaunchDraft = card?.type === "launch_draft";
+  if (isLaunchDraft) void ensureLaunchWalletGroups();
+  const content = isLaunchDraft
+    ? t("已根据公开链接生成发射预案。你可以直接修改参数并选择钱包组。", "A launch draft was generated from the public link. Edit the fields and select wallet groups below.")
+    : result?.message?.content || t("任务已完成。", "Task completed.");
+  const suggestion = isLaunchDraft
+    ? ""
+    : result?.message?.suggestion || t("可以继续追问或补充条件。", "You can ask a follow-up or add constraints.");
+  return {
+    role: "agent",
+    timestamp: getMessageTime(),
+    contentZh: content,
+    contentEn: content,
+    suggestionZh: suggestion || undefined,
+    suggestionEn: suggestion || undefined,
+    card: card || undefined,
+    taskId: result?.task_id || result?.task?.task_id || null,
+    status: result?.status || result?.task?.status || null,
+  };
+}
+
 function shouldUsePulsePlan(command) {
   if (state.go.pendingOpportunityId || state.go.pendingNarrativeSnapshot?.snapshot_id) {
     return true;
   }
-  return /\/(pulse|narrative|launch|plan|analyze-meme)\b|execution plan|analyze in go|pulse opportunity|opportunity id/i.test(command);
+  return /\/(pulse|narrative|plan)\b|execution plan|analyze in go|pulse opportunity|opportunity id/i.test(command);
 }
 
 function replacePendingMessage(pendingId, message) {
@@ -2391,7 +2556,7 @@ async function submitAgentConversation(command, pendingId) {
 
 function submitAgentCommand(value) {
   const command = value.trim();
-  if (!command || state.go.busy) return;
+  if (!command || state.go.busy || state.agent.submitting) return;
   const pendingId = `pending-${Date.now()}`;
   state.conversation.push({ role: "user", content: command, timestamp: getMessageTime() });
   state.conversation.push({ role: "agent", pending: true, pendingId, timestamp: getMessageTime() });
@@ -2537,6 +2702,26 @@ viewRoot.addEventListener("click", async (event) => {
   const opportunity = event.target.closest("[data-opportunity]");
   if (opportunity) {
     openPulseOpportunity(opportunity.dataset.opportunity);
+    return;
+  }
+
+  if (event.target.closest("[data-open-assets]")) {
+    switchView("assets");
+    return;
+  }
+
+  const draftAction = event.target.closest("[data-draft-action]");
+  if (draftAction) {
+    const draftId = draftAction.dataset.draftId;
+    if (!draftId) return;
+    try {
+      if (draftAction.dataset.draftAction === "mark-review") {
+        await patchLaunchDraft(draftId, { action: "mark_reviewed" });
+        showToast(t("已标记为人工审阅。", "Marked as human-reviewed."));
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error));
+    }
     return;
   }
 
@@ -2749,6 +2934,11 @@ viewRoot.addEventListener("submit", async (event) => {
   submitAgentCommand(document.querySelector("#agentInput")?.value || "");
 });
 
+viewRoot.addEventListener("reset", (event) => {
+  if (!event.target.matches("[data-launch-draft-form]")) return;
+  window.setTimeout(renderConversation, 0);
+});
+
 modal.addEventListener("submit", async (event) => {
   if (event.target.id === "accountWithdrawForm") {
     event.preventDefault();
@@ -2888,6 +3078,43 @@ viewRoot.addEventListener("keydown", (event) => {
 });
 
 viewRoot.addEventListener("input", (event) => {
+  if (event.target.matches("[data-launch-name], [data-launch-symbol]")) {
+    if (event.target.matches("[data-launch-symbol]")) {
+      event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 13);
+    }
+    const counter = event.target.closest(".launch-field")?.querySelector(".launch-field-title small");
+    if (counter) counter.textContent = `${event.target.value.length}/${event.target.maxLength}`;
+    return;
+  }
+  if (event.target.matches("[data-launch-image-url]")) {
+    const preview = event.target.closest("form")?.querySelector("[data-launch-image-preview]");
+    if (!preview) return;
+    const imageUrl = safePublicImageUrl(event.target.value);
+    preview.replaceChildren();
+    preview.classList.toggle("has-image", Boolean(imageUrl));
+    if (imageUrl) {
+      const image = document.createElement("img");
+      image.src = imageUrl;
+      image.alt = t("代币图片预览", "Token image preview");
+      image.addEventListener("error", () => {
+        preview.classList.remove("has-image");
+        preview.replaceChildren();
+        const icon = document.createElement("i");
+        icon.className = "fa-regular fa-image";
+        const label = document.createElement("small");
+        label.textContent = t("图片无法加载", "Image unavailable");
+        preview.append(icon, label);
+      }, { once: true });
+      preview.append(image);
+    } else {
+      const icon = document.createElement("i");
+      icon.className = "fa-regular fa-image";
+      const label = document.createElement("small");
+      label.textContent = t("粘贴图片链接", "Paste image URL");
+      preview.append(icon, label);
+    }
+    return;
+  }
   if (event.target.id === "transferFraction") {
     state.assets.transferFraction = Number(event.target.value);
     state.assets.transferPreview = null;

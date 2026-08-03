@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -79,6 +80,7 @@ def collect_transactions(
             collected.append(row)
         if not token:
             break
+        time.sleep(float(os.getenv("PULSE_RPC_PAGE_DELAY_SECONDS", "0.12")))
     return collected, newest, reached_cursor
 
 
@@ -319,6 +321,11 @@ def run() -> dict:
             "sample_launch_count": sample_launches,
             "sample_graduation_count": sample_graduations,
             "daily_estimator": "event_count / observed_seconds * 86400",
+            "index_input_normalization": "trailing_3_observation_median",
+            "normalized_index_inputs": {
+                name: component["normalized_value"]
+                for name, component in calculated["components"].items()
+            },
             "cursor_reached": reached_cursor,
             "raw_retention_cutoff": retention_cutoff,
             "hourly_observations_retained": True,

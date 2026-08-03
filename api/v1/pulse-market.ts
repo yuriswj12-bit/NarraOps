@@ -70,7 +70,7 @@ export function buildPulseMarketResponse(rows = []) {
       change_24h: change24h,
       unit: "points",
       methodology:
-        "Bounded samples of real Pump.fun transactions estimate 24-hour launch and graduation rates; a rotating wallet panel measures participation. Each metric is ranked against earlier real hourly snapshots using duplicate-aware mid-rank percentiles. No neutral default or synthetic history is used.",
+        "Bounded samples of real Pump.fun transactions estimate launch, graduation, and wallet activity. A trailing three-observation median suppresses one-sample cliffs before each metric is ranked against earlier real snapshots using duplicate-aware mid-rank percentiles. No synthetic history is used.",
       value_source:
         displayRow === current ? "current_chain_observation" : "legacy_fallback",
       raw_value: decimalOrNull(displayRow?.market_activity_index_raw),
@@ -114,7 +114,7 @@ export function buildPulseMarketResponse(rows = []) {
         ),
       })),
     explanation:
-      "Measures Pump.fun Meme market creation, graduation, and wallet participation from bounded on-chain samples. It is not a full transaction census, price prediction, or trading signal.",
+      "Measures Pump.fun Meme market creation, graduation, and wallet participation from bounded on-chain samples with three-observation outlier smoothing. It is not a full transaction census, price prediction, or trading signal.",
   };
 }
 

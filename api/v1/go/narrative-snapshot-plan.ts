@@ -36,7 +36,7 @@ export function buildNarrativeSnapshotPlanResponse(snapshot) {
     schema_version: "go.plan.v1",
     mode: "pulse_narrative_snapshot",
     data_status: "private_snapshot",
-    execution: "disabled",
+    execution: "live_confirmation_required",
     source,
     plan,
     card: {
