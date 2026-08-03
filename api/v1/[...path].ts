@@ -22,7 +22,7 @@ import {
   postAgentConversationMessage,
   updateAgentLaunchDraft,
 } from "./agent/runtime.cjs";
-import { GmgnExecutionAdapter } from "../../backend/integrations/gmgn-execution-adapter.ts";
+import { GmgnExecutionAdapter } from "./gmgn-execution-adapter.cjs";
 
 const COOKIE_NAME = "narraops_session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
