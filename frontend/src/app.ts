@@ -89,6 +89,7 @@ const state = {
   auth: { loading: true, session: null, busy: false },
   pulse: {
     loading: false,
+    narrativesLoading: false,
     error: null,
     dataStatus: "loading",
     observedAt: null,
@@ -401,67 +402,70 @@ function formatPulseObservedAt(value) {
 async function loadPulse() {
   if (state.pulse.loading) return;
   state.pulse.loading = true;
+  state.pulse.narrativesLoading = true;
   state.pulse.error = null;
   if (state.view === "pulse") renderPulseConnected();
-  try {
-    const [pulseResult, marketResult, devPnlResult, narrativesResult] = await Promise.allSettled([
-      apiRequest("/api/v1/pulse", { cache: "no-store" }),
-      apiRequest("/api/v1/pulse/market", { cache: "no-store" }),
-      apiRequest("/api/v1/pulse/dev-wallet-pnl", { cache: "no-store" }),
-      apiRequest("/api/v1/pulse/narratives", { cache: "no-store" }),
-    ]);
-    if (pulseResult.status === "rejected") throw pulseResult.reason;
-    const payload = pulseResult.value;
-    opportunities = Array.isArray(payload.opportunities)
-      ? payload.opportunities.map(pulseViewModel)
-      : [];
-    state.pulse.dataStatus = payload.data_status || "unavailable";
-    state.pulse.observedAt = payload.observed_at || null;
-    state.pulse.collector = payload.collector || null;
-    state.pulse.limitations = Array.isArray(payload.limitations) ? payload.limitations : [];
-    if (marketResult.status === "fulfilled") {
-      state.pulse.market = marketResult.value;
-      state.pulse.marketError = null;
-    } else {
-      state.pulse.market = null;
-      state.pulse.marketError = marketResult.reason instanceof Error
-        ? marketResult.reason.message
-        : String(marketResult.reason || "Unavailable");
-    }
-    if (devPnlResult.status === "fulfilled") {
-      state.pulse.devPnl = devPnlResult.value;
-      state.pulse.devPnlError = null;
-    } else {
-      state.pulse.devPnl = null;
-      state.pulse.devPnlError = devPnlResult.reason instanceof Error
-        ? devPnlResult.reason.message
-        : String(devPnlResult.reason || "Unavailable");
-    }
-    if (narrativesResult.status === "fulfilled") {
-      state.pulse.narratives = narrativesResult.value;
-      state.pulse.narrativesError = null;
-    } else {
-      state.pulse.narratives = null;
-      state.pulse.narrativesError = narrativesResult.reason instanceof Error
-        ? narrativesResult.reason.message
-        : String(narrativesResult.reason || "Unavailable");
-    }
-  } catch (error) {
-    opportunities = [];
-    state.pulse.dataStatus = "unavailable";
-    state.pulse.error = error instanceof Error ? error.message : String(error);
-    state.pulse.collector = null;
-    state.pulse.limitations = [];
-    state.pulse.market = null;
-    state.pulse.marketError = null;
-    state.pulse.devPnl = null;
-    state.pulse.devPnlError = null;
-    state.pulse.narratives = null;
-    state.pulse.narrativesError = null;
-  } finally {
-    state.pulse.loading = false;
+  const renderIfPulse = () => {
     if (state.view === "pulse") renderPulseConnected();
-  }
+  };
+  const pulseRequest = apiRequest("/api/v1/pulse", { cache: "no-store" })
+    .then((payload) => {
+      opportunities = Array.isArray(payload.opportunities)
+        ? payload.opportunities.map(pulseViewModel)
+        : [];
+      state.pulse.dataStatus = payload.data_status || "unavailable";
+      state.pulse.observedAt = payload.observed_at || null;
+      state.pulse.collector = payload.collector || null;
+      state.pulse.limitations = Array.isArray(payload.limitations) ? payload.limitations : [];
+      state.pulse.loading = false;
+      renderIfPulse();
+    })
+    .catch((error) => {
+      opportunities = [];
+      state.pulse.dataStatus = "unavailable";
+      state.pulse.error = error instanceof Error ? error.message : String(error);
+      state.pulse.collector = null;
+      state.pulse.limitations = [];
+      state.pulse.loading = false;
+      renderIfPulse();
+    });
+  const marketRequest = apiRequest("/api/v1/pulse/market", { cache: "no-store" })
+    .then((payload) => {
+      state.pulse.market = payload;
+      state.pulse.marketError = null;
+      renderIfPulse();
+    })
+    .catch((error) => {
+      state.pulse.market = null;
+      state.pulse.marketError = error instanceof Error ? error.message : String(error || "Unavailable");
+      renderIfPulse();
+    });
+  const devPnlRequest = apiRequest("/api/v1/pulse/dev-wallet-pnl", { cache: "no-store" })
+    .then((payload) => {
+      state.pulse.devPnl = payload;
+      state.pulse.devPnlError = null;
+      renderIfPulse();
+    })
+    .catch((error) => {
+      state.pulse.devPnl = null;
+      state.pulse.devPnlError = error instanceof Error ? error.message : String(error || "Unavailable");
+      renderIfPulse();
+    });
+  const narrativesRequest = apiRequest("/api/v1/pulse/narratives", { cache: "no-store" })
+    .then((payload) => {
+      state.pulse.narratives = payload;
+      state.pulse.narrativesError = null;
+      renderIfPulse();
+    })
+    .catch((error) => {
+      state.pulse.narratives = null;
+      state.pulse.narrativesError = error instanceof Error ? error.message : String(error || "Unavailable");
+      renderIfPulse();
+    });
+  await Promise.allSettled([pulseRequest, marketRequest, devPnlRequest, narrativesRequest]);
+  state.pulse.loading = false;
+  state.pulse.narrativesLoading = false;
+  renderIfPulse();
 }
 
 const marketRangeDuration = Object.freeze({
@@ -648,7 +652,7 @@ function renderNarrativeDiscovery() {
   }).join("");
   const status = state.pulse.narrativesError
     ? t("来源暂时不可用", "Source temporarily unavailable")
-    : state.pulse.loading
+    : state.pulse.narrativesLoading
       ? t("更新中", "Updating")
       : ["collector_stale", "delayed_live_snapshot"].includes(state.pulse.narratives?.data_status)
         ? t("采集延迟", "Collector delayed")
