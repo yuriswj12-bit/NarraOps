@@ -838,7 +838,14 @@ export default async function handler(request, response) {
   if (request.method === "POST" && path === "/api/v1/agent/conversations") {
     try {
       const body = await readBody(request);
-      const conversation = await createAgentConversation(body);
+      const authSupabase = serverSupabase();
+      const session = authSupabase ? await loadSession(authSupabase, request) : null;
+      const { userId: _ignoredUserId, user_id: _ignoredSnakeUserId, ...clientContext } = body.context || {};
+      const userId = authenticatedUserId(session);
+      const conversation = await createAgentConversation({
+        ...body,
+        context: { ...clientContext, ...(userId ? { userId } : {}) },
+      });
       return sendJson(response, 201, conversation, { "cache-control": "private, no-store" });
     } catch (error) {
       return apiError(
@@ -868,10 +875,15 @@ export default async function handler(request, response) {
     try {
       const conversationId = path.split("/")[5];
       const body = await readBody(request);
+      const authSupabase = serverSupabase();
+      const session = authSupabase ? await loadSession(authSupabase, request) : null;
+      const { userId: _ignoredUserId, user_id: _ignoredSnakeUserId, ...clientContext } = body.context || {};
+      const userId = authenticatedUserId(session);
       const result = await postAgentConversationMessage(conversationId, {
         ...body,
         channel: body.channel || "web",
         wait: body.wait !== false,
+        context: { ...clientContext, ...(userId ? { userId } : {}) },
       });
       return sendJson(response, 200, result, { "cache-control": "private, no-store" });
     } catch (error) {
@@ -887,7 +899,16 @@ export default async function handler(request, response) {
   if (request.method === "POST" && path === "/api/v1/agent/tasks") {
     try {
       const body = await readBody(request);
-      const result = await createAgentTask(body);
+      const authSupabase = serverSupabase();
+      const session = authSupabase ? await loadSession(authSupabase, request) : null;
+      const userId = authenticatedUserId(session);
+      const context = body.context || body.parameters?.context || {};
+      const { userId: _ignoredUserId, user_id: _ignoredSnakeUserId, ...clientContext } = context;
+      const result = await createAgentTask({
+        ...body,
+        context: { ...clientContext, ...(userId ? { userId } : {}) },
+        parameters: { ...(body.parameters || {}), context: { ...clientContext, ...(userId ? { userId } : {}) } },
+      });
       return sendJson(response, 202, result, { "cache-control": "private, no-store" });
     } catch (error) {
       return apiError(
@@ -916,6 +937,10 @@ export default async function handler(request, response) {
         error.message || "Unable to update launch draft",
       );
     }
+  }
+
+  if (request.method === "POST" && /^\/api\/v1\/go\/launch-drafts\/[0-9a-f-]{36}\/execute$/i.test(path)) {
+    return apiError(response, 503, "REAL_EXECUTION_DISABLED", "Live launch execution is not configured on this deployment. The draft was saved, but no transaction was signed or broadcast.");
   }
 
   if (request.method === "POST" && path === "/api/v1/telegram/webhook") {

@@ -26,6 +26,7 @@ import { generateAgentReply } from "./llm-provider.ts";
 
 const SUPPORTED_CHANNELS = new Set(["web", "telegram", "api"]);
 export const AGENT_CAPABILITIES = Object.freeze([
+  "NarraOps domain agent: narrative discovery -> analysis -> meme launch -> post-launch wallet operations",
   "Read-only GMGN market data: trending tokens, launchpad trenches, K-lines, token signals, and token due diligence",
   "HertzFlow Solana meme forensics: concentration, MM/bot, distribution, cash-out, relationship clusters, and monitoring report",
   "解释 NarraOps 能力和当前工作区状态",
@@ -229,6 +230,7 @@ export function createAgentRuntime(options = {}) {
         devWalletRepository: devWallets,
         launchDraftRepository: launchDrafts,
         conversationRepository: conversations,
+        walletGroupRepository: options.walletGroupRepository,
       }),
       stepDelayMs: options.stepDelayMs ?? config.taskStepDelayMs ?? 20,
     });

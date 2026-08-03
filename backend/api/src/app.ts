@@ -95,6 +95,29 @@ function readJson(req, limit) {
   });
 }
 
+async function imageUrlToDataUrl(imageUrl, timeoutMs = 8_000) {
+  const value = String(imageUrl || "").trim();
+  if (value.startsWith("data:image/")) return value;
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new ApiError(400, "INVALID_TOKEN_IMAGE", "Token image must be a public HTTP(S) URL");
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol) || /^(localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|::1)$/i.test(parsed.hostname)) {
+    throw new ApiError(400, "INVALID_TOKEN_IMAGE", "Token image must be a public HTTP(S) URL");
+  }
+  const response = await fetch(parsed, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) throw new ApiError(502, "TOKEN_IMAGE_UNAVAILABLE", "The token image could not be downloaded");
+  const contentType = response.headers.get("content-type")?.split(";", 1)[0] || "";
+  if (!contentType.startsWith("image/")) throw new ApiError(400, "INVALID_TOKEN_IMAGE", "The token image URL did not return an image");
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (contentLength > 5_500_000) throw new ApiError(413, "TOKEN_IMAGE_TOO_LARGE", "The token image must be smaller than 5.5 MB");
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > 5_500_000) throw new ApiError(413, "TOKEN_IMAGE_TOO_LARGE", "The token image must be smaller than 5.5 MB");
+  return `data:${contentType};base64,${bytes.toString("base64")}`;
+}
+
 async function waitForTaskCompletion(manager, taskId, timeoutMs = 8_000) {
   const deadline = Date.now() + timeoutMs;
   let task = await manager.get(taskId);
@@ -211,6 +234,7 @@ export function createApplication({ config, logger, repository, conversationRepo
       devWalletRepository: devWallets,
       launchDraftRepository: launchDrafts,
       conversationRepository: conversations,
+      walletGroupRepository: walletGroups,
     }),
     stepDelayMs: config.taskStepDelayMs,
   });
@@ -551,6 +575,36 @@ export function createApplication({ config, logger, repository, conversationRepo
         if (url.pathname === "/api/v1/launch/executions/prepare") {
           if (!launchCoordinator) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Internal Cooking-wallet launch execution is not configured");
           sendJson(res, 201, await launchCoordinator.prepare(validateInternalLaunchPrepare(body)), requestId);
+          return;
+        }
+
+        const launchDraftExecuteMatch = url.pathname.match(/^\/api\/v1\/go\/launch-drafts\/([0-9a-f-]{36})\/execute$/i);
+        if (launchDraftExecuteMatch) {
+          if (!launchCoordinator || !launchService) throw new ApiError(503, "LAUNCH_EXECUTION_UNAVAILABLE", "Live Cooking-wallet launch execution is not configured");
+          if (!config.realExecutionEnabled) throw new ApiError(503, "REAL_EXECUTION_DISABLED", "Live launch is disabled by server configuration");
+          const draft = await launchDrafts.get(launchDraftExecuteMatch[1]);
+          if (!draft) throw new ApiError(404, "LAUNCH_DRAFT_NOT_FOUND", "Launch draft was not found");
+          const platformId = typeof draft.platform === "string" ? draft.platform : draft.platform?.id;
+          const token = draft.token || {};
+          if (platformId !== "pump") throw new ApiError(400, "UNSUPPORTED_LAUNCH_PLATFORM", "The Go launch button currently supports Pump only");
+          if (!draft.cooking_wallet_group_id || !draft.bundled_wallet_group_id) throw new ApiError(400, "WALLET_GROUP_SELECTION_REQUIRED", "Select both a Cooking wallet group and a bundled wallet group before launching");
+          const input = validateInternalLaunchPrepare({
+            platform: "pump",
+            name: token.name,
+            symbol: token.symbol,
+            description: token.description,
+            imageBase64: await imageUrlToDataUrl(token.image_url, config.externalTimeoutMs || 8_000),
+            imageName: "narraops-token-image",
+            imageType: "image/png",
+            twitter: token.x_url || "",
+            website: token.website_url || "",
+            developerBuyAmount: token.initial_buy || "0",
+            cookingWalletGroupId: draft.cooking_wallet_group_id,
+            boundBuy: { enabled: false },
+          });
+          const prepared = await launchCoordinator.prepare(input);
+          const launched = await launchCoordinator.confirm({ executionId: prepared.executionId, confirmationToken: prepared.confirmationToken });
+          sendJson(res, 202, { draft_id: draft.launch_draft_id, status: launched.status, execution: launched, token_address: launched.tokenAddress || null, transaction_hash: launched.transactionHash || null }, requestId);
           return;
         }
 

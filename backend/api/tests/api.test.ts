@@ -95,7 +95,7 @@ test("Go command catalog exposes all requested categories and safe execution pol
   assert.ok(body.commands.some(({ command }) => command === "/meme"));
   for (const command of body.commands.filter(({ category }) => ["launch", "trade", "funds"].includes(category))) {
     assert.equal(command.requires_confirmation, true);
-    assert.equal(command.execution_mode, "disabled");
+    assert.equal(command.execution_mode, command.category === "trade" ? "confirmation_required" : "disabled");
   }
 });
 
@@ -177,7 +177,7 @@ test("Settings and execution capabilities keep signing and broadcasting disabled
   ]);
 });
 
-test("all six execution simulations use the unified state model without execution", async (t) => {
+test("execution simulations use the unified state model without execution", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
   const cases = [
@@ -185,8 +185,6 @@ test("all six execution simulations use the unified state model without executio
     ["/transfer 1 SOL wallet-demo", "transfer_simulation", "disabled", "requires_user_confirmation", true],
     ["/withdraw 1 SOL wallet-demo", "withdraw_simulation", "disabled", "requires_user_confirmation", true],
     ["/launch meme-demo", "launch_simulation", "disabled", "requires_user_confirmation", true],
-    ["/buy TOKEN 1 SOL group-a", "batch_buy_simulation", "disabled", "requires_user_confirmation", true],
-    ["/sell TOKEN 50% group-a", "batch_sell_simulation", "disabled", "requires_user_confirmation", true],
   ];
 
   for (const [command, simulationType, mode, executionStatus, requiresConfirmation] of cases) {
@@ -211,6 +209,20 @@ test("all six execution simulations use the unified state model without executio
       transaction_broadcast: false,
     });
   }
+});
+
+test("trade commands create an explicit confirmation plan instead of a fake simulation", async (t) => {
+  const { application, baseUrl } = await startApi();
+  t.after(() => application.close());
+  const response = await post(baseUrl, "/api/v1/agent/tasks", { command: "/buy TOKEN 1 SOL group-a" });
+  assert.equal(response.status, 202);
+  const accepted = await response.json();
+  const completed = await waitForTask(baseUrl, accepted.task_id);
+  assert.equal(completed.status, "succeeded");
+  assert.equal(completed.result.execution_mode, "confirmation_required");
+  assert.equal(completed.result.requires_confirmation, true);
+  assert.equal(completed.result.status, "needs_input");
+  assert.ok(completed.result.missing.includes("token_address"));
 });
 
 test("validation and missing routes use the unified error shape", async (t) => {
@@ -279,6 +291,8 @@ test("SSE covers Go domain events and execution-disabled actions", async (t) => 
     "launch_plan_ready",
     "transfer_simulated",
     "trade_simulated",
+    "trade_confirmation_required",
+    "trade_submitted",
     "execution_disabled",
     "revenue_share_updated",
     "agent.started",
@@ -293,7 +307,7 @@ test("SSE covers Go domain events and execution-disabled actions", async (t) => 
   const reader = streamResponse.body.getReader();
   const eventsPromise = (async () => {
     let text = "";
-    while (!text.includes("event: execution_disabled")) {
+  while (!text.includes("event: trade_confirmation_required")) {
       const { value, done } = await reader.read();
       if (done) break;
       text += new TextDecoder().decode(value);
@@ -305,8 +319,7 @@ test("SSE covers Go domain events and execution-disabled actions", async (t) => 
   const eventText = await eventsPromise;
   assert.match(eventText, /event: agent_task_created/);
   assert.match(eventText, /event: command_parsed/);
-  assert.match(eventText, /event: trade_simulated/);
-  assert.match(eventText, /event: execution_disabled/);
+  assert.match(eventText, /event: trade_confirmation_required/);
   controller.abort();
 });
 

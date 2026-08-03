@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { GmgnMarketAdapter } from "./gmgn-market-adapter.ts";
+import { GmgnExecutionAdapter } from "./gmgn-execution-adapter.ts";
 import { HertzFlowAdapter } from "./hertzflow-adapter.ts";
 
 const PLATFORM_ALIASES = new Map([
@@ -51,6 +52,11 @@ export function createIntegrationRegistry(config = {}) {
     timeoutMs: config.externalTimeoutMs,
     maxRetries: config.externalMaxRetries,
   });
+  const gmgnExecution = new GmgnExecutionAdapter({
+    enabled: Boolean(config.realExecutionEnabled && config.gmgnExecutionEnabled),
+    cliPath: config.gmgnCliPath,
+    timeoutMs: config.externalTimeoutMs ? Math.max(Number(config.externalTimeoutMs) * 6, 30_000) : 30_000,
+  });
   const hertzflow = new HertzFlowAdapter({
     enabled: Boolean(config.hertzflowLiveEnabled || config.gmgnLiveEnabled),
     marketAdapter: gmgnMarket,
@@ -66,7 +72,9 @@ export function createIntegrationRegistry(config = {}) {
       return [...adapters.values()].filter((adapter) => adapter.name !== "Custom").map(({ name, kind }) => ({
         name,
         kind,
-        mode: name === "GMGN" ? (gmgnMarket.enabled ? "live_enabled" : "disabled") : "mock",
+        mode: name === "GMGN"
+          ? (gmgnMarket.enabled ? "live_enabled" : "disabled")
+          : "mock",
       }));
     },
     scanDevWallets(options) {
@@ -83,6 +91,18 @@ export function createIntegrationRegistry(config = {}) {
     },
     marketSignals(options) {
       return gmgnMarket.marketSignals(options);
+    },
+    analyzeToken(options) {
+      return gmgnMarket.analyzeToken(options);
+    },
+    tokenSecurity(options) {
+      return gmgnExecution.tokenSecurity(options);
+    },
+    executeMultiSwap(options) {
+      return gmgnExecution.multiSwap(options);
+    },
+    getTradeOrder(options) {
+      return gmgnExecution.waitForOrder(options);
     },
     async analyzeMeme(options) {
       const normalizedOptions = {

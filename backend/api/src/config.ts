@@ -16,6 +16,7 @@ export function loadConfig() {
     externalMaxRetries: intFromEnv("EXTERNAL_REQUEST_MAX_RETRIES", 1, { min: 0, max: 3 }),
     logLevel: process.env.LOG_LEVEL || "info",
     gmgnLiveEnabled: process.env.GMGN_LIVE_ENABLED === "true",
+    gmgnExecutionEnabled: process.env.GMGN_EXECUTION_ENABLED === "true",
     gmgnCliPath: process.env.GMGN_CLI_PATH || undefined,
     privyAppId: process.env.PRIVY_APP_ID || undefined,
     hertzflowLiveEnabled: process.env.HERTZFLOW_LIVE_ENABLED === "true",

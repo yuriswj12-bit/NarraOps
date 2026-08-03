@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { randomUUID } from "node:crypto";
 import { simulateExecution } from "./execution-simulator.ts";
 import { resolveLaunchPlatform } from "../integrations/launch-platform-registry.ts";
 import { buildDraftMetadata, fetchNarrativeLink } from "../integrations/narrative-link-adapter.ts";
@@ -9,7 +10,84 @@ function slug(value, fallback) {
   return result || fallback;
 }
 
+async function parseTradePlan(input, side, services, context) {
+  const prompt = String(input.prompt || input.agent_input?.raw_input || input.agent_input?.arguments || "").trim();
+  const chain = /\b(bsc|bnb)\b/i.test(prompt) ? "bsc" : "solana";
+  const tokenAddress = extractContractAddress(prompt);
+  const amountMatch = prompt.match(/(\d+(?:\.\d+)?)\s*(sol|bnb|eth|usdc)\b/i);
+  const percentMatch = prompt.match(/(\d+(?:\.\d+)?)\s*%/);
+  const namedGroupMatch = prompt.match(/([^\s,，]+)\s*(?:钱包组|组|wallet\s*group|group)/i);
+  const groupMatch = prompt.match(/(?:wallet\s*group|钱包组|cooking\s*group|bundled\s*group)\s*[:：]?\s*([^\s,，]+)/i);
+  const positionalGroup = /^\/(?:buy|sell|batch-buy|batch-sell)\b/i.test(prompt) ? prompt.split(/\s+/).at(-1) : null;
+  const groupRef = namedGroupMatch?.[1] || groupMatch?.[1] || positionalGroup || null;
+  const ownerUserId = context.userId || input.context?.userId || input.context?.user_id || null;
+  const groups = await Promise.resolve(services.walletGroupRepository?.listGroups?.(ownerUserId) || []);
+  const group = groups.find((candidate) => candidate.groupId === groupRef)
+    || groups.find((candidate) => candidate.name?.toLowerCase?.() === String(groupRef || "").toLowerCase())
+    || groups.find((candidate) => groupRef && candidate.name?.toLowerCase?.().includes(String(groupRef).toLowerCase()));
+  const wallets = group ? await Promise.resolve(services.walletGroupRepository?.listWallets?.(group.groupId, ownerUserId) || []) : [];
+  const accounts = wallets.map((wallet) => wallet.publicAddress).filter(Boolean);
+  const nativeDecimals = chain === "solana" ? 9 : 18;
+  const nativeAmount = amountMatch ? amountMatch[1] : null;
+  const amountAtomic = nativeAmount ? decimalToAtomic(nativeAmount, nativeDecimals) : null;
+  return {
+    confirmation_id: randomUUID(),
+    side,
+    chain,
+    token_address: tokenAddress,
+    wallet_group_id: group?.groupId || groupRef || null,
+    wallet_group_name: group?.name || groupRef || null,
+    accounts,
+    input_token: side === "buy" ? (chain === "solana" ? "So11111111111111111111111111111111111111112" : "0x0000000000000000000000000000000000000000") : tokenAddress,
+    output_token: side === "buy" ? (tokenAddress || null) : (chain === "solana" ? "So11111111111111111111111111111111111111112" : "0x0000000000000000000000000000000000000000"),
+    amount: nativeAmount,
+    amount_atomic_per_wallet: amountAtomic,
+    percent: percentMatch ? percentMatch[1] : null,
+    percent_bps: percentMatch ? String(Math.round(Number(percentMatch[1]) * 100)) : null,
+    slippage: 30,
+    request_id: context.requestId,
+    status: "requires_user_confirmation",
+    execution_mode: "confirmation_required",
+    missing: [
+      ...(!tokenAddress ? ["token_address"] : []),
+      ...(!group ? ["wallet_group"] : []),
+      ...(side === "buy" && !amountAtomic ? ["native_amount"] : []),
+      ...(side === "sell" && !percentMatch && !amountAtomic ? ["sell_amount_or_percent"] : []),
+    ],
+  };
+}
+
+function decimalToAtomic(value, decimals) {
+  const [whole, fraction = ""] = String(value || "0").split(".");
+  if (!/^\d+$/.test(whole) || !/^\d*$/.test(fraction) || fraction.length > decimals) return null;
+  return (BigInt(whole) * (10n ** BigInt(decimals)) + BigInt((fraction + "0".repeat(decimals)).slice(0, decimals))).toString();
+}
+
+function tradeAccounts(plan) {
+  return plan.accounts.reduce((result, address) => {
+    if (plan.side === "sell") result.percentBpsByWallet[address] = plan.percent_bps;
+    else result.inputAmountByWallet[address] = plan.amount_atomic_per_wallet;
+    return result;
+  }, { inputAmountByWallet: {}, percentBpsByWallet: {} });
+}
+
+async function recoverPendingTradePlan(context, services) {
+  const conversationId = context.conversationId;
+  if (!conversationId || !services.conversationRepository?.get) return null;
+  const conversation = await services.conversationRepository.get(conversationId);
+  const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const blocks = Array.isArray(messages[index]?.blocks) ? messages[index].blocks : [];
+    for (const block of blocks) {
+      const candidate = block?.data?.pending_trade_plan || block?.pending_trade_plan;
+      if (candidate?.confirmation_id && Array.isArray(candidate.accounts)) return candidate;
+    }
+  }
+  return null;
+}
+
 export function createMockHandlers(integrations, services = {}) {
+  const pendingTradePlans = new Map();
   return {
     async "agent.chat"(input, context) {
       const latestDraft = await latestConversationDraft(context, services);
@@ -251,17 +329,73 @@ export function createMockHandlers(integrations, services = {}) {
     },
 
     async "trade.buy.batch"(input, context) {
-      const result = simulateExecution("batch_buy_simulation", input);
-      context.emitEvent("trade_simulated", { simulation_id: result.simulation_id, side: "buy", submitted: false });
-      context.emitEvent("execution_disabled", { action: "batch_buy", reason: "real_execution_disabled" });
-      return result;
+      const plan = await parseTradePlan(input, "buy", services, context);
+      pendingTradePlans.set(context.conversationId || context.taskId, plan);
+      context.emitEvent("trade_confirmation_required", { confirmation_id: plan.confirmation_id, side: "buy", missing: plan.missing });
+      return {
+        ...plan,
+        pending_trade_plan: plan,
+        accounts: plan.accounts.length,
+        input_amount_by_wallet: undefined,
+        percent_bps_by_wallet: undefined,
+        requires_confirmation: true,
+        ...(plan.missing.length ? { status: "needs_input" } : {}),
+      };
     },
 
     async "trade.sell.batch"(input, context) {
-      const result = simulateExecution("batch_sell_simulation", input);
-      context.emitEvent("trade_simulated", { simulation_id: result.simulation_id, side: "sell", submitted: false });
-      context.emitEvent("execution_disabled", { action: "batch_sell", reason: "real_execution_disabled" });
-      return result;
+      const plan = await parseTradePlan(input, "sell", services, context);
+      pendingTradePlans.set(context.conversationId || context.taskId, plan);
+      context.emitEvent("trade_confirmation_required", { confirmation_id: plan.confirmation_id, side: "sell", missing: plan.missing });
+      return {
+        ...plan,
+        pending_trade_plan: plan,
+        accounts: plan.accounts.length,
+        input_amount_by_wallet: undefined,
+        percent_bps_by_wallet: undefined,
+        requires_confirmation: true,
+        ...(plan.missing.length ? { status: "needs_input" } : {}),
+      };
+    },
+
+    async "trade.confirm"(input, context) {
+      const key = context.conversationId || context.taskId;
+      const plan = pendingTradePlans.get(key) || await recoverPendingTradePlan(context, services);
+      if (!plan) return { status: "needs_input", reason: "No pending buy or sell plan is waiting for confirmation." };
+      if (plan.missing.length) return { status: "needs_input", confirmation_id: plan.confirmation_id, missing: plan.missing };
+
+      const security = await integrations.tokenSecurity?.({ chain: plan.chain, address: plan.token_address, requestId: context.requestId })
+        || await integrations.analyzeToken?.({ chain: plan.chain, address: plan.token_address, includeWallets: false, requestId: context.requestId });
+      if (!security || security.status !== "live") {
+        return { status: "blocked", confirmation_id: plan.confirmation_id, reason: "Token security check did not return live GMGN data.", security_status: security?.status || "unavailable" };
+      }
+      const data = security.data || {};
+      const securityRisk = data.security || data;
+      if (securityRisk.honeypot === true || securityRisk.is_honeypot === true) {
+        return { status: "blocked", confirmation_id: plan.confirmation_id, reason: "GMGN security check flagged this token as a honeypot.", security: securityRisk };
+      }
+
+      const { inputAmountByWallet, percentBpsByWallet } = tradeAccounts(plan);
+      const execution = await integrations.executeMultiSwap?.({
+        chain: plan.chain,
+        accounts: plan.accounts,
+        inputToken: plan.input_token,
+        outputToken: plan.output_token,
+        inputAmountByWallet: plan.side === "buy" ? inputAmountByWallet : undefined,
+        percentBpsByWallet: plan.side === "sell" ? percentBpsByWallet : undefined,
+        slippage: plan.slippage,
+        requestId: context.requestId,
+      });
+      pendingTradePlans.delete(key);
+      const orderId = execution?.data?.order_id || execution?.data?.orderId || execution?.data?.report?.order_id || null;
+      const final = orderId ? await integrations.getTradeOrder?.({ chain: plan.chain, orderId, requestId: context.requestId }) : null;
+      context.emitEvent(execution?.status === "live" ? "trade_submitted" : "execution_disabled", {
+        confirmation_id: plan.confirmation_id,
+        side: plan.side,
+        order_id: orderId,
+        status: execution?.status,
+      });
+      return { ...plan, accounts: plan.accounts.length, security, execution, order: final, order_id: orderId, status: execution?.status || "unavailable" };
     },
 
     async "dev.market.scan"(input, context) {

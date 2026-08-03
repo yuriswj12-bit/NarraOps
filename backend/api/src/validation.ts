@@ -15,6 +15,7 @@ const TASK_TYPES = new Set([
   "launch.meme",
   "trade.buy.batch",
   "trade.sell.batch",
+  "trade.confirm",
   "funds.transfer",
   "funds.withdraw",
   "dev.market.scan",
@@ -254,6 +255,7 @@ export function validateConversationCreate(body) {
     language: context.language === "zh" ? "zh" : "en",
     currentView: string(context.currentView, "context.currentView", { max: 50 }) || "go",
     projectId: string(context.projectId, "context.projectId", { max: 100 }),
+    userId: string(context.userId || context.user_id, "context.userId", { max: 128 }),
   };
 }
 
@@ -274,6 +276,7 @@ export function validateConversationMessage(body) {
       language: context.language === "zh" ? "zh" : "en",
       currentView: string(context.currentView, "context.currentView", { max: 50 }) || "go",
       projectId: string(context.projectId, "context.projectId", { max: 100 }),
+      userId: string(context.userId || context.user_id, "context.userId", { max: 128 }),
     },
   };
 }

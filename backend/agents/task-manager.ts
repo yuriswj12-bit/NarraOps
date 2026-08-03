@@ -15,6 +15,8 @@ export const AGENT_DOMAIN_EVENTS = Object.freeze([
   "launch_plan_ready",
   "transfer_simulated",
   "trade_simulated",
+  "trade_confirmation_required",
+  "trade_submitted",
   "execution_disabled",
   "revenue_share_updated",
   "agent.started",
@@ -132,6 +134,7 @@ export class TaskManager extends EventEmitter {
         requestId: task.requestId,
         executionMode: task.executionMode,
         conversationId: task.conversationId || task.parsedInput?.conversation_id || null,
+        userId: task.input?.context?.userId || task.input?.context?.user_id || task.parsedInput?.user_id || null,
         channel: task.channel || task.parsedInput?.channel || null,
         emitEvent: (type, payload = {}) => this.#emitDomain(type, task, payload),
       });
