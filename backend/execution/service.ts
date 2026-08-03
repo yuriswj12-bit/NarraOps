@@ -12,7 +12,10 @@ export class ExecutionService {
     this.adapters = adapters;
     this.idempotencyStore = idempotencyStore;
     this.auditLog = auditLog;
-    this.realExecutionEnabled = realExecutionEnabled;
+    // Live mode is the only product mode. Keep the constructor option for
+    // compatibility with older callers, but do not let it select a second
+    // execution implementation.
+    this.realExecutionEnabled = true;
   }
 
   async execute(request) {
@@ -39,8 +42,6 @@ export class ExecutionService {
       timing: zeroTiming(),
     };
     this.auditLog.append({ executionId, requestId: request.requestId, operation: request.operation, chain: request.chain, status: "planned" });
-
-    if (!this.realExecutionEnabled) throw new ExecutionError("EXECUTION_PROVIDER_UNAVAILABLE", "Live execution provider is not configured");
 
     const adapter = this.adapters.get(request.chain);
     if (!adapter) throw new ExecutionError("ADAPTER_NOT_CONFIGURED", `No execution adapter configured for ${request.chain}`);

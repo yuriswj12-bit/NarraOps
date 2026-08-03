@@ -23,7 +23,7 @@ test("encrypted wallet repository persists envelopes without plaintext keys", as
   }
 });
 
-test("EVM adapter signs Robinhood transactions locally and keeps broadcasting disabled", async () => {
+test("EVM adapter signs and reports provider broadcast errors", async () => {
   const wallet = Wallet.createRandom();
   const calls = [];
   const responses = { eth_chainId: "0x1237", eth_getTransactionCount: "0x2", eth_gasPrice: "0x3b9aca00", eth_estimateGas: "0x5208" };
@@ -40,7 +40,7 @@ test("EVM adapter signs Robinhood transactions locally and keeps broadcasting di
   assert.equal(parsed.value, 10n);
   assert.equal(parsed.gasLimit, 25200n);
   assert.deepEqual(calls.map(({ method }) => method), ["eth_chainId", "eth_getTransactionCount", "eth_gasPrice", "eth_estimateGas"]);
-  await assert.rejects(() => adapter.broadcastTransaction({ signedTransaction: signed }), { code: "REAL_EXECUTION_DISABLED" });
+  await assert.rejects(() => adapter.broadcastTransaction({ signedTransaction: signed }), { code: "RPC_INVALID_RESPONSE" });
 });
 
 test("JSON RPC client sends canonical requests and rejects RPC errors", async () => {

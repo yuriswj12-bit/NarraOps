@@ -31,9 +31,9 @@ import { InMemoryTransferRepository } from "./repositories/in-memory-transfer-re
 import { TaskManager } from "../../agents/task-manager.ts";
 import { AGENT_CAPABILITIES, normalizeLaunchDraftPatch } from "../../agents/agent-runtime.ts";
 import { generateAgentReply } from "../../agents/llm-provider.ts";
-import { createMockHandlers } from "../../agents/mock-handlers.ts";
+import { createAgentHandlers } from "../../agents/mock-handlers.ts";
 import { createIntegrationRegistry } from "../../integrations/registry.ts";
-import { mockInviteSummary, mockPulse, mockSettings } from "../../integrations/mock-product-data.ts";
+import { liveSettings, unavailableInviteSummary, unavailablePulse } from "../../integrations/product-state-data.ts";
 import { GO_CATEGORIES, GO_COMMANDS, policyForType } from "../../agents/go-command-catalog.ts";
 import { buildPulseMarketResponse } from "../../../api/v1/pulse-market.ts";
 import { buildPulseDevWalletPnlResponse } from "../../../api/v1/pulse-dev-wallet-pnl.ts";
@@ -41,7 +41,7 @@ import { buildPulseNarrativesResponse } from "../../../api/v1/pulse-narratives.t
 import { listLaunchPlatforms, resolveLaunchPlatform } from "../../integrations/launch-platform-registry.ts";
 import { buildDraftMetadata, prepareNarrativeLink } from "../../integrations/narrative-link-adapter.ts";
 import { walletCapabilities } from "../../integrations/wallet-provider-registry.ts";
-import { mockAccountPortfolio } from "../../integrations/mock-account-data.ts";
+import { unavailablePortfolio } from "../../integrations/account-state-data.ts";
 
 function sendJson(res, statusCode, payload, requestId, extraHeaders = {}) {
   const body = statusCode === 204 ? "" : JSON.stringify(payload);
@@ -229,7 +229,7 @@ export function createApplication({ config, logger, repository, conversationRepo
   };
   const manager = taskManager || new TaskManager({
     repository: repo,
-    handlers: createMockHandlers(registry, {
+    handlers: createAgentHandlers(registry, {
       devWalletRepository: devWallets,
       launchDraftRepository: launchDrafts,
       conversationRepository: conversations,
@@ -305,7 +305,7 @@ export function createApplication({ config, logger, repository, conversationRepo
       if (req.method === "GET" && url.pathname === "/api/v1/account/portfolio") {
         const ownerUserId = assetActor(req);
         const period = validatePortfolioPeriod(url.searchParams.get("period"));
-        sendJson(res, 200, assetService ? await livePortfolio(period, ownerUserId) : mockAccountPortfolio(period), requestId);
+        sendJson(res, 200, assetService ? await livePortfolio(period, ownerUserId) : unavailablePortfolio(period), requestId);
         return;
       }
 
@@ -324,7 +324,7 @@ export function createApplication({ config, logger, repository, conversationRepo
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/pulse") {
-        sendJson(res, 200, mockPulse(), requestId);
+        sendJson(res, 200, unavailablePulse(), requestId);
         return;
       }
 
@@ -403,12 +403,12 @@ export function createApplication({ config, logger, repository, conversationRepo
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/invite/summary") {
-        sendJson(res, 200, mockInviteSummary(), requestId);
+        sendJson(res, 200, unavailableInviteSummary(), requestId);
         return;
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/settings") {
-        sendJson(res, 200, mockSettings(), requestId);
+        sendJson(res, 200, liveSettings(), requestId);
         return;
       }
 
@@ -674,8 +674,8 @@ export function createApplication({ config, logger, repository, conversationRepo
             throw new ApiError(403, "MFA_REQUIRED", "Wallet export requires a verified MFA challenge");
           }
           if (!walletExportService) {
-            walletGroups.recordExportAttempt({ requestId, groupId, outcome: "export_service_disabled" });
-            throw new ApiError(503, "WALLET_EXPORT_DISABLED", "Wallet export requires the encrypted wallet vault", { ordinaryJsonResponseAllowed: false, requiresOneTimeEncryptedDownload: true, privateKeyMaterialReturned: false });
+            walletGroups.recordExportAttempt({ requestId, groupId, outcome: "export_service_unavailable" });
+            throw new ApiError(503, "WALLET_EXPORT_UNAVAILABLE", "Wallet export requires the encrypted wallet vault", { ordinaryJsonResponseAllowed: false, requiresOneTimeEncryptedDownload: true, privateKeyMaterialReturned: false });
           }
           const result = await walletExportService.exportText(group, walletGroups.getExportWallets(groupId));
           walletGroups.recordExportAttempt({ requestId, groupId, outcome: "export_completed" });

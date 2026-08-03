@@ -16,7 +16,7 @@ const PLATFORM_ALIASES = new Map([
   ["bsc", "bsc"],
 ]);
 
-class MockAdapter {
+class UnavailableAdapter {
   constructor(name, kind) {
     this.name = name;
     this.kind = kind;
@@ -37,20 +37,20 @@ class MockAdapter {
 
 export function createIntegrationRegistry(config = {}) {
   const adapters = new Map([
-    ["x", new MockAdapter("X/Twitter", "social")],
-    ["tiktok", new MockAdapter("TikTok", "social")],
-    ["douyin", new MockAdapter("Douyin", "social")],
-    ["instagram", new MockAdapter("Instagram", "social")],
-    ["telegram", new MockAdapter("Telegram", "community")],
-    ["gmgn", new MockAdapter("GMGN", "market-data")],
-    ["solana", new MockAdapter("Solana", "chain-data")],
-    ["bsc", new MockAdapter("BSC", "chain-data")],
-    ["custom", new MockAdapter("Custom", "custom")],
+    ["x", new UnavailableAdapter("X/Twitter", "social")],
+    ["tiktok", new UnavailableAdapter("TikTok", "social")],
+    ["douyin", new UnavailableAdapter("Douyin", "social")],
+    ["instagram", new UnavailableAdapter("Instagram", "social")],
+    ["telegram", new UnavailableAdapter("Telegram", "community")],
+    ["gmgn", new UnavailableAdapter("GMGN", "market-data")],
+    ["solana", new UnavailableAdapter("Solana", "chain-data")],
+    ["bsc", new UnavailableAdapter("BSC", "chain-data")],
+    ["custom", new UnavailableAdapter("Custom", "custom")],
   ]);
   const gmgnMarket = new GmgnMarketAdapter({
     // GMGN is the product's live market source. Missing credentials or a
     // failed command becomes an explicit data gap from the adapter; it must
-    // never be converted into fabricated/mock market data here.
+    // never be converted into fabricated market data here.
     // The production server passes an explicit true from loadConfig(). Keep
     // an omitted flag unavailable for isolated app/test factories instead of
     // accidentally spawning a real GMGN CLI process.

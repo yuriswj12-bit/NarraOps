@@ -21,7 +21,4 @@ export { ExecutionError } from "./errors.ts";
 export { InMemoryIdempotencyStore, requestFingerprint } from "./idempotency-store.ts";
 export { InMemoryAuditLog } from "./audit-log.ts";
 export { validateExecutionRequest } from "./validation.ts";
-export { SimulationService } from "./simulation-service.ts";
-export { validateSimulationRequest } from "./simulation-validation.ts";
-export { SIMULATION_ACTION_TYPES, SIMULATION_EXECUTION_MODES, SIMULATION_STATUSES, SIMULATION_TRANSITIONS } from "./simulation-constants.ts";
 

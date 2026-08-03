@@ -5,7 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { TaskManager } from "./task-manager.ts";
-import { createMockHandlers } from "./mock-handlers.ts";
+import { createAgentHandlers } from "./mock-handlers.ts";
 import { createIntegrationRegistry } from "../integrations/registry.ts";
 import { InMemoryConversationRepository } from "../api/src/repositories/in-memory-conversation-repository.ts";
 import { InMemoryTaskRepository } from "../api/src/repositories/in-memory-task-repository.ts";
@@ -242,7 +242,7 @@ export function createAgentRuntime(options = {}) {
     options.taskManager ||
     new TaskManager({
       repository: tasks,
-      handlers: createMockHandlers(integrations, {
+      handlers: createAgentHandlers(integrations, {
         devWalletRepository: devWallets,
         launchDraftRepository: launchDrafts,
         conversationRepository: conversations,

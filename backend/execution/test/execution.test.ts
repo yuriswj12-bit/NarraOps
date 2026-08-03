@@ -19,17 +19,30 @@ function request(overrides = {}) {
   };
 }
 
-test("plans an execution without submitting real transactions", async () => {
-  const service = new ExecutionService();
+function liveAdapter() {
+  return {
+    execute: async () => ({
+      status: "confirmed",
+      submittedCount: 1,
+      confirmedCount: 1,
+      transactions: ["provider-test-tx"],
+      submittedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    }),
+  };
+}
+
+test("executes through an injected live provider adapter", async () => {
+  const service = new ExecutionService({ adapters: new Map([["solana", liveAdapter()]]) });
   const result = await service.execute(request());
-  assert.equal(result.status, "planned");
-  assert.equal(result.submittedCount, 0);
-  assert.equal(result.confirmedCount, 0);
-  assert.deepEqual(result.transactions, []);
+  assert.equal(result.status, "confirmed");
+  assert.equal(result.submittedCount, 1);
+  assert.equal(result.confirmedCount, 1);
+  assert.deepEqual(result.transactions, ["provider-test-tx"]);
 });
 
 test("same idempotency key and payload returns the original result", async () => {
-  const service = new ExecutionService();
+  const service = new ExecutionService({ adapters: new Map([["solana", liveAdapter()]]) });
   const first = await service.execute(request());
   const second = await service.execute(request());
   assert.equal(second.executionId, first.executionId);
@@ -37,16 +50,14 @@ test("same idempotency key and payload returns the original result", async () =>
 });
 
 test("same idempotency key with a different payload is rejected", async () => {
-  const service = new ExecutionService();
+  const service = new ExecutionService({ adapters: new Map([["solana", liveAdapter()]]) });
   await service.execute(request());
   await assert.rejects(() => service.execute(request({ amounts: ["0.2"] })), (error) => error instanceof ExecutionError && error.code === "IDEMPOTENCY_CONFLICT");
 });
 
-test("submitted is never reported when real execution is disabled", async () => {
+test("missing provider is reported instead of fabricating an execution result", async () => {
   const service = new ExecutionService();
-  const result = await service.execute(request({ operation: "transfer.multi" }));
-  assert.notEqual(result.status, "submitted");
-  assert.equal(result.submittedAt, null);
+  await assert.rejects(() => service.execute(request({ operation: "transfer.multi" })), { code: "ADAPTER_NOT_CONFIGURED" });
 });
 
 test("audit log strips secret-shaped fields", () => {

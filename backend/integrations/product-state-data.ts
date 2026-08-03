@@ -1,5 +1,8 @@
 // @ts-nocheck
-export function mockPulse() {
+
+// These responses represent a provider data gap, not product simulation.
+// They contain no synthetic market, wallet, or execution values.
+export function unavailablePulse() {
   return {
     mode: "unavailable",
     data_status: "data_gap",
@@ -8,19 +11,7 @@ export function mockPulse() {
   };
 }
 
-export function mockLaunchPlatforms() {
-  return {
-    mode: "live_confirmation_required",
-    execution_enabled: true,
-    platforms: [
-      { id: "pump-fun", name: "Pump.fun", chain: "solana", status: "available", execution_mode: "live_confirmation_required" },
-      { id: "bags", name: "BAGS", chain: "solana", status: "provider_required", execution_mode: "live_confirmation_required" },
-      { id: "four-meme", name: "FourMeme", chain: "bsc", status: "provider_required", execution_mode: "live_confirmation_required" },
-    ],
-  };
-}
-
-export function mockInviteSummary() {
+export function unavailableInviteSummary() {
   return {
     mode: "unavailable",
     data_status: "not_configured",
@@ -33,7 +24,7 @@ export function mockInviteSummary() {
   };
 }
 
-export function mockSettings() {
+export function liveSettings() {
   return {
     mode: "live",
     preferences: {

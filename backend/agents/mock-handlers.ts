@@ -87,7 +87,7 @@ async function recoverPendingTradePlan(context, services) {
   return null;
 }
 
-export function createMockHandlers(integrations, services = {}) {
+export function createAgentHandlers(integrations, services = {}) {
   const pendingTradePlans = new Map();
   return {
     async "agent.chat"(input, context) {
@@ -575,6 +575,10 @@ export function createMockHandlers(integrations, services = {}) {
     },
   };
 }
+
+// Backward-compatible export for integrations that still import the legacy
+// module name. The handlers themselves are live-provider handlers.
+export const createMockHandlers = createAgentHandlers;
 
 function normalizeMarketChain(value) {
   const text = String(value || "").toLowerCase();

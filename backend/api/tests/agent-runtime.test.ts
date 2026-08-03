@@ -39,7 +39,7 @@ test("agent runtime exposes GMGN read-only market tasks", async () => {
   assert.equal(result.task.type, "market.trending");
   assert.equal(result.cards[0]?.type, "market_trending");
   assert.equal(result.cards[0]?.data?.data_source, "gmgn");
-  assert.equal(result.cards[0]?.data?.data_source_status, "disabled");
+  assert.equal(result.cards[0]?.data?.data_source_status, "unavailable");
 });
 
 test("agent runtime uses an OpenAI-compatible model for general conversation", async () => {

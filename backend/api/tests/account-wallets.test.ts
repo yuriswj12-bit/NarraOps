@@ -176,7 +176,7 @@ test("batch delete requires preview and confirmation while protecting non-zero b
   assert.equal(remaining.wallets[0].balance, "42.50");
 });
 
-test("wallet export enforces confirmation, recent reauth, MFA, audit, and remains disabled", async (t) => {
+test("wallet export enforces confirmation, recent reauth, MFA, and reports provider availability", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
   const groups = await fetch(`${baseUrl}/api/v1/wallet-groups`).then((response) => response.json());
@@ -192,89 +192,31 @@ test("wallet export enforces confirmation, recent reauth, MFA, audit, and remain
   });
   assert.equal(gated.status, 503);
   const body = await gated.json();
-  assert.equal(body.error.code, "WALLET_EXPORT_DISABLED");
+  assert.equal(body.error.code, "WALLET_EXPORT_UNAVAILABLE");
   assert.equal(body.error.details.privateKeyMaterialReturned, false);
   assert.doesNotMatch(JSON.stringify(body), /BEGIN PRIVATE KEY|mnemonic|seed phrase/i);
   assert.deepEqual(application.walletGroupRepository.auditEvents().map(({ outcome }) => outcome), [
     "explicit_confirmation_missing",
     "recent_reauthentication_required",
     "mfa_required",
-    "export_service_disabled",
+    "export_service_unavailable",
   ]);
 });
 
-test("transfer preview is idempotent and transfer submission stays planned and disabled", async (t) => {
+test("transfer routes require a live asset provider", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
-  const groups = await fetch(`${baseUrl}/api/v1/wallet-groups`).then((response) => response.json());
-  const destination = groups.groups.find(({ name }) => name === "Research");
-  const input = {
-    chain: "solana",
-    source: { type: "login_wallet" },
-    destination: { type: "wallet_group", id: destination.groupId },
-    amountMode: "fraction",
-    fractionBps: 2500,
-    distribution: "equal",
-    idempotencyKey: "transfer-test-001",
-  };
-  const previewResponse = await post(baseUrl, "/api/v1/transfers/preview", input);
-  assert.equal(previewResponse.status, 201);
-  const preview = await previewResponse.json();
-  assert.equal(preview.estimatedAmount, "2105.00");
-  assert.equal(preview.allocations.length, 2);
-  assert.equal(preview.executionMode, "disabled");
-  const replay = await post(baseUrl, "/api/v1/transfers/preview", input).then((response) => response.json());
-  assert.equal(replay.previewToken, preview.previewToken);
-  const conflictingPreview = await post(baseUrl, "/api/v1/transfers/preview", { ...input, fractionBps: 5000 });
-  assert.equal(conflictingPreview.status, 409);
-
-  const submitBody = {
-    previewToken: preview.previewToken,
-    confirmationToken: preview.confirmationToken,
-    idempotencyKey: input.idempotencyKey,
-  };
-  assert.equal((await post(baseUrl, "/api/v1/transfers", submitBody)).status, 400);
-  assert.equal((await post(baseUrl, "/api/v1/transfers", submitBody, { "Idempotency-Key": "different-key" })).status, 400);
-  const submittedResponse = await post(baseUrl, "/api/v1/transfers", submitBody, { "Idempotency-Key": input.idempotencyKey });
-  assert.equal(submittedResponse.status, 202);
-  const transfer = await submittedResponse.json();
-  assert.equal(transfer.status, "planned");
-  assert.deepEqual(transfer.allowedStatuses, ["planned", "signing", "submitted", "confirmed", "failed"]);
-  assert.equal(transfer.executionMode, "disabled");
-  assert.equal(transfer.signingStatus, "signing_disabled");
-  assert.equal(transfer.broadcastingStatus, "broadcasting_disabled");
-  assert.equal(transfer.submitted, false);
-  assert.equal(transfer.confirmed, false);
-  assert.equal(transfer.txHash, null);
-  const retry = await post(baseUrl, "/api/v1/transfers", submitBody, { "Idempotency-Key": input.idempotencyKey }).then((response) => response.json());
-  assert.equal(retry.transferId, transfer.transferId);
+  const response = await post(baseUrl, "/api/v1/transfers/preview", { chain: "solana", source: { type: "login_wallet" }, destination: { type: "wallet_group", id: "missing" }, amountMode: "fraction", fractionBps: 2500, distribution: "equal", idempotencyKey: "transfer-test-001" });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, "TRANSFER_PROVIDER_UNAVAILABLE");
 });
 
-test("wallet-group transfers pair wallets by index and support the login wallet in either direction", async (t) => {
+test("wallet-group transfer planning does not fabricate allocations without a live provider", async (t) => {
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
-  const groups = await fetch(`${baseUrl}/api/v1/wallet-groups`).then((response) => response.json());
-  const source = groups.groups[0];
-  const destination = groups.groups[1];
-  const groupPreview = await post(baseUrl, "/api/v1/transfers/preview", {
-    chain: "solana",
-    source: { type: "wallet_group", id: source.groupId }, destination: { type: "wallet_group", id: destination.groupId },
-    amountMode: "fraction", fractionBps: 5000, distribution: "equal", idempotencyKey: "group-pair-preview",
-  });
-  assert.equal(groupPreview.status, 201);
-  const paired = await groupPreview.json();
-  assert.equal(paired.pairingMode, "wallet_index_1_to_1");
-  assert.equal(paired.pairCount, Math.min(source.walletCount, destination.walletCount));
-  assert.equal(paired.allocations[0].pairIndex, 0);
-  assert.ok(paired.allocations.every((item) => item.sourceWalletId && item.destinationWalletId));
-
-  const loginDestination = await post(baseUrl, "/api/v1/transfers/preview", {
-    chain: "solana",
-    source: { type: "wallet_group", id: source.groupId }, destination: { type: "login_wallet", address: "external-test-address" },
-    amountMode: "fraction", fractionBps: 2500, distribution: "equal", idempotencyKey: "group-login-preview",
-  });
-  assert.equal(loginDestination.status, 201);
-  assert.equal((await loginDestination.json()).pairingMode, "wallet_group_to_login");
+  const response = await post(baseUrl, "/api/v1/transfers/preview", { chain: "solana", source: { type: "wallet_group", id: "source" }, destination: { type: "wallet_group", id: "destination" }, amountMode: "fraction", fractionBps: 5000, distribution: "equal", idempotencyKey: "group-pair-preview" });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, "TRANSFER_PROVIDER_UNAVAILABLE");
 });
 
 test("live wallet-group transfer distributes one source wallet across all destination wallets", async (t) => {

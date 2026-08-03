@@ -356,7 +356,7 @@ test("Go conversation contract accepts a quick action and stores the resulting c
   assert.equal(task.status, "succeeded");
   assert.equal(task.result.card.type, "dev_market");
   assert.equal(task.result.data_source, "gmgn");
-  assert.equal(task.result.data_source_status, "disabled");
+  assert.equal(task.result.data_source_status, "unavailable");
   assert.deepEqual(task.result.dev_wallets, []);
 
   const conversation = await fetch(`${baseUrl}/api/v1/agent/conversations/${created.conversationId}`).then((response) => response.json());
@@ -403,7 +403,7 @@ test("market scan exposes explicit GMGN data gaps without fabricated Dev wallets
   const accepted = await response.json();
   const completed = await waitForTask(baseUrl, accepted.task_id);
   assert.equal(completed.result.data_source, "gmgn");
-  assert.equal(completed.result.data_source_status, "disabled");
+  assert.equal(completed.result.data_source_status, "unavailable");
   const wallets = await fetch(`${baseUrl}/api/v1/market/dev-wallets?chain=solana`).then((item) => item.json());
   assert.deepEqual(wallets.wallets, []);
 });

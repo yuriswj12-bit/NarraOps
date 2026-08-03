@@ -19,7 +19,7 @@ const walletProvisioningService = config.walletVaultPassword
   ? new WalletProvisioningService({ walletRepository: encryptedWalletRepository, password: config.walletVaultPassword })
   : null;
 const walletExportService = encryptedWalletRepository ? new WalletExportService({ walletRepository: encryptedWalletRepository, password: config.walletVaultPassword }) : null;
-const walletGroupRepository = new InMemoryWalletGroupRepository({ seed: !walletProvisioningService, filePath: resolve(config.walletGroupStorePath) });
+const walletGroupRepository = new InMemoryWalletGroupRepository({ seed: false, filePath: resolve(config.walletGroupStorePath) });
 if (walletProvisioningService) {
   for (const group of walletGroupRepository.listGroups()) {
     for (const wallet of walletGroupRepository.listWallets(group.groupId).filter(({ provisioningStatus }) => provisioningStatus !== "active")) {
@@ -60,7 +60,7 @@ application.server.listen(config.port, config.host, () => {
   logger.info("api_started", {
     address: `http://${config.host}:${config.port}`,
     health: "/api/v1/health",
-    mode: "client-signed-launch-planning",
+    mode: "live-provider-execution",
   });
 });
 

@@ -1,5 +1,7 @@
 // @ts-nocheck
-export function mockAccountPortfolio(period = "7d") {
+
+// A provider gap is explicit and contains no fabricated balances or PnL.
+export function unavailablePortfolio(period = "7d") {
   return {
     mode: "unavailable",
     period,

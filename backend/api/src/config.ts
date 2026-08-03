@@ -13,7 +13,7 @@ export function loadConfig() {
     host: process.env.API_HOST || "127.0.0.1",
     port: intFromEnv("API_PORT", 5190, { min: 1, max: 65535 }),
     bodyLimitBytes: intFromEnv("API_BODY_LIMIT_BYTES", 9_000_000, { min: 1024, max: 12_000_000 }),
-    taskStepDelayMs: intFromEnv("AGENT_MOCK_STEP_DELAY_MS", 80, { min: 0, max: 10_000 }),
+    taskStepDelayMs: intFromEnv("AGENT_STEP_DELAY_MS", 80, { min: 0, max: 10_000 }),
     sseHeartbeatMs: intFromEnv("SSE_HEARTBEAT_MS", 15_000, { min: 1_000 }),
     externalTimeoutMs: intFromEnv("EXTERNAL_REQUEST_TIMEOUT_MS", 5_000, { min: 100, max: 60_000 }),
     externalMaxRetries: intFromEnv("EXTERNAL_REQUEST_MAX_RETRIES", 1, { min: 0, max: 3 }),

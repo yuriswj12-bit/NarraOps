@@ -20,7 +20,7 @@ test("signs a Pump launch with the encrypted Cooking wallet and broadcasts once"
   assert.equal(result.transactionHash, "solana-signature");
 });
 
-test("real Solana broadcast remains disabled by default", async () => {
+test("Solana broadcast reports the provider error", async () => {
   const adapter = new SolanaTransactionAdapter({ connection: { sendRawTransaction: async () => { throw new Error("must not broadcast"); } } });
-  await assert.rejects(() => adapter.broadcastTransaction({ signedTransactionBase64: "AA==" }), /disabled/);
+  await assert.rejects(() => adapter.broadcastTransaction({ signedTransactionBase64: "AA==" }), { code: "SOLANA_BROADCAST_FAILED" });
 });
