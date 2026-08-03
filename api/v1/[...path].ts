@@ -22,8 +22,6 @@ import {
   postAgentConversationMessage,
   updateAgentLaunchDraft,
 } from "./agent/runtime.cjs";
-import { LaunchPlanningService } from "./launch-planner.cjs";
-import { PublicKey, Transaction } from "@solana/web3.js";
 
 const COOKIE_NAME = "narraops_session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -56,9 +54,12 @@ function serverSupabase() {
 }
 
 let launchPlannerSingleton = null;
+let launchPlannerModulePromise = null;
+let solanaWeb3ModulePromise = null;
 
-function directLaunchPlanner() {
+async function directLaunchPlanner() {
   if (!launchPlannerSingleton) {
+    const { LaunchPlanningService } = await (launchPlannerModulePromise ||= import("./launch-planner.cjs"));
     launchPlannerSingleton = new LaunchPlanningService({
       solanaRpcUrl: process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
       pumpMetadataUploadUrl: process.env.PUMP_METADATA_UPLOAD_URL || "https://pump.fun/api/ipfs",
@@ -67,6 +68,10 @@ function directLaunchPlanner() {
     });
   }
   return launchPlannerSingleton;
+}
+
+function solanaWeb3() {
+  return (solanaWeb3ModulePromise ||= import("@solana/web3.js"));
 }
 
 async function imageUrlToDataUrl(imageUrl) {
@@ -569,7 +574,8 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
       message: "Pump transaction prepared. Sign it with the selected Cooking wallet to broadcast it.",
     };
   }
-  const plan = await directLaunchPlanner().plan({
+  const planner = await directLaunchPlanner();
+  const plan = await planner.plan({
     platform: "pump",
     walletAddress: cooking.wallets[0].public_address,
     name: token.name,
@@ -583,6 +589,7 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
     website: token.website_url || "",
     developerBuyAmount: initialBuy,
   });
+  const { Transaction } = await solanaWeb3();
   const execution = {
     provider: "pump.fun",
     launchpad: "pump",
@@ -648,6 +655,7 @@ async function submitDirectLaunchDraft({ supabase, userId, draftId, signedTransa
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length > 2_000_000) {
     throw Object.assign(new Error("signedTransactionBase64 is invalid"), { status: 400, code: "INVALID_SIGNED_TRANSACTION" });
   }
+  const { PublicKey, Transaction } = await solanaWeb3();
   const transaction = Transaction.from(Buffer.from(encoded, "base64"));
   if (!transaction.verifySignatures()) {
     throw Object.assign(new Error("The signed Pump transaction could not be verified"), { status: 400, code: "SIGNED_TRANSACTION_INVALID" });
@@ -661,7 +669,7 @@ async function submitDirectLaunchDraft({ supabase, userId, draftId, signedTransa
   if (cooking.wallets.length !== 1 || !transaction.feePayer?.equals(new PublicKey(cooking.wallets[0].public_address))) {
     throw Object.assign(new Error("The signed transaction does not belong to the selected Cooking wallet"), { status: 400, code: "COOKING_WALLET_SIGNATURE_MISMATCH" });
   }
-  const connection = directLaunchPlanner().pump.connection;
+  const connection = (await directLaunchPlanner()).pump.connection;
   let txHash;
   try {
     txHash = await connection.sendRawTransaction(Buffer.from(encoded, "base64"), { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 });
