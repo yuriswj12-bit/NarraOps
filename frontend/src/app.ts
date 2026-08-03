@@ -119,7 +119,7 @@ const state = {
     savingDraftIds: new Set(),
   },
   assets: {
-    mode: "mock",
+    mode: "live",
     section: "pnl",
     networkFilter: "solana",
     period: "7d",
@@ -154,8 +154,8 @@ const translations = {
   notifications: ["通知", "Notifications"],
   newSignal: ["新的叙事信号", "New narrative signal"],
   newSignalBody: ["跨平台讨论速度进入加速区间。", "Cross-platform discussion velocity is accelerating."],
-  simulationOnly: ["执行保护已开启", "Execution guard is active"],
-  simulationBody: ["资金与发射动作不会提交至链上。", "Fund and launch actions will not be submitted on-chain."],
+  executionReady: ["已连接真实执行服务", "Live execution services connected"],
+  executionBody: ["发射和交易会在你确认后提交到链上。", "Launches and trades are submitted on-chain after your confirmation."],
 };
 
 const signalSeries = [
@@ -171,6 +171,7 @@ const intelSeries = [
   [22, 27, 26, 32, 36, 42, 45, 50, 54, 60],
 ];
 
+/* legacy sample data is intentionally not used by the live product.
 const sampleOpportunities = [
   {
     id: "op-1",
@@ -221,6 +222,7 @@ const sampleOpportunities = [
     reach: "680K",
   },
 ];
+*/
 
 let opportunities = [];
 
@@ -283,6 +285,13 @@ function pageHeading(kicker, title, subtitle, actions = "") {
 }
 
 function renderPulse() {
+  // Pulse always renders the live API-backed view model. There is no sample
+  // or hardcoded opportunity fallback in the user-facing path.
+  return renderPulseConnected();
+
+  /* legacy static rendering retained only as a migration marker; unreachable
+     and intentionally excluded from the live Pulse UI.
+
   const actions = `
     <span class="simulation-pill"><i class="fa-solid fa-database" aria-hidden="true"></i>${t("样本信号", "Sample signals")}</span>
     <button class="secondary-button" type="button" data-action="scan"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> ${t("刷新样本", "Refresh samples")}</button>
@@ -358,6 +367,7 @@ function renderPulse() {
 }
 
 function pulseViewModel(card) {
+*/
   const evidence = Array.isArray(card?.evidence) ? card.evidence : [];
   const missingEvidence = Array.isArray(card?.missingEvidence) ? card.missingEvidence : [];
   return {
@@ -784,200 +794,73 @@ function getInitialConversation() {
       role: "agent",
       timestamp: getMessageTime(),
       contentZh: "Go 工作台已就绪。发送链接、文本或命令后，NarraOps 会返回结构化任务卡片和实时事件流。",
-      contentEn: "Go is ready. Send a link, text, or command and NarraOps will return structured task cards and live event updates.",
+      contentEn: "Go is ready. Send a link or describe a task. I’ll show an editable launch form only when a launch is needed.",
     },
   ];
 }
 
-const hiddenAgentCardKeys = new Set([
-  "reason",
-  "status",
-  "tx_hash",
-  "user_id",
-  "used_llm",
-  "metadata",
-  "safety",
-  "execution_mode",
-  "signing_status",
-  "broadcasting_status",
-  "submitted",
-  "executable",
-  "schema_version",
-  "mode",
-  "request_id",
-  "launch_draft_id",
-  "conversation_id",
-  "content_provider",
-]);
-
-function safePublicImageUrl(value) {
-  const source = String(value || "").trim();
-  if (!source) return "";
-  try {
-    const parsed = new URL(source);
-    return ["http:", "https:"].includes(parsed.protocol) ? parsed.toString() : "";
-  } catch {
-    return "";
-  }
+function launchDraftToken(data = {}) {
+  const parameters = data.launch_parameters || {};
+  return { ...(data.token || {}), ...(parameters.token || {}) };
 }
 
-function launchPlatformLabel(value) {
-  const id = typeof value === "string" ? value : value?.id;
-  return {
-    pump: "Pump.fun",
-    pumpfun: "Pump.fun",
-    fourmeme: "Four.Meme",
-    pons: "Pons",
-  }[String(id || "").toLowerCase()] || String(id || t("待确认", "To confirm"));
+function launchDraftId(data = {}) {
+  return data.launch_draft_id || data.draft_id || data.draft?.launch_draft_id || null;
 }
 
-function launchDraftStatus(data, token) {
-  if (data?.metadata?.review_status === "reviewed") return t("已审阅", "Reviewed");
-  if (!token.image_url) return t("待补充图片", "Image needed");
-  if (!data.cooking_wallet_group_id || !data.bundled_wallet_group_id) return t("待选择钱包组", "Select wallet groups");
-  if (data.preparation_status === "ready_for_user_review") return t("待确认", "Ready to review");
-  return t("编辑中", "Editing");
-}
-
-function launchWalletGroupOptions(groups, selected, emptyLabel) {
-  return [
-    `<option value="">${escapeHtml(emptyLabel)}</option>`,
-    ...groups.map((group) => `
-      <option value="${escapeHtml(String(group.groupId))}" ${group.groupId === selected ? "selected" : ""}>
-        ${escapeHtml(group.name)} · ${Number(group.walletCount || 0)} ${t("个钱包", "wallets")}
-      </option>
-    `),
-  ].join("");
+function walletGroupOptions(groups, selected, { purpose = null, exclude = null } = {}) {
+  const compatible = groups.filter((group) => {
+    if (exclude && group.groupId === exclude) return false;
+    if (!purpose) return true;
+    return purpose === "cooking" ? group.purpose === "cooking" : group.purpose !== "cooking";
+  });
+  const options = compatible.map((group) => `
+    <option value="${escapeHtml(group.groupId)}" ${selected === group.groupId ? "selected" : ""}>
+      ${escapeHtml(group.name)} · ${Number(group.walletCount || 0)} ${t("个钱包", "wallets")}
+    </option>
+  `).join("");
+  return `<option value="">${t("请选择钱包组", "Select a wallet group")}</option>${options}`;
 }
 
 function renderLaunchDraftCard(card) {
   const data = card.data && typeof card.data === "object" ? card.data : {};
-  const parameters = data.launch_parameters && typeof data.launch_parameters === "object" ? data.launch_parameters : {};
-  const token = {
-    ...(parameters.token && typeof parameters.token === "object" ? parameters.token : {}),
-    ...(data.token && typeof data.token === "object" ? data.token : {}),
-  };
-  const draftId = String(data.launch_draft_id || "");
-  const chain = String(data.chain || parameters.chain || "solana").toLowerCase();
-  const network = chain === "solana" ? "solana" : "evm";
-  const compatibleGroups = state.go.launchWalletGroups.filter((group) => group.network === network || group.network === "multi");
-  const cookingGroups = compatibleGroups.filter((group) => group.purpose === "cooking");
-  const bundledGroups = compatibleGroups.filter((group) => group.purpose !== "cooking");
-  const cookingId = data.cooking_wallet_group_id || parameters.cooking_wallet_group_id || "";
-  const bundledId = data.bundled_wallet_group_id || parameters.bundled_wallet_group_id || "";
-  const imageUrl = safePublicImageUrl(token.image_url);
-  const saving = state.go.savingDraftIds.has(draftId);
-  const walletSelectDisabled = state.go.launchWalletGroupsLoading || !state.auth.session;
-  const walletHelp = state.go.launchWalletGroupsLoading
-    ? t("正在读取 Assets 钱包组…", "Loading wallet groups from Assets…")
-    : !state.auth.session
-      ? t("连接钱包后即可选择 Assets 中的钱包组。", "Connect your wallet to select groups from Assets.")
-      : state.go.launchWalletGroupsError
-        ? t("钱包组读取失败，正在自动重试。", "Wallet groups could not be loaded. Retrying automatically.")
-      : (!cookingGroups.length || !bundledGroups.length)
-        ? t("需要先在 Assets 中创建 Cooking 和常规钱包组。", "Create a Cooking and a regular wallet group in Assets first.")
-        : "";
-  if (state.auth.session && !state.go.launchWalletGroupsLoading
-    && !state.go.launchWalletGroupsLoaded && !state.go.launchWalletGroupsError) {
-    window.setTimeout(() => void ensureLaunchWalletGroups({ force: true }), 0);
-  }
-  const initialBuyUnit = chain === "solana" ? "SOL" : chain === "bsc" ? "BNB" : "ETH";
+  const parameters = data.launch_parameters || {};
+  const token = launchDraftToken(data);
+  const chain = parameters.chain || data.chain || "solana";
+  const platform = parameters.platform || data.platform?.id || data.platform || "pump";
+  const draftId = launchDraftId(data);
+  const groups = state.assets.groups.filter((group) => group.network === "solana" || group.network === "multi" || !group.network);
+  const cooking = parameters.cooking_wallet_group_id || data.cooking_wallet_group_id || "";
+  const bundled = parameters.bundled_wallet_group_id || data.bundled_wallet_group_id || "";
+  if (!state.assets.groups.length && !state.assets.loading) window.setTimeout(() => void loadGoWalletGroups(), 0);
 
   return `
-    <article class="go-structured-card launch-draft-card" data-card-type="launch_draft" data-launch-draft-id="${escapeHtml(draftId)}">
-      <header class="launch-draft-heading">
-        <div>
-          <span class="launch-draft-icon"><i class="fa-solid fa-file-signature" aria-hidden="true"></i></span>
-          <span><strong>${t("发射预案", "Launch draft")}</strong><small>${t("参数已根据链接自动填写，可直接修改", "Auto-filled from the link and ready to edit")}</small></span>
+    <article class="go-launch-card" data-card-type="launch_draft" data-draft-id="${escapeHtml(draftId || "")}">
+      <form class="go-launch-form" data-launch-draft-form>
+        <div class="go-launch-grid">
+          <label class="go-field"><span>${t("代币名称", "Token name")}</span><input name="name" maxlength="32" value="${escapeHtml(token.name || "")}" placeholder="${t("填写代币名称", "Enter token name")}" required /></label>
+          <label class="go-field"><span>${t("代币符号", "Token symbol")}</span><input name="symbol" maxlength="13" value="${escapeHtml(token.symbol || "")}" placeholder="PEPE" required /></label>
         </div>
-        <span class="launch-draft-status">${escapeHtml(launchDraftStatus(data, token))}</span>
-      </header>
-      <form class="launch-draft-form" data-launch-draft-form data-draft-id="${escapeHtml(draftId)}">
-        <div class="launch-field-grid">
-          <label class="launch-field">
-            <span class="launch-field-title"><span>${t("代币名称", "Token name")}</span><small>${String(token.name || "").length}/32</small></span>
-            <input name="name" data-launch-name maxlength="32" value="${escapeHtml(String(token.name || ""))}" placeholder="${t("填写代币名称", "Enter token name")}" required />
-          </label>
-          <label class="launch-field">
-            <span class="launch-field-title"><span>${t("代币符号", "Token symbol")}</span><small>${String(token.symbol || "").length}/13</small></span>
-            <input name="symbol" data-launch-symbol maxlength="13" value="${escapeHtml(String(token.symbol || ""))}" placeholder="${t("例如 PEPE", "e.g. PEPE")}" required />
-          </label>
+        <label class="go-field"><span>${t("简介", "Description")}</span><textarea name="description" rows="3" maxlength="2000" placeholder="${t("一句话描述这个叙事", "Describe the narrative in one sentence")}" required>${escapeHtml(token.description || "")}</textarea></label>
+        <div class="go-launch-media-row">
+          <label class="go-launch-image-field go-field"><span>${t("代币图片 URL", "Token image URL")}</span><input name="image_url" type="url" value="${escapeHtml(token.image_url || "")}" placeholder="https://.../logo.png" required /><small>${token.image_url ? t("已从链接识别", "Detected from source") : t("需要补充图片", "Image required")}</small></label>
+          <label class="go-field"><span>X</span><input name="x_url" type="url" value="${escapeHtml(token.x_url || "")}" placeholder="https://x.com/..." /></label>
+          <label class="go-field"><span>${t("官网", "Website")}</span><input name="website_url" type="url" value="${escapeHtml(token.website_url || "")}" placeholder="https://..." /></label>
         </div>
-
-        <label class="launch-field launch-description-field">
-          <span class="launch-field-title"><span>${t("简介", "Description")}</span></span>
-          <textarea name="description" maxlength="2000" rows="2" placeholder="${t("根据链接内容生成的代币描述", "Token description generated from the source")}" required>${escapeHtml(String(token.description || ""))}</textarea>
-        </label>
-
-        <div class="launch-field-grid">
-          <label class="launch-field launch-image-field">
-            <span class="launch-field-title"><span>${t("代币图片", "Token image")}</span></span>
-            <span class="launch-image-input">
-              <span class="launch-image-preview ${imageUrl ? "has-image" : ""}" data-launch-image-preview>
-                ${imageUrl
-                  ? `<img src="${escapeHtml(imageUrl)}" alt="${t("代币图片预览", "Token image preview")}" />`
-                  : `<i class="fa-regular fa-image" aria-hidden="true"></i>`}
-              </span>
-              <input name="image_url" data-launch-image-url type="url" value="${escapeHtml(String(token.image_url || ""))}" placeholder="https://.../logo.png" autocomplete="off" />
-            </span>
-          </label>
-          <label class="launch-field">
-            <span class="launch-field-title"><span>${t(`首买 ${initialBuyUnit}`, `Initial buy ${initialBuyUnit}`)}</span></span>
-            <input name="initial_buy" type="number" min="0" step="any" inputmode="decimal" value="${escapeHtml(String(token.initial_buy || "0"))}" />
-          </label>
+        <div class="go-launch-grid go-launch-meta-row">
+          <label class="go-field"><span>${t("首买 SOL", "Initial buy SOL")}</span><input name="initial_buy" inputmode="decimal" value="${escapeHtml(token.initial_buy || "0")}" placeholder="0" /></label>
+          <label class="go-field"><span>${t("捆绑买入 / 钱包", "Bundled buy / wallet")}</span><input name="bundle_buy_per_wallet" inputmode="decimal" value="${escapeHtml(token.bundle_buy_per_wallet || "")}" placeholder="${t("可选", "Optional")}" /><small>${t("留空则不执行捆绑买入", "Leave blank to skip bundled buys")}</small></label>
         </div>
-
-        <div class="launch-social-grid">
-          <label class="launch-field">
-            <span class="launch-field-title"><span>X</span></span>
-            <input name="x_url" type="url" value="${escapeHtml(String(token.x_url || parameters.source_url || ""))}" placeholder="https://x.com/..." />
-          </label>
-          <label class="launch-field">
-            <span class="launch-field-title"><span>Telegram</span></span>
-            <input name="telegram_url" type="url" value="${escapeHtml(String(token.telegram_url || ""))}" placeholder="https://t.me/..." />
-          </label>
-          <label class="launch-field">
-            <span class="launch-field-title"><span>${t("官网", "Website")}</span></span>
-            <input name="website_url" type="url" value="${escapeHtml(String(token.website_url || ""))}" placeholder="https://..." />
-          </label>
-        </div>
-
-        <div class="launch-context-row">
-          <span><small>${t("网络", "Network")}</small><strong>${escapeHtml(chain === "bsc" ? "BSC" : chain === "solana" ? "Solana" : chain)}</strong></span>
-          <span><small>${t("发射平台", "Launchpad")}</small><strong>${escapeHtml(launchPlatformLabel(data.platform || parameters.platform))}</strong></span>
-        </div>
-
-        <div class="launch-wallet-section">
-          <div class="launch-section-title">
-            <span><strong>${t("选择钱包组", "Select wallet groups")}</strong><small>${t("来自 Assets，可随时更换", "From Assets; you can change them anytime")}</small></span>
-            ${walletHelp ? `<button type="button" data-open-assets>${t("前往 Assets", "Open Assets")}</button>` : ""}
+        <div class="go-launch-readonly"><span>${t("网络 / 发射平台", "Network / launchpad")}</span><strong>${escapeHtml(String(chain))} · ${escapeHtml(String(platform))}</strong></div>
+        <div class="go-wallet-selection">
+          <div class="go-wallet-heading"><div><span>${t("资产", "Assets")}</span><strong>${t("选择钱包组", "Select wallet groups")}</strong></div><button type="button" class="go-assets-link" data-view-trigger="assets">${t("打开 Assets", "Open Assets")}</button></div>
+          <div class="go-launch-grid">
+            <label class="go-field"><span>${t("Cooking 钱包组", "Cooking wallet group")}</span><select name="cooking_wallet_group_id" required>${walletGroupOptions(groups, cooking, { purpose: "cooking" })}</select></label>
+            <label class="go-field"><span>${t("捆绑钱包组", "Bundled wallet group")}</span><select name="bundled_wallet_group_id" required>${walletGroupOptions(groups, bundled, { purpose: "general", exclude: cooking })}</select></label>
           </div>
-          <div class="launch-wallet-grid">
-            <label class="launch-field">
-              <span class="launch-field-title"><span>${t("Cooking 钱包组", "Cooking wallet group")}</span></span>
-              <select name="cooking_wallet_group_id" ${walletSelectDisabled ? "disabled" : ""}>
-                ${launchWalletGroupOptions(cookingGroups, cookingId, state.go.launchWalletGroupsLoading ? t("正在加载…", "Loading…") : t("请选择 Cooking 钱包组", "Select Cooking group"))}
-              </select>
-            </label>
-            <label class="launch-field">
-              <span class="launch-field-title"><span>${t("捆绑钱包组", "Bundled wallet group")}</span></span>
-              <select name="bundled_wallet_group_id" ${walletSelectDisabled ? "disabled" : ""}>
-                ${launchWalletGroupOptions(bundledGroups, bundledId, state.go.launchWalletGroupsLoading ? t("正在加载…", "Loading…") : t("请选择捆绑钱包组", "Select bundled group"))}
-              </select>
-            </label>
-          </div>
-          ${walletHelp ? `<p class="launch-wallet-help">${escapeHtml(walletHelp)}</p>` : ""}
+          ${groups.length ? "" : `<p class="go-wallet-hint">${t("请先在 Assets 创建 Solana 钱包组，再回来选择。", "Create Solana wallet groups in Assets before launching.")}</p>`}
         </div>
-
-        <footer class="launch-form-footer">
-          <span><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>${t("保存只更新预案，不会发射代币或移动资金。", "Saving only updates the draft. It never launches a token or moves funds.")}</span>
-          <span class="launch-form-actions">
-            <button class="secondary-button" type="reset">${t("恢复", "Reset")}</button>
-            <button class="primary-button" type="submit" ${saving || !draftId ? "disabled" : ""}>
-              ${saving ? `<i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>${t("保存中", "Saving")}` : `<i class="fa-solid fa-check" aria-hidden="true"></i>${t("保存预案", "Save draft")}`}
-            </button>
-          </span>
-        </footer>
+        <div class="go-launch-actions"><span>${t("点击发射前会保存你修改的参数，并再次检查钱包组和执行配置。", "Your edits are saved before launch and execution configuration is checked again.")}</span><button type="submit" data-launch-action="launch" ${draftId ? "" : "disabled"}>${t("发射到 Pump", "Launch to Pump")}</button></div>
       </form>
     </article>
   `;
@@ -986,7 +869,6 @@ function renderLaunchDraftCard(card) {
 function renderStructuredCard(card) {
   if (!card) return "";
   if (card.type === "launch_draft") return renderLaunchDraftCard(card);
-
   const cardMeta = {
     narrative_snapshot: ["fa-solid fa-wave-square", "叙事快照", "Narrative Snapshot"],
     meme_package: ["fa-solid fa-shapes", "Meme 构建包", "Meme Build Package"],
@@ -1038,7 +920,7 @@ function renderMessageContent(message) {
       running: t("Agent 正在处理…", "Agent is working…"),
       reconnecting: t("事件流重连中…", "Reconnecting event stream…"),
     };
-    return `<div class="go-agent-thinking"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>${labels[message.lifecycle] || labels.running}</span></div>${(message.cards || []).map(renderStructuredCard).join("")}`;
+    return `<div class="go-agent-thinking"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>${labels[message.lifecycle] || labels.running}</span></div>${(message.cards || []).filter((card) => card?.type === "launch_draft").map(renderStructuredCard).join("")}`;
   }
 
   const content = message.contentZh ? t(message.contentZh, message.contentEn) : message.content;
@@ -1052,7 +934,10 @@ function renderMessageContent(message) {
   const error = message.lifecycle === "failed" ? `
     <div class="go-agent-error"><strong>${t("任务失败", "Task failed")}</strong><span>${escapeHtml(message.error || t("Agent 服务当前不可用。", "The Agent service is currently unavailable."))}</span><button type="button" data-agent-retry>${t("重试", "Retry")}</button></div>
   ` : "";
-  const cards = [...(message.cards || []), ...(message.card ? [message.card] : [])].map(renderStructuredCard).join("");
+  const cards = [...(message.cards || []), ...(message.card ? [message.card] : [])]
+    .filter((card) => card?.type === "launch_draft")
+    .map(renderStructuredCard)
+    .join("");
   return `${content ? `<p>${escapeHtml(content)}</p>` : ""}${suggestion}${cards}${error}`;
 }
 
@@ -1165,7 +1050,7 @@ async function loadAssets({ keepGroup = true } = {}) {
       state.auth.session ? apiRequest("/api/v1/account/login-wallet-assets") : Promise.resolve({ wallets: [] }),
     ]);
     state.assets.portfolio = portfolio;
-    state.assets.mode = groupsResult.mode || "mock";
+    state.assets.mode = groupsResult.mode || "live";
     state.assets.groups = groupsResult.groups || [];
     state.assets.loginWallets = loginWalletResult.wallets || [];
     if (!keepGroup || !state.assets.groups.some((group) => group.groupId === state.assets.selectedGroupId)) state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
@@ -1518,8 +1403,12 @@ function renderAssets() {
   const total = sumAssetBalance(unit);
   const selectedGroup = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
   const visibleGroups = state.assets.groups.filter((group) => network === "solana" ? group.network === "solana" : group.network === "evm");
-  const groupRows = visibleGroups.map((group) => `<tr class="${group.groupId === state.assets.selectedGroupId ? "selected-row" : ""}"><td><button class="group-name-button" type="button" data-wallet-group="${group.groupId}"><i class="fa-solid ${group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i><span><strong>${escapeHtml(group.name)}</strong><small>${group.purpose === "cooking" ? "Cooking" : t("常规", "General")}</small></span></button></td><td><span class="network-badge">${network === "solana" ? "SOL" : "EVM"}</span></td><td>${group.walletCount}</td><td>${escapeHtml(group.balances?.[unit] || "0")} ${unit}</td><td>${group.executionMode === "encrypted_vault" ? t("真实钱包", "Live wallets") : t("模拟", "Simulation")}</td><td><button class="table-action" type="button" data-wallet-group="${group.groupId}">${t("管理", "Manage")}</button></td></tr>`).join("");
-  const walletRows = state.assets.wallets.map((wallet) => { const address = walletAddressForGroup(wallet, selectedGroup); const balance = Object.values(wallet.balances || {}).find((item) => item.asset === unit); return `<tr><td><strong>${escapeHtml(wallet.label)}</strong></td><td><code>${escapeHtml(shortAddress(address || "—"))}</code></td><td>${escapeHtml(balance?.amount || "0")} ${unit}</td><td><span class="state-pill">${wallet.provisioningStatus === "active" ? t("已加密", "Encrypted") : t("模拟", "Simulation")}</span></td></tr>`; }).join("");
+  const groupRows = visibleGroups.map((group) => {
+    const ready = group.executionMode === "live_ready" || group.executionMode === "encrypted_vault";
+    const status = ready ? t("可执行", "Live ready") : t("待绑定钱包", "Bind wallets");
+    return `<tr class="${group.groupId === state.assets.selectedGroupId ? "selected-row" : ""}"><td><button class="group-name-button" type="button" data-wallet-group="${group.groupId}"><i class="fa-solid ${group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i><span><strong>${escapeHtml(group.name)}</strong><small>${group.purpose === "cooking" ? "Cooking" : t("常规", "General")}</small></span></button></td><td><span class="network-badge">${network === "solana" ? "SOL" : "EVM"}</span></td><td>${group.walletCount}</td><td>${escapeHtml(group.balances?.[unit] || "—")} ${group.balances?.[unit] ? unit : ""}</td><td>${status}</td><td><button class="table-action" type="button" data-wallet-group="${group.groupId}">${t("管理", "Manage")}</button></td></tr>`;
+  }).join("");
+  const walletRows = state.assets.wallets.map((wallet) => { const address = walletAddressForGroup(wallet, selectedGroup); const balance = Object.values(wallet.balances || {}).find((item) => item.asset === unit); return `<tr><td><strong>${escapeHtml(wallet.label)}</strong></td><td><code>${escapeHtml(shortAddress(address || "—"))}</code></td><td>${escapeHtml(balance?.amount || "—")} ${balance?.amount ? unit : ""}</td><td><span class="state-pill">${wallet.provisioningStatus === "active" ? t("已绑定", "Bound") : t("待绑定", "Needs binding")}</span></td></tr>`; }).join("");
   const nativeImage = nativeAssetImages[unit];
   const assetRows = total > 0 ? `<tr><td><span class="compact-token">${nativeImage ? `<img src="${nativeImage}" alt="${unit}" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" />` : ""}<strong>${unit}</strong></span></td><td>${total.toLocaleString(undefined,{maximumFractionDigits:9})}</td><td>≈ ${total.toLocaleString(undefined,{maximumFractionDigits:9})} ${unit}</td><td><span class="asset-share-bar"><i style="width:100%"></i></span>100%</td></tr>` : "";
   viewRoot.innerHTML = `<div class="compact-assets-page assets-v3">
@@ -1529,6 +1418,8 @@ function renderAssets() {
   </div>
   <div class="asset-toolbar"><select class="compact-select" id="assetNetworkFilter"><option value="solana" ${network === "solana" ? "selected" : ""}>Solana</option><option value="bsc" ${network === "bsc" ? "selected" : ""}>BSC</option></select><span class="balance-chip">${t("总余额", "Total balance")}: <strong>${total.toLocaleString(undefined,{maximumFractionDigits:9})} ${unit}</strong></span>${state.assets.section === "portfolio" ? `<span class="balance-chip">${t("代币数", "Tokens")}: <strong>${total > 0 ? 1 : 0}</strong></span>` : ""}<div class="toolbar-spacer"></div>${state.assets.section === "groups" ? `<button class="compact-button" type="button" data-action="open-export"><i class="fa-solid fa-file-export"></i>${t("导出", "Export")}</button><button class="compact-button" type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i>${t("转账", "Transfer")}</button><button class="primary-button compact" type="button" data-action="open-create-group"><i class="fa-solid fa-plus"></i>${t("新建钱包组", "New group")}</button>` : ""}</div>
   ${state.assets.section === "pnl" ? renderPnlAnalysis(network, unit) : state.assets.section === "portfolio" ? `<section class="compact-data-panel portfolio-only-assets"><div class="compact-panel-tabs"><button class="active">${t("币种", "Assets")}</button><button>${t("交易历史", "History")}</button><span>${t("当前仅包含已验证的链上资产", "Verified on-chain assets only")}</span></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("资产", "Asset")}</th><th>${t("余额", "Balance")}</th><th>${t("折合", "Value")}</th><th>${t("资产占比", "Allocation")}</th></tr></thead><tbody>${assetRows || `<tr><td colspan="4" class="empty-state">${t(`暂无 ${unit} 网络资产`, `No ${unit} assets`)}</td></tr>`}</tbody></table></div></section>` : `<section class="compact-data-panel"><div class="compact-panel-tabs"><strong>${t("钱包组", "Wallet groups")} (${visibleGroups.length})</strong><span>${network === "solana" ? "Solana" : "EVM / BSC"}</span></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("名称", "Name")}</th><th>${t("网络", "Network")}</th><th>${t("钱包数", "Wallets")}</th><th>${t("余额", "Balance")}</th><th>${t("状态", "Status")}</th><th>${t("操作", "Action")}</th></tr></thead><tbody>${groupRows || `<tr><td colspan="6" class="empty-state">${t("暂无该网络的钱包组", "No wallet groups on this network")}</td></tr>`}</tbody></table></div>${selectedGroup && visibleGroups.some((group) => group.groupId === selectedGroup.groupId) ? `<div class="compact-group-detail"><div class="detail-heading"><div><span>${unit} · ${selectedGroup.purpose === "cooking" ? "Cooking" : t("常规", "General")}</span><h2>${escapeHtml(selectedGroup.name)}</h2></div><div><button class="compact-button" type="button" data-action="deposit-disabled">${t("充值", "Deposit")}</button><button class="compact-button" type="button" data-action="open-transfer">${t("转账", "Transfer")}</button>${selectedGroup.purpose !== "cooking" ? `<button class="compact-button" type="button" data-action="open-add-wallet">${t("添加钱包", "Add wallet")}</button>` : ""}</div></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("钱包", "Wallet")}</th><th>${t("地址", "Address")}</th><th>${t("链上余额", "On-chain balance")}</th><th>${t("状态", "Status")}</th></tr></thead><tbody>${walletRows}</tbody></table></div></div>` : ""}</section>`}</div>`;
+  const bindWalletButton = viewRoot.querySelector('[data-action="deposit-disabled"]');
+  if (bindWalletButton) bindWalletButton.textContent = t("绑定钱包", "Bind wallet");
 }
 
 function renderCurrentView() {
@@ -2160,7 +2051,11 @@ function walletProvider(walletId) {
 }
 
 function openOnboarding() {
-  openModal({ kicker: "NarraOps", title: t("欢迎来到叙事发现工作台", "Welcome to the narrative discovery workspace"), content: `<p class="onboarding-lead">${t("NarraOps 帮助 Meme Dev 发现、筛选和解释可 Meme 化的互联网叙事，并把高潜力叙事转成可审阅的发射预案。", "NarraOps helps meme devs discover, filter, and explain memeable internet narratives, then turn high-potential narratives into reviewable launch-ready plans.")}</p><div class="onboarding-grid"><article><i class="fa-solid fa-wave-square"></i><strong>Pulse</strong><span>${t("查看叙事机会、公开证据、风险和机会状态。", "Review narrative opportunities, public evidence, risks, and opportunity status.")}</span></article><article><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Go</strong><span>${t("把链接、文本或 Pulse 机会转成固定 Schema 的预案。", "Turn links, text, or Pulse opportunities into fixed-schema plans.")}</span></article><article><i class="fa-solid fa-wallet"></i><strong>Assets</strong><span>${t("管理钱包组、资产视图和执行准备，真实执行默认关闭。", "Manage wallet groups, asset views, and execution preparation with live execution disabled by default.")}</span></article></div><button class="primary-button onboarding-start" type="button" data-modal-action="complete-onboarding">${t("我知道了，开始使用", "Got it, start using NarraOps")}</button>` });
+  openModal({ kicker: "NarraOps", title: t("欢迎来到叙事发现工作台", "Welcome to the narrative discovery workspace"), content: `<p class="onboarding-lead">${t("NarraOps 帮助 Meme Dev 发现、筛选和解释可 Meme 化的互联网叙事，并把高潜力叙事转成可编辑的发射参数。", "NarraOps helps meme devs discover, filter, and explain memeable internet narratives, then turn high-potential narratives into editable launch parameters.")}</p><div class="onboarding-grid"><article><i class="fa-solid fa-wave-square"></i><strong>Pulse</strong><span>${t("查看实时叙事机会、公开证据、风险和机会状态。", "Review live narrative opportunities, public evidence, risks, and opportunity status.")}</span></article><article><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Go</strong><span>${t("把链接或自然语言转成可编辑的发射参数，并在确认后调用真实服务。", "Turn links or natural language into editable launch parameters and call live services after confirmation.")}</span></article><article><i class="fa-solid fa-wallet"></i><strong>Assets</strong><span>${t("管理真实钱包组，并在发射或交易前选择执行钱包。", "Manage real wallet groups and select execution wallets before a launch or trade.")}</span></article></div><button class="primary-button onboarding-start" type="button" data-modal-action="complete-onboarding">${t("我知道了，开始使用", "Got it, start using NarraOps")}</button>` });
+}
+
+function openOnboardingLegacy() {
+  openModal({ kicker: "NarraOps", title: t("欢迎来到叙事发现工作台", "Welcome to the narrative discovery workspace"), content: `<p class="onboarding-lead">${t("NarraOps 帮助 Meme Dev 发现、筛选和解释可 Meme 化的互联网叙事，并把高潜力叙事转成可编辑的发射参数。", "NarraOps helps Meme Devs discover, filter, and explain memeable internet narratives, then turn high-potential narratives into editable launch parameters.")}</p><div class="onboarding-grid"><article><i class="fa-solid fa-wave-square"></i><strong>Pulse</strong><span>${t("查看实时叙事机会、公开证据、风险和机会状态。", "Review live narrative opportunities, public evidence, risks, and opportunity status.")}</span></article><article><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Go</strong><span>${t("把链接或自然语言转成可编辑的发射参数，并在确认后调用真实服务。", "Turn links or natural language into editable launch parameters and call live services after confirmation.")}</span></article><article><i class="fa-solid fa-wallet"></i><strong>Assets</strong><span>${t("管理真实钱包组，并在发射或交易前选择执行钱包。", "Manage live wallet groups and select execution wallets before a launch or trade.")}</span></article></div><button class="primary-button onboarding-start" type="button" data-modal-action="complete-onboarding">${t("我知道了，开始使用", "Got it, start using NarraOps")}</button>` });
 }
 
 async function linkSolanaIdentity(provider) {
@@ -2243,7 +2138,7 @@ function openTransferDialog(destination = null) {
 }
 
 function openExportDialog() {
-  const groups = state.assets.groups.filter((group) => group.executionMode === "encrypted_vault");
+  const groups = state.assets.groups.filter((group) => group.executionMode === "encrypted_vault" || group.executionMode === "live_ready");
   if (!groups.length) return showToast(t("没有可导出的真实钱包组", "No live wallet group is available for export"));
   openModal({ kicker: t("私钥导出", "Private-key export"), title: t("导出钱包组", "Export wallet group"), content: `<form class="form-stack" id="walletExportForm"><label class="field-label">${t("选择钱包组", "Wallet group")}<select class="field-select" name="groupId">${groups.map((group) => `<option value="${group.groupId}">${escapeHtml(group.name)} · ${group.walletCount}</option>`).join("")}</select></label><div class="export-danger"><i class="fa-solid fa-triangle-exclamation"></i><span>${t("文件包含可直接控制资产的私钥。下载后请离线保存，NarraOps 无法撤销已导出的密钥。", "This file contains keys that directly control funds. Store it offline; exported keys cannot be revoked by NarraOps.")}</span></div><label class="field-label">${t("输入“确认导出私钥”", "Type EXPORT PRIVATE KEYS")}<input class="field-input" name="confirmation" autocomplete="off" required /></label><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="danger-button" type="submit"><i class="fa-solid fa-file-arrow-down"></i>${t("导出文本文件", "Export text file")}</button></div></form>` });
 }
@@ -2254,6 +2149,19 @@ function openAddWallets() {
     kicker: t("钱包组管理", "Wallet-group management"),
     title: t("添加加密钱包", "Add encrypted wallets"),
     content: `<form class="form-stack" id="addWalletsForm"><label class="field-label">${t("添加数量", "Number to add")}<input class="field-input" name="count" type="number" min="1" max="200" value="1" required /></label><p>${t("将为每个钱包生成真实 Solana 与 EVM 地址，密钥仅以加密密文保存。", "Each wallet receives real Solana and EVM addresses; keys are stored only as encrypted ciphertext.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("添加钱包", "Add wallets")}</button></div></form>`,
+  });
+}
+
+function openBindWalletDialog() {
+  const selected = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
+  if (!selected) return showToast(t("请先选择钱包组", "Select a wallet group first"));
+  if (selected.network !== "solana") return showToast(t("当前真实发射只支持 Solana 钱包", "Live launch currently supports Solana wallets only"));
+  const wallets = state.assets.wallets.filter((wallet) => wallet.provisioningStatus !== "active" || !wallet.publicAddress);
+  if (!wallets.length) return showToast(t("该钱包组的钱包已经全部绑定", "All wallets in this group are already bound"));
+  openModal({
+    kicker: t("真实执行准备", "Live execution setup"),
+    title: t("绑定 Solana 执行钱包", "Bind Solana execution wallet"),
+    content: `<form class="form-stack" id="bindWalletForm"><label class="field-label">${t("钱包", "Wallet")}<select class="field-select" name="walletId" required>${wallets.map((wallet) => `<option value="${escapeHtml(wallet.walletId)}">${escapeHtml(wallet.label)}${wallet.publicAddress ? ` · ${escapeHtml(shortAddress(wallet.publicAddress))}` : ""}</option>`).join("")}</select></label><label class="field-label">${t("Solana 公开地址", "Solana public address")}<input class="field-input" name="publicAddress" required placeholder="Solana address" autocomplete="off" /></label><label class="field-label">${t("签名服务引用（可选）", "Signer/provider reference (optional)")}<input class="field-input" name="signerReference" placeholder="e.g. vault key reference" autocomplete="off" /></label><p>${t("只填写公开地址或签名服务引用。不要在网页、聊天框或本表单粘贴私钥。绑定后，发射与交易会使用该真实钱包。", "Enter only the public address or a signer reference. Never paste a private key into the web app, chat, or this form. Live launches and trades will use this wallet after binding.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("保存绑定", "Save binding")}</button></div></form>`,
   });
 }
 
@@ -2269,6 +2177,8 @@ function isFinancialCommand(value) {
   return /(钱包|转账|提取|发射|买入|卖出|wallet|transfer|withdraw|launch|buy|sell)/i.test(value);
 }
 
+/* Legacy client-side response fixtures are intentionally disabled. All Go
+   responses must come from the live Agent API and its real integrations.
 function getAgentResponse(command) {
   if (/(dev-market|链上行情|dev 钱包|dev wallet)/i.test(command)) {
     return {
@@ -2359,7 +2269,7 @@ function getAgentResponse(command) {
       role: "agent",
       timestamp: getMessageTime(),
       contentZh: "已生成模拟执行计划，未访问钱包、私钥、签名服务或链上节点。",
-      contentEn: "A simulated execution plan is ready without accessing wallets, private keys, signing services, or chain nodes.",
+      contentEn: "A live execution request is ready. I will use the selected wallet groups and ask for confirmation immediately before signing and broadcasting.",
       suggestionZh: "补充钱包组、网络、资产和金额，再交由人工审核。",
       suggestionEn: "Add the wallet group, network, asset, and amount before human review.",
       card: { type: "execution_plan" },
@@ -2543,7 +2453,7 @@ async function submitPulsePlan(command, pendingId) {
       role: "agent",
       timestamp: getMessageTime(),
       contentZh: payload.message?.content || "已根据 Pulse 证据生成可审阅执行方案，真实执行仍保持关闭。",
-      contentEn: payload.message?.content || "Built a review-only execution plan from Pulse evidence. Live execution remains disabled.",
+      contentEn: payload.message?.content || "Built a live execution plan from Pulse evidence. Review the fields and confirm immediately before signing and broadcasting.",
       suggestionZh: payload.message?.suggestion || "先核对证据缺口和风险，再进入发射预案。",
       suggestionEn: payload.message?.suggestion || "Review evidence gaps and risks before moving into a launch draft.",
       card: payload.card || {
@@ -2568,7 +2478,83 @@ async function submitPulsePlan(command, pendingId) {
   }
 }
 
-async function submitAgentCommand(value) {
+async function loadGoWalletGroups() {
+*/
+async function loadGoWalletGroups() {
+  try {
+    const result = await apiRequest("/api/v1/wallet-groups");
+    state.assets.groups = result.groups || [];
+    renderConversation();
+  } catch (error) {
+    console.warn("[NarraOps] wallet groups unavailable for launch draft", error);
+  }
+}
+
+async function ensureGoAgentConversation() {
+  if (state.agent.conversationId) return state.agent.conversationId;
+  if (state.agent.conversationPromise) return state.agent.conversationPromise;
+  state.agent.conversationPromise = apiRequest("/api/v1/agent/conversations", {
+    method: "POST",
+    body: JSON.stringify({ context: { language: state.language, currentView: "go" } }),
+  }).then((conversation) => {
+    state.agent.conversationId = conversation.conversationId;
+    return state.agent.conversationId;
+  }).finally(() => {
+    state.agent.conversationPromise = null;
+  });
+  return state.agent.conversationPromise;
+}
+
+function agentMessageFromPayload(payload) {
+  const task = payload?.task || {};
+  const cards = Array.isArray(payload?.cards) && payload.cards.length
+    ? payload.cards
+    : task.result?.card ? [task.result.card] : [];
+  const message = payload?.message || {};
+  const hasLaunch = cards.some((card) => card?.type === "launch_draft");
+  return {
+    role: "agent",
+    timestamp: getMessageTime(),
+    content: message.content || (hasLaunch
+      ? t("已根据链接生成发射参数，请检查并选择钱包组。", "The launch fields are ready. Review them and select wallet groups.")
+      : t("任务已完成。", "Task completed.")),
+    suggestion: message.suggestion || "",
+    cards,
+    taskId: payload?.taskId || task.task_id || task.taskId || null,
+  };
+}
+
+async function submitAgentConversation(command, pendingId) {
+  state.go.busy = true;
+  state.agent.submitting = true;
+  state.agent.retryCommand = command;
+  try {
+    const conversationId = await ensureGoAgentConversation();
+    const payload = await apiRequest(`/api/v1/agent/conversations/${conversationId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({
+        message: command,
+        wait: true,
+        timeout_ms: 15_000,
+        context: { language: state.language, currentView: "go" },
+      }),
+    });
+    if (payload.conversationId) state.agent.conversationId = payload.conversationId;
+    replacePendingMessage(pendingId, agentMessageFromPayload(payload));
+  } catch (error) {
+    replacePendingMessage(pendingId, {
+      role: "agent",
+      timestamp: getMessageTime(),
+      lifecycle: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    state.go.busy = false;
+    state.agent.submitting = false;
+  }
+}
+
+function submitAgentCommand(value) {
   const command = value.trim();
   if (!command || state.go.busy || state.agent.submitting) return;
   const pendingId = `pending-${Date.now()}`;
@@ -2581,46 +2567,7 @@ async function submitAgentCommand(value) {
     input.style.height = "";
   }
 
-  // Pulse snapshot/opportunity path remains specialized.
-  if (shouldUsePulsePlan(command)) {
-    void submitPulsePlan(command, pendingId);
-    return;
-  }
-
-  state.go.busy = true;
-  state.agent.submitting = true;
-  state.agent.retryCommand = command;
-  try {
-    const conversationId = await ensureGoConversation();
-    const payload = await apiRequest(`/api/v1/agent/conversations/${conversationId}/messages`, {
-      method: "POST",
-      body: JSON.stringify({
-        message: command,
-        command: command.startsWith("/") ? command : undefined,
-        channel: "web",
-        wait: true,
-        context: {
-          language: state.language,
-          currentView: state.view || "go",
-        },
-      }),
-    });
-    state.agent.activeTaskId = payload.task_id || payload.taskId || null;
-    replacePendingMessage(pendingId, agentMessageFromRuntime(payload, command));
-  } catch (error) {
-    replacePendingMessage(pendingId, {
-      role: "agent",
-      timestamp: getMessageTime(),
-      contentZh: `Agent 处理失败：${error instanceof Error ? error.message : String(error)}`,
-      contentEn: `Agent request failed: ${error instanceof Error ? error.message : String(error)}`,
-      suggestionZh: "可点击重试，或改用更明确的 / 命令。",
-      suggestionEn: "Retry, or use a more explicit slash command.",
-      error: error instanceof Error ? error.message : String(error),
-    });
-  } finally {
-    state.go.busy = false;
-    state.agent.submitting = false;
-  }
+  void submitAgentConversation(command, pendingId);
 }
 
 function switchView(view) {
@@ -2889,7 +2836,7 @@ viewRoot.addEventListener("click", async (event) => {
     state.assets.transferPreview = null;
     renderAssets();
   } else if (action === "deposit-disabled") {
-    openDepositAddresses();
+    openBindWalletDialog();
   } else if (action === "withdraw-disabled") {
     openTransferDialog("login_wallet");
   } else if (action === "confirm-transfer-plan") {
@@ -2899,37 +2846,69 @@ viewRoot.addEventListener("click", async (event) => {
   }
 });
 
+function updateLaunchCardInConversation(previousDraftId, nextCard) {
+  state.conversation = state.conversation.map((message) => {
+    if (message.role !== "agent") return message;
+    const cards = (message.cards || []).map((card) => {
+      const id = launchDraftId(card?.data || {});
+      return id === previousDraftId ? nextCard : card;
+    });
+    const card = message.card && launchDraftId(message.card.data || {}) === previousDraftId ? nextCard : message.card;
+    return { ...message, cards, ...(card ? { card } : {}) };
+  });
+  renderConversation();
+}
+
+async function saveLaunchDraftForm(form, action) {
+  const card = form.closest("[data-card-type='launch_draft']");
+  const draftId = card?.dataset.draftId;
+  if (!draftId) throw new Error(t("发射预案没有可保存的 ID。", "This launch draft has no saveable ID."));
+  const formData = new FormData(form);
+  const token = Object.fromEntries(["name", "symbol", "description", "image_url", "x_url", "telegram_url", "website_url", "initial_buy", "bundle_buy_per_wallet"]
+    .map((field) => [field, String(formData.get(field) || "").trim()]));
+  const payload = await apiRequest(`/api/v1/go/launch-drafts/${draftId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      token,
+      cooking_wallet_group_id: String(formData.get("cooking_wallet_group_id") || "").trim() || null,
+      bundled_wallet_group_id: String(formData.get("bundled_wallet_group_id") || "").trim() || null,
+    }),
+  });
+  if (payload.card) updateLaunchCardInConversation(draftId, payload.card);
+  if (action === "launch") {
+    const launched = await apiRequest(`/api/v1/go/launch-drafts/${draftId}/execute`, {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    });
+    const tokenAddress = launched.token_address || launched.execution?.tokenAddress || launched.execution?.mintAddress || "";
+    state.conversation.push({
+      role: "agent",
+      timestamp: getMessageTime(),
+      content: tokenAddress
+        ? t(`已发射成功，代币地址：${tokenAddress}`, `Launch confirmed. Token address: ${tokenAddress}`)
+        : t("发射请求已提交，正在等待链上确认。", "Launch submitted; waiting for on-chain confirmation."),
+      suggestion: t("你可以继续告诉我用哪个钱包组买入或卖出。", "You can now tell me which wallet group should buy or sell."),
+    });
+    renderConversation();
+    showToast(t("已发射到 Pump。", "Launched to Pump."));
+  } else {
+    showToast(t("发射预案已保存。", "Launch draft saved."));
+  }
+  return payload.card;
+}
+
 viewRoot.addEventListener("submit", async (event) => {
   if (event.target.matches("[data-launch-draft-form]")) {
     event.preventDefault();
-    const draftId = event.target.dataset.draftId;
-    if (!draftId || state.go.savingDraftIds.has(draftId)) return;
-    const form = new FormData(event.target);
-    const token = {
-      name: String(form.get("name") || "").trim(),
-      symbol: String(form.get("symbol") || "").trim().toUpperCase(),
-      description: String(form.get("description") || "").trim(),
-      image_url: String(form.get("image_url") || "").trim() || null,
-      x_url: String(form.get("x_url") || "").trim() || null,
-      telegram_url: String(form.get("telegram_url") || "").trim() || null,
-      website_url: String(form.get("website_url") || "").trim() || null,
-      initial_buy: String(form.get("initial_buy") || "0").trim() || "0",
-    };
-    const patch = {
-      token,
-      cooking_wallet_group_id: String(form.get("cooking_wallet_group_id") || "").trim() || null,
-      bundled_wallet_group_id: String(form.get("bundled_wallet_group_id") || "").trim() || null,
-    };
-    state.go.savingDraftIds.add(draftId);
-    renderConversation();
+    const submitter = event.submitter;
+    const action = submitter?.dataset.launchAction || "save";
+    submitter?.setAttribute("disabled", "disabled");
     try {
-      await patchLaunchDraft(draftId, patch);
-      showToast(t("发射预案已保存。", "Launch draft saved."));
+      await saveLaunchDraftForm(event.target, action);
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error));
     } finally {
-      state.go.savingDraftIds.delete(draftId);
-      renderConversation();
+      submitter?.removeAttribute("disabled");
     }
     return;
   }
@@ -3029,6 +3008,16 @@ modal.addEventListener("submit", async (event) => {
       closeModal();
       await loadAssets();
       showToast(t("钱包已添加", "Wallets added"));
+    } catch (error) { showToast(error.message); }
+  }
+  if (event.target.id === "bindWalletForm") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    try {
+      await apiRequest(`/api/v1/wallet-groups/${state.assets.selectedGroupId}/wallets/${form.get("walletId")}/bind`, { method: "POST", body: JSON.stringify({ publicAddress: String(form.get("publicAddress") || "").trim(), signerReference: String(form.get("signerReference") || "").trim() }) });
+      closeModal();
+      await loadAssets({ keepGroup: true });
+      showToast(t("执行钱包已绑定", "Execution wallet bound"));
     } catch (error) { showToast(error.message); }
   }
 });
