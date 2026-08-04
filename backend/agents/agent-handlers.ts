@@ -27,10 +27,6 @@ async function parseTradePlan(input, side, services, context) {
   const wallets = group ? await Promise.resolve(services.walletGroupRepository?.listWallets?.(group.groupId, ownerUserId) || []) : [];
   const activeWallets = wallets.filter((wallet) => wallet.provisioningStatus === "active" && wallet.publicAddress);
   const accounts = activeWallets.map((wallet) => wallet.publicAddress).filter(Boolean);
-  const authorizedAccounts = activeWallets
-    .filter((wallet) => /^gmgn(?::|$)/i.test(String(wallet.providerReference || "")))
-    .map((wallet) => wallet.publicAddress)
-    .filter(Boolean);
   const nativeDecimals = chain === "solana" ? 9 : 18;
   const nativeAmount = amountMatch ? amountMatch[1] : null;
   const amountAtomic = nativeAmount ? decimalToAtomic(nativeAmount, nativeDecimals) : null;
@@ -42,14 +38,13 @@ async function parseTradePlan(input, side, services, context) {
     wallet_group_id: group?.groupId || groupRef || null,
     wallet_group_name: group?.name || groupRef || null,
     accounts,
-    authorized_accounts: authorizedAccounts,
     input_token: side === "buy" ? (chain === "solana" ? "So11111111111111111111111111111111111111112" : "0x0000000000000000000000000000000000000000") : tokenAddress,
     output_token: side === "buy" ? (tokenAddress || null) : (chain === "solana" ? "So11111111111111111111111111111111111111112" : "0x0000000000000000000000000000000000000000"),
     amount: nativeAmount,
     amount_atomic_per_wallet: amountAtomic,
     percent: percentMatch ? percentMatch[1] : null,
     percent_bps: percentMatch ? String(Math.round(Number(percentMatch[1]) * 100)) : null,
-    slippage: 30,
+    slippage_bps: 300,
     request_id: context.requestId,
     status: "requires_user_confirmation",
     execution_mode: "confirmation_required",
@@ -67,14 +62,6 @@ function decimalToAtomic(value, decimals) {
   const [whole, fraction = ""] = String(value || "0").split(".");
   if (!/^\d+$/.test(whole) || !/^\d*$/.test(fraction) || fraction.length > decimals) return null;
   return (BigInt(whole) * (10n ** BigInt(decimals)) + BigInt((fraction + "0".repeat(decimals)).slice(0, decimals))).toString();
-}
-
-function tradeAccounts(plan) {
-  return plan.accounts.reduce((result, address) => {
-    if (plan.side === "sell") result.percentBpsByWallet[address] = plan.percent_bps;
-    else result.inputAmountByWallet[address] = plan.amount_atomic_per_wallet;
-    return result;
-  }, { inputAmountByWallet: {}, percentBpsByWallet: {} });
 }
 
 async function recoverPendingTradePlan(context, services) {
@@ -388,36 +375,49 @@ export function createAgentHandlers(integrations, services = {}) {
       const security = await integrations.tokenSecurity?.({ chain: plan.chain, address: plan.token_address, requestId: context.requestId })
         || await integrations.analyzeToken?.({ chain: plan.chain, address: plan.token_address, includeWallets: false, requestId: context.requestId });
       if (!security || security.status !== "live") {
-        return { status: "blocked", confirmation_id: plan.confirmation_id, reason: "Token security check did not return live GMGN data.", security_status: security?.status || "unavailable" };
+        return { status: "blocked", confirmation_id: plan.confirmation_id, reason: "Token security check did not return live market data.", security_status: security?.status || "unavailable" };
       }
       const data = security.data || {};
       const securityRisk = data.security || data;
       if (securityRisk.honeypot === true || securityRisk.is_honeypot === true) {
-        return { status: "blocked", confirmation_id: plan.confirmation_id, reason: "GMGN security check flagged this token as a honeypot.", security: securityRisk };
+        return { status: "blocked", confirmation_id: plan.confirmation_id, reason: "The market security check flagged this token as a honeypot.", security: securityRisk };
       }
 
-      const { inputAmountByWallet, percentBpsByWallet } = tradeAccounts(plan);
-      const execution = await integrations.executeMultiSwap?.({
-        chain: plan.chain,
-        accounts: plan.accounts,
-        authorizedAccounts: plan.authorized_accounts,
+      if (plan.chain !== "solana") {
+        return { status: "blocked", confirmation_id: plan.confirmation_id, reason: "Direct wallet Swap currently supports Solana only." };
+      }
+      if (plan.accounts.length !== 1) {
+        return {
+          status: "blocked",
+          confirmation_id: plan.confirmation_id,
+          reason: "Direct wallet Swap currently requires a wallet group with exactly one active wallet. Select a one-wallet Assets group so the browser can sign it.",
+          accounts: plan.accounts.length,
+        };
+      }
+      const execution = await integrations.prepareDirectSwap?.({
+        walletAddress: plan.accounts[0],
         inputToken: plan.input_token,
         outputToken: plan.output_token,
-        inputAmountByWallet: plan.side === "buy" ? inputAmountByWallet : undefined,
-        percentBpsByWallet: plan.side === "sell" ? percentBpsByWallet : undefined,
-        slippage: plan.slippage,
+        amountAtomic: plan.amount_atomic_per_wallet,
+        percentBps: plan.side === "sell" ? plan.percent_bps : null,
+        slippageBps: Number(plan.slippage_bps || 300),
         requestId: context.requestId,
       });
       pendingTradePlans.delete(key);
-      const orderId = execution?.data?.order_id || execution?.data?.orderId || execution?.data?.report?.order_id || null;
-      const final = orderId ? await integrations.getTradeOrder?.({ chain: plan.chain, orderId, requestId: context.requestId }) : null;
-      context.emitEvent(execution?.status === "live" ? "trade_submitted" : "execution_unavailable", {
+      context.emitEvent(execution?.status === "requires_user_signature" ? "trade_confirmation_required" : "execution_unavailable", {
         confirmation_id: plan.confirmation_id,
         side: plan.side,
-        order_id: orderId,
         status: execution?.status,
       });
-      return { ...plan, accounts: plan.accounts.length, security, execution, order: final, order_id: orderId, status: execution?.status || "unavailable" };
+      return {
+        ...plan,
+        accounts: plan.accounts.length,
+        security,
+        execution,
+        status: execution?.status || "unavailable",
+        requires_user_signature: execution?.status === "requires_user_signature",
+        card: { type: "direct_swap", data: { ...plan, security, execution } },
+      };
     },
 
     async "dev.market.scan"(input, context) {
@@ -539,24 +539,9 @@ export function createAgentHandlers(integrations, services = {}) {
             ? "data_gap"
             : "unavailable",
         ...analysis,
-        source: analysis.status === "completed" ? "hertzflow" : analysis.source || "hertzflow",
+        source: analysis.source || "gmgn",
         ...(analysis.reason ? { data_gap: analysis.reason } : {}),
       };
-      if (analysis.machine_report) {
-        result.report_preview = {
-          schema: analysis.machine_report.schema,
-          source: "GMGN fresh sample + HertzFlow",
-          risk_score: analysis.verdict?.risk_score ?? null,
-          risk_level: analysis.verdict?.risk_level || "data_gap",
-          chain_state: analysis.verdict?.chain_state || "DATA_GAP",
-          conclusion: analysis.verdict?.one_liner || null,
-          key_findings: analysis.verdict?.signals || [],
-          sampled_holders: analysis.metrics?.sampled_holder_count || 0,
-          sampled_traders: analysis.metrics?.sampled_trader_count || 0,
-          watchlist_count: Array.isArray(analysis.watchlist) ? analysis.watchlist.length : 0,
-          data_gaps: analysis.data_gaps || [],
-        };
-      }
       return { ...result, card: { type: "meme_analysis", data: result } };
     },
 
@@ -581,10 +566,6 @@ export function createAgentHandlers(integrations, services = {}) {
     },
   };
 }
-
-// Backward-compatible export for integrations that still import the legacy
-// module name. The handlers themselves are live-provider handlers.
-export const createMockHandlers = createAgentHandlers;
 
 function normalizeMarketChain(value) {
   const text = String(value || "").toLowerCase();

@@ -5,7 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { TaskManager } from "./task-manager.ts";
-import { createAgentHandlers } from "./mock-handlers.ts";
+import { createAgentHandlers } from "./agent-handlers.ts";
 import { createIntegrationRegistry } from "../integrations/registry.ts";
 import { InMemoryConversationRepository } from "../api/src/repositories/in-memory-conversation-repository.ts";
 import { InMemoryTaskRepository } from "../api/src/repositories/in-memory-task-repository.ts";
@@ -28,9 +28,8 @@ const SUPPORTED_CHANNELS = new Set(["web", "telegram", "api"]);
 export const AGENT_CAPABILITIES = Object.freeze([
   "NarraOps domain agent: narrative discovery -> analysis -> meme launch -> post-launch wallet operations",
   "Read-only GMGN market data: trending tokens, launchpad trenches, K-lines, token signals, and token due diligence",
-  "HertzFlow Solana meme forensics: concentration, MM/bot, distribution, cash-out, relationship clusters, and monitoring report",
   "Direct Pump.fun launch through the connected Cooking wallet after explicit confirmation",
-  "GMGN buy and sell only for wallets explicitly authorized by the GMGN account; no generic Assets wallet is treated as authorized",
+  "Direct Solana Swap through the selected Assets wallet after explicit confirmation and browser signature",
   "解释 NarraOps 能力和当前工作区状态",
   "根据公开叙事生成可审阅的 narrative / meme 草案",
   "读取已接入的只读行情、开发者钱包和 Meme 分析工具结果",
@@ -405,6 +404,12 @@ export function createAgentRuntime(options = {}) {
       ...parsed.metadata,
       conversation_id: conversation.conversationId,
       channel,
+      user_id:
+        context.userId ||
+        context.user_id ||
+        conversation.userId ||
+        conversation.context?.user_id ||
+        null,
     });
     await conversations.bindTask(conversation.conversationId, task.taskId);
     if (wait) waitingTaskIds.add(task.taskId);
@@ -426,7 +431,7 @@ export function createAgentRuntime(options = {}) {
           .filter((capability) => !/mock|review-only|disabled/i.test(String(capability)))
           .concat([
             "Direct Pump.fun launch signed by the selected Cooking wallet after explicit user confirmation",
-            "GMGN multi-wallet buy and sell only for GMGN-authorized wallets after token security and explicit user confirmation",
+            "Direct Solana Swap through a selected one-wallet Assets group after token security and explicit user confirmation",
           ]),
       });
       assistantMessage = {
@@ -483,6 +488,7 @@ export function createAgentRuntime(options = {}) {
     handleMessage,
     updateLaunchDraft,
     waitForTask,
+    getTask: (taskId) => manager.get(taskId),
     publicTask,
   };
 }

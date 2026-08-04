@@ -4,7 +4,7 @@ Read this file and `coordination/PROJECT_STATE.md` before changing code.
 
 ## Product
 
-NarraOps is an AI-native narrative discovery and meme operations workspace that is developed and used live. The Agent is a general LLM wrapped with NarraOps prompts, live Pulse/GMGN/HertzFlow tools, user-session context, and Assets wallet groups. Public narratives are retrieved at request time; they are not treated as a fine-tuning corpus. Go turns a link or instruction into editable launch parameters and can enter real launch/trade execution after explicit confirmation. Do not reintroduce mock, simulated, or disabled user paths.
+NarraOps is an AI-native narrative discovery and meme operations workspace that is developed and used live. The Agent is a general LLM wrapped with NarraOps prompts, live Pulse/GMGN read-only market tools, direct Solana wallet Swap tools, user-session context, and Assets wallet groups. Public narratives are retrieved at request time; they are not treated as a fine-tuning corpus. Go turns a link or instruction into editable launch parameters and can enter real launch/trade execution after explicit confirmation. Do not reintroduce mock, simulated, or disabled user paths.
 
 ## Worktrees and ownership
 

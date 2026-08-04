@@ -16,6 +16,7 @@ import {
 import {
   createAgentConversation,
   createAgentTask,
+  getAgentTask,
   getAgentConversation,
   handleTelegramWebhook,
   getSharedAgentRuntime,
@@ -374,12 +375,6 @@ function gmgnCredentialsConfigured() {
   );
 }
 
-function gmgnTradeCapability() {
-  return process.env.GMGN_TRADE_ENABLED === "true"
-    ? "authorized_wallets_only"
-    : "not_enabled";
-}
-
 function validSolanaAddress(value) {
   try {
     return bs58.decode(String(value || "")).length === 32;
@@ -712,6 +707,77 @@ async function submitDirectLaunchDraft({ supabase, userId, draftId, signedTransa
     cooking_wallet_group_id: cookingId,
     bundled_wallet_group_id: expected.bundled_wallet_group_id || draft.metadata?.bundled_wallet_group_id || null,
     bundled_wallet_count: 0,
+  };
+}
+
+async function submitDirectSwap({
+  supabase,
+  userId,
+  walletGroupId,
+  signedTransactionBase64,
+  messageHash,
+}) {
+  const group = await ownedExecutionGroup(supabase, userId, walletGroupId, null);
+  if (group.wallets.length !== 1) {
+    throw Object.assign(new Error("Direct browser Swap requires exactly one active wallet in the selected group"), {
+      status: 400,
+      code: "DIRECT_SWAP_WALLET_COUNT_INVALID",
+    });
+  }
+  const encoded = String(signedTransactionBase64 || "").trim();
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length > 2_000_000) {
+    throw Object.assign(new Error("signedTransactionBase64 is invalid"), { status: 400, code: "INVALID_SIGNED_TRANSACTION" });
+  }
+  const { PublicKey, VersionedTransaction } = await solanaWeb3();
+  let transaction;
+  try {
+    transaction = VersionedTransaction.deserialize(Buffer.from(encoded, "base64"));
+  } catch {
+    throw Object.assign(new Error("The signed Swap transaction could not be decoded"), { status: 400, code: "SIGNED_TRANSACTION_INVALID" });
+  }
+  const payer = transaction.message.staticAccountKeys?.[0]?.toBase58?.() || "";
+  const expectedPayer = group.wallets[0].public_address;
+  if (payer !== expectedPayer) {
+    throw Object.assign(new Error("The signed Swap transaction does not belong to the selected Assets wallet"), { status: 400, code: "SWAP_WALLET_SIGNATURE_MISMATCH" });
+  }
+  const serializedMessage = transaction.message.serialize();
+  const payerSignature = transaction.signatures?.[0];
+  if (
+    !payerSignature
+    || payerSignature.every((byte) => byte === 0)
+    || !nacl.sign.detached.verify(serializedMessage, payerSignature, new PublicKey(expectedPayer).toBytes())
+  ) {
+    throw Object.assign(new Error("The signed Swap transaction could not be verified"), { status: 400, code: "SIGNED_TRANSACTION_INVALID" });
+  }
+  const actualMessageHash = createHash("sha256").update(serializedMessage).digest("hex");
+  if (messageHash && String(messageHash) !== actualMessageHash) {
+    throw Object.assign(new Error("The signed Swap transaction does not match the prepared route"), { status: 409, code: "SIGNED_SWAP_PLAN_MISMATCH" });
+  }
+  const planner = await directLaunchPlanner();
+  const connection = planner.pump.connection;
+  let txHash;
+  try {
+    txHash = await connection.sendRawTransaction(Buffer.from(encoded, "base64"), {
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+      maxRetries: 3,
+    });
+    const confirmation = await connection.confirmTransaction(txHash, "confirmed");
+    if (confirmation?.value?.err) throw new Error("Swap transaction failed on-chain");
+  } catch (error) {
+    throw Object.assign(new Error(error.message || "Unable to broadcast the Swap transaction"), {
+      status: 502,
+      code: "DIRECT_SWAP_BROADCAST_FAILED",
+    });
+  }
+  return {
+    schema_version: "go.swap_execution.v1",
+    status: "confirmed",
+    provider: "jupiter",
+    execution_mode: "client_signed",
+    tx_hash: txHash,
+    wallet_group_id: walletGroupId,
+    wallet_address: expectedPayer,
   };
 }
 
@@ -1345,7 +1411,8 @@ export default async function handler(request, response) {
       execution: "direct_wallet_signature",
       launch: "pump_direct_wallet_signature",
       gmgn_market: gmgnCredentialsConfigured() ? "read_only" : "not_configured",
-      gmgn_trade: gmgnTradeCapability(),
+      gmgn_trade: "read_only",
+      direct_swap: "direct_wallet_signature",
     });
   }
   if (request.method === "GET" && path === "/api/v1/pulse") {
@@ -1529,6 +1596,26 @@ export default async function handler(request, response) {
     }
   }
 
+  if (request.method === "GET" && /^\/api\/v1\/agent\/tasks\/[0-9a-f-]{36}$/i.test(path)) {
+    try {
+      const taskId = path.split("/").pop();
+      const task = await getAgentTask(taskId);
+      if (!task) return apiError(response, 404, "TASK_NOT_FOUND", "Agent task was not found");
+      return sendJson(response, 200, {
+        task_id: task.taskId || task.task_id,
+        type: task.type,
+        status: task.status,
+        progress: task.progress,
+        requires_confirmation: Boolean(task.requiresConfirmation || task.requires_confirmation),
+        execution_mode: task.executionMode || task.execution_mode || "live",
+        ...(task.result !== undefined ? { result: task.result } : {}),
+        ...(task.failure !== undefined ? { failure: task.failure } : {}),
+      }, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(response, error.status || 500, error.code || "TASK_READ_FAILED", error.message || "Unable to read agent task");
+    }
+  }
+
   if (request.method === "POST" && /^\/api\/v1\/go\/launch-drafts\/[0-9a-f-]{36}\/submit$/i.test(path)) {
     try {
       const body = await readBody(request);
@@ -1549,6 +1636,30 @@ export default async function handler(request, response) {
         error.status || 500,
         error.code || "DIRECT_LAUNCH_SUBMIT_FAILED",
         error.message || "Unable to submit the signed Pump launch",
+      );
+    }
+  }
+
+  if (request.method === "POST" && path === "/api/v1/swaps/submit") {
+    try {
+      const body = await readBody(request);
+      const swapSupabase = serverSupabase();
+      const session = swapSupabase ? await loadSession(swapSupabase, request) : null;
+      const userId = authenticatedUserId(session);
+      const result = await submitDirectSwap({
+        supabase: swapSupabase,
+        userId,
+        walletGroupId: body.walletGroupId || body.wallet_group_id,
+        signedTransactionBase64: body.signedTransactionBase64 || body.signed_transaction_base64,
+        messageHash: body.messageHash || body.message_hash,
+      });
+      return sendJson(response, 200, result, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "DIRECT_SWAP_SUBMIT_FAILED",
+        error.message || "Unable to complete the direct Swap",
       );
     }
   }

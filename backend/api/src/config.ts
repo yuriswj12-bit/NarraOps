@@ -21,20 +21,10 @@ export function loadConfig() {
     gmgnLiveEnabled: process.env.GMGN_LIVE_ENABLED == null
       ? !TEST_RUNTIME
       : process.env.GMGN_LIVE_ENABLED !== "false",
-    gmgnExecutionEnabled: process.env.GMGN_TRADE_ENABLED === "true",
-    gmgnAuthorizedWallets: String(process.env.GMGN_AUTHORIZED_WALLETS || "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean),
     gmgnCliPath: process.env.GMGN_CLI_PATH || undefined,
     privyAppId: process.env.PRIVY_APP_ID || undefined,
-    hertzflowLiveEnabled: process.env.HERTZFLOW_LIVE_ENABLED == null
-      ? !TEST_RUNTIME
-      : process.env.HERTZFLOW_LIVE_ENABLED !== "false",
-    hertzflowPythonPath: process.env.HERTZFLOW_PYTHON_PATH || "python",
-    hertzflowReportScriptPath: process.env.HERTZFLOW_SOL_MEME_REPORT_SCRIPT_PATH || undefined,
-    hertzflowForensicScriptPath: process.env.HERTZFLOW_SOL_MEME_FORENSIC_SCRIPT_PATH || undefined,
-    hertzflowOutputRoot: process.env.HERTZFLOW_REPORT_OUTPUT_ROOT || undefined,
+    jupiterApiBaseUrl: process.env.JUPITER_API_BASE_URL || "https://api.jup.ag/swap/v1",
+    jupiterApiKey: process.env.JUPITER_API_KEY || undefined,
     solanaRpcUrl: process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
     bscRpcUrl: process.env.BSC_RPC_URL || "https://bsc-dataseed.binance.org",
     pumpMetadataUploadUrl: process.env.PUMP_METADATA_UPLOAD_URL || "https://pump.fun/api/ipfs",

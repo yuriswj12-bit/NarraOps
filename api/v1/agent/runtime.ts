@@ -35,16 +35,13 @@ function getRuntime() {
       walletGroupRepository: supabase ? new SupabaseWalletGroupRepository(supabase) : undefined,
       config: {
         gmgnLiveEnabled: process.env.GMGN_LIVE_ENABLED !== "false",
-        gmgnExecutionEnabled: process.env.GMGN_TRADE_ENABLED === "true",
-        gmgnAuthorizedWallets: String(process.env.GMGN_AUTHORIZED_WALLETS || "")
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean),
         realExecutionEnabled: process.env.REAL_EXECUTION_ENABLED !== "false",
         gmgnCliPath: process.env.GMGN_CLI_PATH || undefined,
         externalTimeoutMs: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS || 15_000),
         externalMaxRetries: Number(process.env.EXTERNAL_REQUEST_MAX_RETRIES || 1),
-        hertzflowLiveEnabled: process.env.HERTZFLOW_LIVE_ENABLED !== "false",
+        jupiterApiBaseUrl: process.env.JUPITER_API_BASE_URL || undefined,
+        jupiterApiKey: process.env.JUPITER_API_KEY || undefined,
+        solanaRpcUrl: process.env.SOLANA_RPC_URL || undefined,
       },
     });
   }
@@ -64,6 +61,10 @@ export async function getAgentConversation(conversationId) {
   return getRuntime().getConversation(conversationId);
 }
 
+export async function getAgentTask(taskId) {
+  return getRuntime().getTask(taskId);
+}
+
 export async function postAgentConversationMessage(conversationId, body = {}) {
   const wait = body.wait !== false;
   return getRuntime().handleMessage({
@@ -73,7 +74,7 @@ export async function postAgentConversationMessage(conversationId, body = {}) {
     command: body.command || null,
     context: body.context || {},
     wait,
-    timeoutMs: Number(body.timeoutMs || 20_000),
+    timeoutMs: Number(body.timeoutMs || body.timeout_ms || 20_000),
   });
 }
 
@@ -89,7 +90,7 @@ export async function createAgentTask(body = {}) {
     command: body.command || null,
     context: body.context || body.parameters?.context || {},
     wait: body.wait === true,
-    timeoutMs: Number(body.timeoutMs || 20_000),
+    timeoutMs: Number(body.timeoutMs || body.timeout_ms || 20_000),
   });
   return {
     task_id: result.task_id,
@@ -153,6 +154,7 @@ export default {
   getSharedAgentRuntime,
   createAgentConversation,
   getAgentConversation,
+  getAgentTask,
   postAgentConversationMessage,
   updateAgentLaunchDraft,
   createAgentTask,
