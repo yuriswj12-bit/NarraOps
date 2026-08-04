@@ -168,7 +168,7 @@ export async function generateAgentReply({
       body: JSON.stringify({
         model: status.model,
         temperature: 0.35,
-        max_tokens: 1_200,
+        max_tokens: 700,
         stream: false,
         response_format: { type: "json_object" },
         messages: [
@@ -177,7 +177,7 @@ export async function generateAgentReply({
           { role: "user", content: `Use this NarraOps context to answer the latest user message:\n${context}` },
         ],
       }),
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(7_000),
     });
     if (!response.ok) {
       return {

@@ -13,6 +13,7 @@
       "src": "api/v1/**/*.ts",
       "use": "@vercel/node",
       "config": {
+        "maxDuration": 60,
         "includeFiles": [
           "api/v1/agent/runtime.cjs",
           "api/v1/launch-planner.cjs",
@@ -71,6 +72,10 @@
     {
       "src": "/api/v1/wallet-groups/([^/]+)/wallets",
       "dest": "/api/v1/wallet-groups/[groupId]/wallets.ts"
+    },
+    {
+      "src": "/api/v1/wallet-groups/([^/]+)/provision",
+      "dest": "/api/v1/[...path].ts"
     },
     {
       "src": "/api/v1/(.*)",
