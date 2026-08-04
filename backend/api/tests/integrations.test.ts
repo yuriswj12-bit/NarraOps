@@ -1,10 +1,11 @@
 // @ts-nocheck
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Keypair, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { GmgnMarketAdapter } from "../../integrations/gmgn-market-adapter.ts";
-import { HertzFlowAdapter } from "../../integrations/hertzflow-adapter.ts";
+import { SOL, SolanaSwapAdapter } from "../../integrations/solana-swap-adapter.ts";
 import { fetchNarrativeLink, prepareNarrativeLink } from "../../integrations/narrative-link-adapter.ts";
-import { createMockHandlers } from "../../agents/mock-handlers.ts";
+import { createAgentHandlers } from "../../agents/agent-handlers.ts";
 import { parseGoInput } from "../../agents/go-command-parser.ts";
 import { resolveLaunchPlatform } from "../../integrations/launch-platform-registry.ts";
 import { InMemoryDevWalletRepository } from "../src/repositories/in-memory-dev-wallet-repository.ts";
@@ -55,37 +56,93 @@ test("GMGN adapter builds bounded read-only market commands", async () => {
   assert.equal(unsupported.status, "unsupported_chain");
 });
 
-test("GMGN Solana forensic research bounds fan-out and reuses wallet tags", async () => {
-  let active = 0;
-  let maxActive = 0;
-  const adapter = new GmgnMarketAdapter({
-    enabled: true,
-    cliPath: "gmgn-cli",
-    maxRetries: 2,
-    execFileImpl: async () => {
-      active += 1;
-      maxActive = Math.max(maxActive, active);
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      active -= 1;
+test("direct Solana swap prepares a client-signable transaction without broadcasting", async () => {
+  const wallet = Keypair.generate().publicKey;
+  const token = Keypair.generate().publicKey;
+  const transaction = new VersionedTransaction(
+    new TransactionMessage({
+      payerKey: wallet,
+      recentBlockhash: "11111111111111111111111111111111",
+      instructions: [],
+    }).compileToV0Message(),
+  );
+  const encoded = Buffer.from(transaction.serialize()).toString("base64");
+  const calls = [];
+  const adapter = new SolanaSwapAdapter({
+    apiKey: "test-key",
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      if (String(url).includes("/quote?")) {
+        return {
+          ok: true,
+          async json() {
+            return { outAmount: "456", priceImpactPct: "0.01", routePlan: [] };
+          },
+        };
+      }
       return {
-        stdout: JSON.stringify({
-          list: [{
-            address: "Wallet11111111111111111111111111111111111111",
-            amount_percentage: 0.25,
-            tags: ["smart_degen"],
-          }],
-        }),
+        ok: true,
+        async json() {
+          return { swapTransaction: encoded, lastValidBlockHeight: 99 };
+        },
       };
     },
   });
-  const result = await adapter.fetchSolanaMemeResearch({
-    address: "So11111111111111111111111111111111111111112",
-    requestId: "hertzflow-test",
+  const result = await adapter.prepare({
+    walletAddress: wallet.toBase58(),
+    inputToken: SOL,
+    outputToken: token.toBase58(),
+    amountAtomic: "123",
+    slippageBps: 300,
   });
-  assert.equal(result.status, "live");
-  assert.equal(result.tag_scans_enabled, false);
-  assert.deepEqual(Object.keys(result.component_statuses), ["info", "security", "pool", "holders", "traders"]);
-  assert.ok(maxActive <= 3);
+  assert.equal(result.status, "requires_user_signature");
+  assert.equal(result.input_amount_atomic, "123");
+  assert.equal(result.slippage_bps, 300);
+  assert.equal(result.transaction_base64, encoded);
+  assert.match(calls[0].url, /amount=123/);
+  assert.equal(calls[0].options.headers["x-api-key"], "test-key");
+});
+
+test("percentage sell resolves the selected Assets wallet token balance", async () => {
+  const wallet = Keypair.generate().publicKey;
+  const token = Keypair.generate().publicKey;
+  const transaction = new VersionedTransaction(
+    new TransactionMessage({
+      payerKey: wallet,
+      recentBlockhash: "11111111111111111111111111111111",
+      instructions: [],
+    }).compileToV0Message(),
+  );
+  const encoded = Buffer.from(transaction.serialize()).toString("base64");
+  const requested = [];
+  const adapter = new SolanaSwapAdapter({
+    rpcUrl: "https://rpc.example.test",
+    fetchImpl: async (url) => {
+      requested.push(String(url));
+      if (String(url) === "https://rpc.example.test") {
+        return {
+          ok: true,
+          async json() {
+            return { result: { value: [{ account: { data: { parsed: { info: { tokenAmount: { amount: "1000" } } } } } }] } };
+          },
+        };
+      }
+      if (String(url).includes("/quote?")) {
+        assert.match(String(url), /amount=250/);
+        return { ok: true, async json() { return { outAmount: "12", routePlan: [] }; } };
+      }
+      return { ok: true, async json() { return { swapTransaction: encoded }; } };
+    },
+  });
+  const result = await adapter.prepare({
+    walletAddress: wallet.toBase58(),
+    inputToken: token.toBase58(),
+    outputToken: SOL,
+    percentBps: 2500,
+  });
+  assert.equal(result.status, "requires_user_signature");
+  assert.equal(result.input_amount_atomic, "250");
+  assert.equal(requested[0], "https://rpc.example.test");
 });
 
 test("Dev wallet repository registers GMGN creator evidence", () => {
@@ -138,7 +195,7 @@ test("public X links are fetched and become review-only launch parameters", asyn
     assert.match(narrative.content, /真实的公开叙事文本/);
 
     const repository = new InMemoryLaunchDraftRepository();
-    const handlers = createMockHandlers({}, { launchDraftRepository: repository });
+    const handlers = createAgentHandlers({}, { launchDraftRepository: repository });
     const result = await handlers["launch.meme"](
       { prompt: "https://x.com/coolish/status/2083800621321535680?s=20", chain: "solana" },
       { taskId: "task-link", requestId: "request-link", conversationId: "conversation-link", emitEvent() {} },
@@ -211,68 +268,4 @@ test("launch platform mapping is fixed to the product chain choices", () => {
   assert.equal(pons.launch_fee_wei, "500000000000000");
   assert.equal(pons.browser_execution_mode, "direct_wallet_confirmation");
   assert.equal(resolveLaunchPlatform({ chain: "bsc", platform: "pump" }).chain, "solana");
-});
-
-test("HertzFlow is read-only, opt-in, and currently Solana-only", async () => {
-  const adapter = new HertzFlowAdapter({ enabled: false });
-  const sol = await adapter.analyze({ chain: "solana", contractAddress: "So11111111111111111111111111111111111111112" });
-  assert.equal(sol.status, "unavailable");
-  const bsc = await adapter.analyze({ chain: "bsc", contractAddress: "0x1111111111111111111111111111111111111111" });
-  assert.equal(bsc.status, "unsupported_chain");
-});
-
-test("HertzFlow builds a live Solana forensic report from GMGN research", async () => {
-  const source = "Source11111111111111111111111111111111111111";
-  const funder = "Funder11111111111111111111111111111111111111";
-  const collector = "Collector111111111111111111111111111111111111";
-  const rows = [
-    {
-      address: "Wallet11111111111111111111111111111111111111",
-      amount_percentage: "58.66%",
-      tags: ["bundler"],
-      buy_volume_usd: "100000",
-      sell_volume_usd: "70000",
-      native_transfer: { from_address: funder },
-      token_transfer_in: { address: source },
-      token_transfer_out: { address: collector },
-    },
-    {
-      address: "Wallet22222222222222222222222222222222222222",
-      amount_percentage: "8%",
-      tags: ["dex_bot"],
-      buy_volume_usd: "50000",
-      sell_volume_usd: "90000",
-      native_transfer: { from_address: funder },
-      token_transfer_in: { address: source },
-    },
-  ];
-  const adapter = new HertzFlowAdapter({
-    enabled: true,
-    timeoutMs: 1_000,
-    marketAdapter: {
-      async fetchSolanaMemeResearch() {
-        return {
-          status: "live",
-          address: "So11111111111111111111111111111111111111112",
-          observed_at: "2026-08-02T00:00:00.000Z",
-          limit: 100,
-          component_statuses: { info: "live", pool: "live", holders: "live", traders: "live" },
-          data: {
-            info: { price_usd: 1.2, market_cap_usd: 1_000_000, holder_count: 100 },
-            pool: { liquidity_usd: 500_000 },
-            holders: rows,
-            traders: rows,
-          },
-        };
-      },
-    },
-  });
-  const result = await adapter.analyze({ chain: "solana", contractAddress: "So11111111111111111111111111111111111111112" });
-  assert.equal(result.status, "completed");
-  assert.equal(result.provider, "hertzflow");
-  assert.equal(result.machine_report.schema, "hertzflow_sol_meme_forensic_v1");
-  assert.equal(result.machine_report.metrics.top1_hold_rate, 0.5866);
-  assert.equal(result.machine_report.top_clusters.relationship[0].wallet_count, 2);
-  assert.ok(result.watchlist.length >= 2);
-  assert.match(result.forensic_report, /Relationship graph conclusion/);
 });

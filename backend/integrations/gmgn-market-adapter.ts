@@ -263,72 +263,6 @@ export class GmgnMarketAdapter {
     };
   }
 
-  async fetchSolanaMemeResearch({ address, requestId, limit = 100, includeTagScans = false } = {}) {
-    const normalized = normalizeChain("solana");
-    if (!isTokenAddress(address, normalized.cli)) {
-      return {
-        status: "invalid_address",
-        source: "gmgn",
-        operation: "token.sol_meme_research",
-        chain: "solana",
-        request_id: requestId,
-        data: null,
-        reason: "A valid Solana token contract address is required",
-      };
-    }
-
-    const boundedLimit = clampInteger(limit, 20, 100, 100);
-    // Holder/trader rows already contain GMGN wallet and maker tags. Optional
-    // filtered scans are deliberately off by default: GMGN rate limits this
-    // endpoint aggressively, and a report must not fan out into an IP ban.
-    const tagNames = includeTagScans ? ["smart_degen", "bundler"] : [];
-    const commands = [
-      ["info", ["token", "info", "--chain", normalized.cli, "--address", String(address), "--raw"]],
-      ["security", ["token", "security", "--chain", normalized.cli, "--address", String(address), "--raw"]],
-      ["pool", ["token", "pool", "--chain", normalized.cli, "--address", String(address), "--raw"]],
-      ["holders", ["token", "holders", "--chain", normalized.cli, "--address", String(address), "--limit", String(boundedLimit), "--raw"]],
-      ["traders", ["token", "traders", "--chain", normalized.cli, "--address", String(address), "--limit", String(boundedLimit), "--raw"]],
-      ...tagNames.map((tag) => [
-        `holders_${tag}`,
-        ["token", "holders", "--chain", normalized.cli, "--address", String(address), "--tag", tag, "--limit", String(boundedLimit), "--raw"],
-      ]),
-    ];
-
-    const entries = [];
-    // Keep fan-out bounded. Three concurrent requests is enough to keep the
-    // report responsive without repeating the 11-request rate-limit failure.
-    for (let index = 0; index < commands.length; index += 3) {
-      const batch = commands.slice(index, index + 3);
-      const results = await Promise.all(batch.map(async ([key, args]) => [
-        key,
-        await this.runRawCommand(args, { requestId, operation: `token.${key}`, chain: normalized.name }),
-      ]));
-      entries.push(...results);
-      if (index + 3 < commands.length) await pause(250);
-    }
-    const statuses = Object.fromEntries(entries.map(([key, value]) => [key, value.status]));
-    const errors = Object.fromEntries(entries
-      .filter(([, value]) => value.error_code || value.error_detail)
-      .map(([key, value]) => [key, { code: value.error_code, detail: value.error_detail }]));
-    const live = entries.some(([, value]) => value.status === "live");
-    return {
-      status: live ? "live" : statuses.info || "unavailable",
-      source: "gmgn",
-      operation: "token.sol_meme_research",
-      chain: normalized.name,
-      address: String(address),
-      request_id: requestId,
-      observed_at: new Date().toISOString(),
-      limit: boundedLimit,
-      tags: tagNames,
-      tag_scans_enabled: Boolean(includeTagScans),
-      component_statuses: statuses,
-      ...(Object.keys(errors).length ? { component_errors: errors } : {}),
-      data: Object.fromEntries(entries.map(([key, value]) => [key, value.data])),
-      ...(live ? {} : { reason: "GMGN Solana meme research could not be fetched" }),
-    };
-  }
-
   execOptions() {
     return {
       timeout: this.timeoutMs,
@@ -448,10 +382,6 @@ function appendTimestamp(args, flag, value) {
   if (value == null || value === "") return;
   const parsed = Number(value);
   if (Number.isSafeInteger(parsed) && parsed > 0) args.push(flag, String(parsed));
-}
-
-function pause(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeSignalTypes(value) {

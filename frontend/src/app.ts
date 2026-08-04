@@ -84,6 +84,7 @@ const state = {
     retryCommand: null,
     seenEventIds: new Set(),
     seenCards: new Set(),
+    swapPlans: new Map(),
     reconnects: 0,
   },
   auth: { loading: true, session: null, busy: false },
@@ -869,6 +870,7 @@ function renderLaunchDraftCard(card) {
 function renderStructuredCard(card) {
   if (!card) return "";
   if (card.type === "launch_draft") return renderLaunchDraftCard(card);
+  if (card.type === "direct_swap") return renderDirectSwapCard(card);
   const cardMeta = {
     narrative_snapshot: ["fa-solid fa-wave-square", "叙事快照", "Narrative Snapshot"],
     meme_package: ["fa-solid fa-shapes", "Meme 构建包", "Meme Build Package"],
@@ -902,6 +904,39 @@ function renderStructuredCard(card) {
   `;
 }
 
+function renderDirectSwapCard(card) {
+  const data = card.data && typeof card.data === "object" ? card.data : {};
+  const execution = data.execution && typeof data.execution === "object" ? data.execution : {};
+  const planId = execution.message_hash || data.confirmation_id || crypto.randomUUID();
+  state.agent.swapPlans.set(planId, {
+    execution,
+    walletGroupId: data.wallet_group_id,
+    side: data.side,
+  });
+  const ready = execution.status === "requires_user_signature" && execution.transaction_base64;
+  return `
+    <article class="go-structured-card" data-card-type="direct_swap">
+      <header>
+        <div><i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i><strong>${t("Swap 确认", "Confirm swap")}</strong></div>
+        <span>${ready ? t("等待签名", "Signature required") : escapeHtml(execution.status || data.status || "unavailable")}</span>
+      </header>
+      <div class="go-card-metrics">
+        <div class="go-card-metric"><span>${t("方向", "Side")}</span><strong>${escapeHtml(String(data.side || "—").toUpperCase())}</strong></div>
+        <div class="go-card-metric"><span>${t("钱包", "Wallet")}</span><strong>${escapeHtml(shortAddress(execution.wallet_address || data.accounts?.[0] || ""))}</strong></div>
+        <div class="go-card-metric"><span>${t("输入数量", "Input amount")}</span><strong>${escapeHtml(execution.input_amount_atomic || data.amount || "—")}</strong></div>
+        <div class="go-card-metric"><span>${t("预计输出", "Quoted output")}</span><strong>${escapeHtml(execution.quoted_output_amount_atomic || "—")}</strong></div>
+        <div class="go-card-metric"><span>${t("滑点", "Slippage")}</span><strong>${Number(execution.slippage_bps || 0) / 100}%</strong></div>
+        <div class="go-card-metric"><span>${t("价格影响", "Price impact")}</span><strong>${escapeHtml(execution.price_impact_pct ?? "—")}%</strong></div>
+      </div>
+      ${execution.reason ? `<p class="go-card-empty">${escapeHtml(execution.reason)}</p>` : ""}
+      <div class="go-launch-actions">
+        <span>${t("点击后由所选 Assets 钱包签名并广播。", "Your selected Assets wallet will sign and broadcast after this click.")}</span>
+        <button type="button" data-action="confirm-direct-swap" data-swap-plan="${escapeHtml(planId)}" ${ready ? "" : "disabled"}>${t("确认 Swap", "Confirm swap")}</button>
+      </div>
+    </article>
+  `;
+}
+
 function formatAgentKey(key) {
   return escapeHtml(String(key).replace(/_/g, " "));
 }
@@ -913,14 +948,14 @@ function formatAgentValue(value) {
 }
 
 function renderMessageContent(message) {
-  if (message.lifecycle && message.lifecycle !== "completed" && message.lifecycle !== "failed") {
+  if (message.pending || (message.lifecycle && message.lifecycle !== "completed" && message.lifecycle !== "failed")) {
     const labels = {
       connecting: t("正在连接 Agent…", "Connecting to Agent…"),
       queued: t("任务已排队…", "Task queued…"),
       running: t("Agent 正在处理…", "Agent is working…"),
       reconnecting: t("事件流重连中…", "Reconnecting event stream…"),
     };
-    return `<div class="go-agent-thinking"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>${labels[message.lifecycle] || labels.running}</span></div>${(message.cards || []).filter((card) => card?.type === "launch_draft").map(renderStructuredCard).join("")}`;
+    return `<div class="go-agent-thinking"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>${labels[message.lifecycle] || labels.connecting}</span></div>${(message.cards || []).filter((card) => ["launch_draft", "direct_swap"].includes(card?.type)).map(renderStructuredCard).join("")}`;
   }
 
   const content = message.contentZh ? t(message.contentZh, message.contentEn) : message.content;
@@ -935,7 +970,7 @@ function renderMessageContent(message) {
     <div class="go-agent-error"><strong>${t("任务失败", "Task failed")}</strong><span>${escapeHtml(message.error || t("Agent 服务当前不可用。", "The Agent service is currently unavailable."))}</span><button type="button" data-agent-retry>${t("重试", "Retry")}</button></div>
   ` : "";
   const cards = [...(message.cards || []), ...(message.card ? [message.card] : [])]
-    .filter((card) => card?.type === "launch_draft")
+    .filter((card) => ["launch_draft", "direct_swap"].includes(card?.type))
     .map(renderStructuredCard)
     .join("");
   return `${content ? `<p>${escapeHtml(content)}</p>` : ""}${suggestion}${cards}${error}`;
@@ -1345,6 +1380,82 @@ function bytesToBase64(bytes) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
+}
+
+async function signAndSubmitDirectPumpLaunch({ draftId, plan, cookingWalletGroupId }) {
+  if (!window.solanaWeb3) {
+    throw new Error(t("当前浏览器没有可用的 Solana 钱包组件", "No Solana wallet component is available in this browser"));
+  }
+  const group = await apiRequest(`/api/v1/wallet-groups/${cookingWalletGroupId}/wallets`);
+  const cookingWallet = group.wallets?.find((wallet) => wallet.provisioningStatus === "active" && wallet.publicAddress)
+    || group.wallets?.[0];
+  const address = cookingWallet?.publicAddress || "";
+  if (!address) {
+    throw new Error(t("Cooking 钱包组还没有绑定 Solana 地址", "The Cooking wallet group has no bound Solana address"));
+  }
+  const providers = [window.okxwallet?.solana, window.phantom?.solana, window.solflare].filter(Boolean);
+  let provider = providers.find((candidate) => candidate.publicKey?.toString() === address);
+  if (!provider) {
+    for (const candidate of providers) {
+      try {
+        const connected = await candidate.connect();
+        const connectedAddress = connected?.publicKey?.toString() || candidate.publicKey?.toString();
+        if (connectedAddress === address) {
+          provider = candidate;
+          break;
+        }
+      } catch {}
+    }
+  }
+  if (!provider || typeof provider.signTransaction !== "function") {
+    throw new Error(t("请在浏览器钱包中切换到所选 Cooking 地址后重试", "Switch your browser wallet to the selected Cooking address and try again"));
+  }
+  const transaction = window.solanaWeb3.Transaction.from(
+    Uint8Array.from(atob(plan.transactionBase64), (character) => character.charCodeAt(0)),
+  );
+  const signed = await provider.signTransaction(transaction);
+  return apiRequest(`/api/v1/go/launch-drafts/${draftId}/submit`, {
+    method: "POST",
+    body: JSON.stringify({ signedTransactionBase64: bytesToBase64(signed.serialize()) }),
+  });
+}
+
+async function signAndSubmitDirectSwap({ execution, walletGroupId }) {
+  if (!window.solanaWeb3) {
+    throw new Error(t("当前浏览器没有可用的 Solana 钱包组件", "No Solana wallet component is available in this browser"));
+  }
+  if (!execution?.transaction_base64 || !execution?.wallet_address || !walletGroupId) {
+    throw new Error(t("Swap 签名参数不完整", "The swap signing plan is incomplete"));
+  }
+  const providers = [window.okxwallet?.solana, window.phantom?.solana, window.solflare].filter(Boolean);
+  let provider = providers.find((candidate) => candidate.publicKey?.toString() === execution.wallet_address);
+  if (!provider) {
+    for (const candidate of providers) {
+      try {
+        const connected = await candidate.connect();
+        const address = connected?.publicKey?.toString() || candidate.publicKey?.toString();
+        if (address === execution.wallet_address) {
+          provider = candidate;
+          break;
+        }
+      } catch {}
+    }
+  }
+  if (!provider || typeof provider.signTransaction !== "function") {
+    throw new Error(t("请把浏览器钱包切换到该 Assets 钱包地址", "Switch your browser wallet to the selected Assets wallet"));
+  }
+  const transaction = window.solanaWeb3.VersionedTransaction.deserialize(
+    Uint8Array.from(atob(execution.transaction_base64), (character) => character.charCodeAt(0)),
+  );
+  const signed = await provider.signTransaction(transaction);
+  return apiRequest("/api/v1/swaps/submit", {
+    method: "POST",
+    body: JSON.stringify({
+      walletGroupId,
+      messageHash: execution.message_hash,
+      signedTransactionBase64: bytesToBase64(signed.serialize()),
+    }),
+  });
 }
 
 async function activeEvmProvider(address) {
@@ -2478,7 +2589,6 @@ async function submitPulsePlan(command, pendingId) {
   }
 }
 
-async function loadGoWalletGroups() {
 */
 async function loadGoWalletGroups() {
   try {
@@ -2507,21 +2617,61 @@ async function ensureGoAgentConversation() {
 
 function agentMessageFromPayload(payload) {
   const task = payload?.task || {};
+  const result = task.result || payload?.result || {};
   const cards = Array.isArray(payload?.cards) && payload.cards.length
     ? payload.cards
-    : task.result?.card ? [task.result.card] : [];
-  const message = payload?.message || {};
+    : result?.card ? [result.card] : [];
+  const message = payload?.message || result?.message || {};
   const hasLaunch = cards.some((card) => card?.type === "launch_draft");
+  const hasSwap = cards.some((card) => card?.type === "direct_swap");
+  const status = payload?.status || task.status;
+  if (status === "failed" || status === "cancelled") {
+    return {
+      role: "agent",
+      timestamp: getMessageTime(),
+      lifecycle: "failed",
+      error: task.error?.message || task.error || payload?.error?.message || t("任务执行失败", "Task failed"),
+      taskId: payload?.taskId || payload?.task_id || task.task_id || task.taskId || null,
+    };
+  }
   return {
     role: "agent",
     timestamp: getMessageTime(),
     content: message.content || (hasLaunch
       ? t("已根据链接生成发射参数，请检查并选择钱包组。", "The launch fields are ready. Review them and select wallet groups.")
+      : hasSwap ? t("Swap 路由已准备，请核对并签名。", "The swap route is ready. Review and sign it.")
       : t("任务已完成。", "Task completed.")),
     suggestion: message.suggestion || "",
     cards,
-    taskId: payload?.taskId || task.task_id || task.taskId || null,
+    taskId: payload?.taskId || payload?.task_id || task.task_id || task.taskId || null,
   };
+}
+
+function updatePendingLifecycle(pendingId, lifecycle) {
+  const message = state.conversation.find((item) => item.pendingId === pendingId);
+  if (!message) return;
+  message.pending = false;
+  message.lifecycle = lifecycle;
+  renderConversation();
+}
+
+function taskIdFromPayload(payload) {
+  return payload?.taskId || payload?.task_id || payload?.task?.task_id || payload?.task?.taskId || null;
+}
+
+function taskIsTerminal(payload) {
+  return ["succeeded", "failed", "cancelled"].includes(payload?.status || payload?.task?.status);
+}
+
+async function waitForAgentTask(taskId, pendingId, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  updatePendingLifecycle(pendingId, "running");
+  while (Date.now() < deadline) {
+    const task = await apiRequest(`/api/v1/agent/tasks/${taskId}`);
+    if (taskIsTerminal(task)) return task;
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+  }
+  throw new Error(t("Agent 仍在后台处理，请稍后重试。", "The Agent is still working in the background. Please retry shortly."));
 }
 
 async function submitAgentConversation(command, pendingId) {
@@ -2539,8 +2689,14 @@ async function submitAgentConversation(command, pendingId) {
         context: { language: state.language, currentView: "go" },
       }),
     });
-    if (payload.conversationId) state.agent.conversationId = payload.conversationId;
-    replacePendingMessage(pendingId, agentMessageFromPayload(payload));
+    if (payload.conversationId || payload.conversation_id) {
+      state.agent.conversationId = payload.conversationId || payload.conversation_id;
+    }
+    const taskId = taskIdFromPayload(payload);
+    const completed = taskId && !taskIsTerminal(payload)
+      ? await waitForAgentTask(taskId, pendingId)
+      : payload;
+    replacePendingMessage(pendingId, agentMessageFromPayload(completed));
   } catch (error) {
     replacePendingMessage(pendingId, {
       role: "agent",
@@ -2800,7 +2956,27 @@ viewRoot.addEventListener("click", async (event) => {
   }
 
   const action = event.target.closest("[data-action]")?.dataset.action;
-  if (action === "scan") {
+  if (action === "confirm-direct-swap") {
+    const button = event.target.closest("[data-swap-plan]");
+    const plan = state.agent.swapPlans.get(button?.dataset.swapPlan);
+    if (!plan || button?.disabled) return;
+    button.disabled = true;
+    try {
+      const receipt = await signAndSubmitDirectSwap(plan);
+      const txHash = receipt.tx_hash || "";
+      state.conversation.push({
+        role: "agent",
+        timestamp: getMessageTime(),
+        content: t(`Swap 已确认：${txHash}`, `Swap confirmed: ${txHash}`),
+      });
+      renderConversation();
+      showToast(t("Swap 已上链确认", "Swap confirmed on-chain"));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error));
+    } finally {
+      button.disabled = false;
+    }
+  } else if (action === "scan") {
     await loadPulse();
     showToast(t("公开证据已刷新。", "Public evidence refreshed."));
   } else if (action === "refresh-narratives") {

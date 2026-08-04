@@ -70,5 +70,5 @@ The standalone API uses file repositories for local development; production uses
 - GMGN is the meme-market and execution source. Configure `GMGN_LIVE_ENABLED=true`, `GMGN_EXECUTION_ENABLED=true`, `GMGN_API_KEY`, and the signer/provider credentials in the secret manager. Timeout, unsupported-chain, and unavailable states are surfaced as data/provider gaps rather than fabricated wallets.
 - GMGN creator metadata is normalized into Dev-wallet/token records for Solana Pump.fun and BSC FourMeme. A bounded batch enrichment reads 7d/30d wallet stats and stores decimal-string snapshots for date-over-date comparison. Robinhood ingestion remains unsupported by the installed GMGN client.
 - Live launch preparation supports Solana/Pump.fun through GMGN and the configured EIP-1193/browser-wallet paths for supported platforms. The final confirmation boundary is explicit and private keys never enter the API.
-- HertzFlow read-only analysis is wired behind `HERTZFLOW_LIVE_ENABLED`; the available all-meme pipeline currently supports Solana only.
+- Meme analysis uses the configured GMGN read-only token research provider; direct Solana Swaps are prepared for a connected Assets wallet and require a browser signature.
 - External and Privy embedded wallets are represented by provider IDs and public addresses only. The API never accepts or persists raw key material.

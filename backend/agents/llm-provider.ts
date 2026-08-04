@@ -256,10 +256,6 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
   const taskResult = task?.result || {};
   const launchContext = taskResult?.latest_launch_context || null;
   const linkContentQuestion = /(该|这个|上面|刚才).{0,8}(链接|推文|帖子).{0,8}(什么|内容|讲|说)|链接.{0,8}(什么|内容)|what.{0,12}(link|post|tweet)|summari[sz]e.{0,12}(link|post|tweet)/i.test(input);
-  const isLiveReport = taskResult?.mode === "live"
-    && (taskResult?.report || taskResult?.forensic_report || taskResult?.machine_report);
-  const isForensicReport = taskResult?.source === "hertzflow"
-    && (taskResult?.report || taskResult?.forensic_report || taskResult?.machine_report);
   if (linkContentQuestion && launchContext) {
     const source = String(launchContext.content || launchContext.summary || launchContext.title || "").trim();
     const author = launchContext.author_name ? `${launchContext.author_name}：` : "";
@@ -275,32 +271,9 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
   if (capabilityQuestion) {
     return {
       content: zh
-        ? "我是 NarraOps Agent，围绕叙事发现、叙事分析、Meme 发射和发射后的钱包操作工作。可以读取 GMGN 行情、调用 HertzFlow 链上报告、根据公开链接生成可编辑发射参数，并在明确确认后进入发射或买卖流程。"
-        : "I’m the NarraOps Agent for narrative discovery, narrative analysis, meme launch preparation, and post-launch wallet operations. I can read GMGN market data, use HertzFlow forensic reports, turn a public link into editable launch fields, and enter launch or trading flows only after explicit confirmation.",
+        ? "我是 NarraOps Agent，围绕叙事发现、叙事分析、Meme 发射和发射后的钱包操作工作。可以读取 GMGN 行情，根据公开链接生成可编辑发射参数，并在明确确认后进入发射或直接 Swap。"
+        : "I’m the NarraOps Agent for narrative discovery, narrative analysis, meme launch preparation, and post-launch wallet operations. I can read GMGN market data, turn a public link into editable launch fields, and enter launch or direct wallet Swap flows only after explicit confirmation.",
       suggestion: zh ? "可以直接发送一个公开链接，或说“分析这个 Solana Meme”，也可以告诉我买入/卖出哪个代币。" : "Send a public link, ask me to analyze a Solana meme, or describe the token and wallet group for a buy or sell request.",
-    };
-  }
-  if (isLiveReport) {
-    const verdict = taskResult.verdict || {};
-    const metrics = taskResult.metrics || {};
-    return {
-      content: zh
-        ? `HertzFlow 报告已生成。已基于最新 GMGN 样本完成持仓集中度、MM/机器人命中、分发/套现关系、地址集群和监控清单分析。结论：${verdict.one_liner || "请查看下方报告卡。"} 当前仅执行只读分析，不会签名、广播或移动资金。`
-        : `The HertzFlow report is ready. It used a fresh GMGN sample to analyze concentration, MM/bot hits, distribution and cash-out relationships, address clusters, and a watchlist. Conclusion: ${verdict.one_liner || "See the report card below."} This was read-only; no signing, broadcasting, or fund movement occurred.`,
-      suggestion: zh
-        ? `可继续追问：主关系集群是谁？哪些地址优先监控？可见套现下限是多少？`
-        : "You can ask which cluster is dominant, which addresses are P0, or what the visible cash-out lower bound is.",
-    };
-  }
-  if (isForensicReport) {
-    const reason = taskResult?.data_gap || taskResult?.reason || "GMGN 没有返回足够的 holder/trader 样本";
-    return {
-      content: zh
-        ? `HertzFlow 已执行，但这次没有生成可下结论的链上报告：${reason}。报告卡已保留数据缺口和限制，不会编造风险分或地址关系。当前仅执行只读分析。`
-        : `HertzFlow ran, but this request did not return enough wallet evidence for a conclusion: ${reason}. The report card keeps the data gaps and limitations instead of inventing a risk score or wallet relationships. This was read-only.`,
-      suggestion: zh
-        ? "请确认合约地址正确，或换一个有活跃 holders/traders 的 Solana Meme 地址重试。"
-        : "Check the contract address, or retry with an active Solana meme that has holder/trader samples.",
     };
   }
   if (taskResult?.launch_parameters || taskResult?.card?.type === "launch_draft") {
@@ -331,8 +304,8 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
     }
     return {
       content: zh
-        ? `已生成${side}确认摘要：${taskResult.amount || `${taskResult.percent || ""}%`}，钱包组 ${taskResult.wallet_group_name || "未命名"}，共 ${taskResult.accounts || 0} 个钱包。执行前会先做 GMGN 安全检查；如果确认，请回复“确认${side}”。`
-        : `The ${side} confirmation summary is ready: ${taskResult.amount ? `${taskResult.amount} native units` : `${taskResult.percent || ""}%`}, wallet group ${taskResult.wallet_group_name || "unnamed"}, ${taskResult.accounts || 0} wallets. GMGN token security will run before execution. Reply “confirm ${side}” to continue.`,
+        ? `已生成${side}确认摘要：${taskResult.amount || `${taskResult.percent || ""}%`}，钱包组 ${taskResult.wallet_group_name || "未命名"}，共 ${taskResult.accounts || 0} 个钱包。执行前会先做市场安全检查；如果确认，请回复“确认${side}”。`
+        : `The ${side} confirmation summary is ready: ${taskResult.amount ? `${taskResult.amount} native units` : `${taskResult.percent || ""}%`}, wallet group ${taskResult.wallet_group_name || "unnamed"}, ${taskResult.accounts || 0} wallets. Market security will run before execution. Reply “confirm ${side}” to continue.`,
       suggestion: zh ? "未收到明确确认前不会签名、广播或移动资金。" : "No signing, broadcasting, or fund movement happens without explicit confirmation.",
     };
   }
@@ -342,16 +315,16 @@ function fallbackAgentReply({ message, language, task, capabilities }) {
     if (taskResult.status === "blocked" || ["unavailable", "invalid_request"].includes(execution.status)) {
       return {
         content: zh
-          ? `交易没有执行：${taskResult.reason || "GMGN 实时执行服务当前不可用"}。安全检查和资金操作均已停止。`
-          : `The trade was not executed: ${taskResult.reason || "the live GMGN execution service is unavailable"}. Security checks and fund movement were stopped.`,
-        suggestion: zh ? "检查 GMGN 凭据、钱包组地址和链网络配置。" : "Check the GMGN credentials, wallet-group addresses, and chain configuration.",
+          ? `交易没有执行：${taskResult.reason || "直接 Swap 服务当前不可用"}。安全检查和资金操作均已停止。`
+          : `The trade was not executed: ${taskResult.reason || "the direct wallet Swap service is unavailable"}. Security checks and fund movement were stopped.`,
+        suggestion: zh ? "检查钱包组、Solana 地址和 Swap 服务配置。" : "Check the wallet group, Solana address, and Swap provider configuration.",
       };
     }
     return {
       content: zh
-        ? `交易请求已提交，订单状态：${order.status || execution.status || taskResult.status}。等待 GMGN 返回最终确认后，才会报告成功。`
-        : `The trade request was submitted. Order status: ${order.status || execution.status || taskResult.status}. I will report success only after GMGN confirms it.`,
-      suggestion: zh ? "可以继续查询订单状态或查看链上交易哈希。" : "You can query the order status or inspect the on-chain transaction hash next.",
+        ? `直接 Swap 路由已准备好，状态：${execution.status || taskResult.status}。请在下方确认并用选中的 Assets 钱包签名。`
+        : `The direct Swap route is ready with status ${execution.status || taskResult.status}. Confirm below and sign with the selected Assets wallet.`,
+      suggestion: zh ? "确认前请检查钱包地址、代币和滑点；签名后交易会直接广播到 Solana。" : "Check the wallet, token, and slippage before confirming; signing broadcasts directly to Solana.",
     };
   }
   const mode = taskResult?.mode || task?.execution_mode || task?.executionMode || "fallback";
