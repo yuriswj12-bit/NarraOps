@@ -2528,6 +2528,7 @@ async function ensureGoAgentConversation() {
   if (state.agent.conversationPromise) return state.agent.conversationPromise;
   state.agent.conversationPromise = apiRequest("/api/v1/agent/conversations", {
     method: "POST",
+    timeoutMs: 8_000,
     body: JSON.stringify({ context: { language: state.language, currentView: "go" } }),
   }).then((conversation) => {
     state.agent.conversationId = conversation.conversationId;
@@ -2586,7 +2587,7 @@ function taskIsTerminal(payload) {
   return ["succeeded", "failed", "cancelled"].includes(payload?.status || payload?.task?.status);
 }
 
-async function waitForAgentTask(taskId, pendingId, timeoutMs = 30_000) {
+async function waitForAgentTask(taskId, pendingId, timeoutMs = 15_000) {
   const deadline = Date.now() + timeoutMs;
   updatePendingLifecycle(pendingId, "running");
   while (Date.now() < deadline) {

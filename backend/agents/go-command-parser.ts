@@ -8,9 +8,9 @@ const NATURAL_RULES = [
   { pattern: /(k线|行情图|走势图|candlestick|ohlcv|price chart|kline)/i, type: "market.kline" },
   { pattern: /(信号|聪明钱|智能钱|smart money|token signals?|signal groups?)/i, type: "market.signal" },
   { pattern: /(分析.*(?:meme|代币|合约|token)|(?:meme|token|contract).*(?:分析|analysis|research|due diligence))/i, type: "meme.analyze" },
-  { pattern: /(你可以做什么|你能做什么|能做什么|有什么功能|介绍.*功能|介绍.*能力|help|what can you do|capabilities?)/i, type: "agent.chat" },
+  { pattern: /(你可以做什么|你能做什么|能做什么|有什么功能|介绍.*功能|介绍.*能力|介绍自己|自我介绍|你是谁|help|what can you do|who are you|capabilities?)/i, type: "agent.chat" },
   { pattern: /(链上行情|dev\s*market|developer\s*market|onchain\s*market)/i, type: "dev.market.scan" },
-  { pattern: /(近期总结|recent\s*summary|account\s*summary)/i, type: "account.recent-summary" },
+  { pattern: /(近期总结|最近总结|recent\s*summary|account\s*summary)/i, type: "account.recent-summary" },
   { pattern: /(分析.*meme|meme.*分析|analy[sz]e\s*meme|合约.*分析)/i, type: "meme.analyze" },
   { pattern: /(叙事.*趋势|narrative\s*trend)/i, type: "narrative.trends" },
   { pattern: /(提取|提现|withdraw|extract)/i, type: "funds.withdraw" },
@@ -20,7 +20,7 @@ const NATURAL_RULES = [
   { pattern: /(批量买|买入|batch\s*buy|\bbuy\b)/i, type: "trade.buy.batch" },
   { pattern: /(发射|发行|launch)/i, type: "launch.meme" },
   { pattern: /(钱包组|wallet\s*group)/i, type: "wallet.group.create" },
-  { pattern: /(创建.*meme|生成.*meme|meme\s*(create|draft|idea)|做.*梗)/i, type: "meme.create" },
+  { pattern: /(创建.*meme|生成.*meme|做.*meme|meme\s*(create|draft|idea))/i, type: "meme.create" },
   { pattern: /(推特|twitter|\bx\b|tiktok|抖音|热点|叙事|趋势|pulse|narrative|trend)/i, type: "narrative.recommend" },
 ];
 
@@ -44,9 +44,7 @@ export function parseGoInput(text) {
     };
   }
 
-  // A bare public link is a Go launch input, not a mock narrative query.
-  // This lets the Agent fetch the source, extract launch parameters, and
-  // create a review-only draft in one step.
+  // A bare public link is a Go launch input.
   if (/^https?:\/\/\S+$/i.test(normalized)) {
     const policy = policyForType("launch.meme");
     return {

@@ -179,6 +179,12 @@ export function policyForType(type) {
   if (type === "launch.package") {
     return { type, category: "launch", requires_confirmation: true, execution_mode: "live_confirmation_required" };
   }
+  if (type === "wallet.group.create") {
+    return { type, category: "wallet", requires_confirmation: false, execution_mode: "live_internal_wallet" };
+  }
+  if (type === "funds.transfer" || type === "funds.withdraw") {
+    return { type, category: "funds", requires_confirmation: true, execution_mode: "confirmation_required" };
+  }
   if (type === "agent.chat") return AGENT_CHAT_POLICY;
   return null;
 }

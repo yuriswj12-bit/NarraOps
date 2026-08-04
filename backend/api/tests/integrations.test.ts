@@ -259,6 +259,14 @@ test("a bare public link routes to the launch draft workflow", () => {
   assert.equal(parsed.execution_mode, "live_confirmation_required");
 });
 
+test("Chinese natural-language intents route without encoding loss", () => {
+  assert.equal(parseGoInput("介绍自己").type, "agent.chat");
+  assert.equal(parseGoInput("用 cooking1 买入 0.2 SOL").type, "trade.buy.batch");
+  assert.equal(parseGoInput("用 kol2 卖出 50%").type, "trade.sell.batch");
+  assert.equal(parseGoInput("发射这个 meme").type, "launch.meme");
+  assert.equal(parseGoInput("把资金转到 cooking 钱包组").type, "funds.transfer");
+});
+
 test("launch platform mapping is fixed to the product chain choices", () => {
   assert.equal(resolveLaunchPlatform({ chain: "solana" }).id, "pump");
   assert.equal(resolveLaunchPlatform({ chain: "bsc" }).id, "fourmeme");

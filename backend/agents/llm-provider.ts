@@ -252,7 +252,7 @@ function normalizeReplyText(value, fallback, max) {
 function fallbackAgentReply({ message, language, task, capabilities }) {
   const zh = language === "zh";
   const input = String(message || "").toLowerCase();
-  const capabilityQuestion = /你可以做什么|你能做什么|能做什么|有什么功能|help|what can you do|capabilit/.test(input);
+  const capabilityQuestion = /你可以做什么|你能做什么|能做什么|有什么功能|介绍自己|自我介绍|你是谁|help|what can you do|who are you|capabilit/.test(input);
   const taskResult = task?.result || {};
   const launchContext = taskResult?.latest_launch_context || null;
   const linkContentQuestion = /(该|这个|上面|刚才).{0,8}(链接|推文|帖子).{0,8}(什么|内容|讲|说)|链接.{0,8}(什么|内容)|what.{0,12}(link|post|tweet)|summari[sz]e.{0,12}(link|post|tweet)/i.test(input);
