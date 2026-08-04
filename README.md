@@ -24,7 +24,7 @@ Launch adapters remain backend tools. They are not a first-level product surface
 
 ## Current Product State
 
-This repository contains the current live product implementation. Pulse, GMGN, HertzFlow, wallet groups, launch, and trade flows use real providers when configured. Provider outages or missing credentials are reported as unavailable/data gaps; they must never be replaced with fabricated data or simulated execution.
+This repository contains the current live product implementation. Pulse, GMGN read-only market data, wallet groups, launch, and direct wallet Swap flows use real providers when configured. Provider outages or missing credentials are reported as unavailable/data gaps; they must never be replaced with fabricated data or simulated execution.
 
 Current capabilities include:
 
@@ -33,7 +33,7 @@ Current capabilities include:
 - Editable launch drafts and live launch adapters with explicit confirmation.
 - Wallet groups, transfer previews, and asset views.
 - Supabase auth and analytics migration foundation.
-- GMGN, HertzFlow, and launch-platform integration skeletons.
+- GMGN read-only market data, direct Solana Swap, and launch-platform integrations.
 
 Live signing, transaction submission, custody, and fund execution require authenticated provider configuration and an explicit user confirmation at the point of action.
 

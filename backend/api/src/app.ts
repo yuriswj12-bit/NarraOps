@@ -31,7 +31,7 @@ import { InMemoryTransferRepository } from "./repositories/in-memory-transfer-re
 import { TaskManager } from "../../agents/task-manager.ts";
 import { AGENT_CAPABILITIES, normalizeLaunchDraftPatch } from "../../agents/agent-runtime.ts";
 import { generateAgentReply } from "../../agents/llm-provider.ts";
-import { createAgentHandlers } from "../../agents/mock-handlers.ts";
+import { createAgentHandlers } from "../../agents/agent-handlers.ts";
 import { createIntegrationRegistry } from "../../integrations/registry.ts";
 import { liveSettings, unavailableInviteSummary, unavailablePulse } from "../../integrations/product-state-data.ts";
 import { GO_CATEGORIES, GO_COMMANDS, policyForType } from "../../agents/go-command-catalog.ts";

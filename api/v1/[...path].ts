@@ -16,13 +16,13 @@ import {
 import {
   createAgentConversation,
   createAgentTask,
+  getAgentTask,
   getAgentConversation,
   handleTelegramWebhook,
   getSharedAgentRuntime,
   postAgentConversationMessage,
   updateAgentLaunchDraft,
 } from "./agent/runtime.cjs";
-import { GmgnExecutionAdapter } from "./gmgn-execution-adapter.cjs";
 
 const COOKIE_NAME = "narraops_session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -52,6 +52,88 @@ function serverSupabase() {
       detectSessionInUrl: false,
     },
   });
+}
+
+let launchPlannerSingleton = null;
+let launchPlannerModulePromise = null;
+let solanaWeb3ModulePromise = null;
+
+async function directLaunchPlanner() {
+  if (!launchPlannerSingleton) {
+    const { LaunchPlanningService } = await (launchPlannerModulePromise ||= import("./launch-planner.cjs"));
+    launchPlannerSingleton = new LaunchPlanningService({
+      solanaRpcUrl: process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
+      pumpMetadataUploadUrl: process.env.PUMP_METADATA_UPLOAD_URL || "https://pump.fun/api/ipfs",
+      pinataJwt: process.env.PINATA_JWT || undefined,
+      pinataGatewayUrl: process.env.PINATA_GATEWAY_URL || "https://gateway.pinata.cloud/ipfs",
+    });
+  }
+  return launchPlannerSingleton;
+}
+
+function solanaWeb3() {
+  return (solanaWeb3ModulePromise ||= import("@solana/web3.js"));
+}
+
+async function imageUrlToDataUrl(imageUrl) {
+  const url = String(imageUrl || "").trim();
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    parsed = null;
+  }
+  const hostname = String(parsed?.hostname || "").toLowerCase();
+  const privateHost = !parsed
+    || !["http:", "https:"].includes(parsed.protocol)
+    || !hostname
+    || hostname === "localhost"
+    || hostname.endsWith(".local")
+    || hostname === "::1"
+    || /^(0|127|10|169\.254)\./.test(hostname)
+    || /^192\.168\./.test(hostname)
+    || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+  if (privateHost) {
+    throw Object.assign(new Error("Token image URL must be a public HTTP(S) URL"), {
+      status: 400,
+      code: "INVALID_TOKEN_IMAGE_URL",
+    });
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(url, { signal: controller.signal, headers: { accept: "image/*" } });
+    if (!response.ok) {
+      throw Object.assign(new Error(`Token image returned HTTP ${response.status}`), {
+        status: 400,
+        code: "TOKEN_IMAGE_FETCH_FAILED",
+      });
+    }
+    const contentType = String(response.headers.get("content-type") || "image/png").split(";", 1)[0];
+    if (!contentType.startsWith("image/")) {
+      throw Object.assign(new Error("Token image URL did not return an image"), {
+        status: 400,
+        code: "TOKEN_IMAGE_TYPE_INVALID",
+      });
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes.length || bytes.length > 8_000_000) {
+      throw Object.assign(new Error("Token image must be between 1 byte and 8 MB"), {
+        status: 400,
+        code: "TOKEN_IMAGE_SIZE_INVALID",
+      });
+    }
+    return `data:${contentType};base64,${bytes.toString("base64")}`;
+  } catch (error) {
+    if (error?.code) throw error;
+    throw Object.assign(new Error("Unable to fetch the public token image"), {
+      status: 400,
+      code: "TOKEN_IMAGE_FETCH_FAILED",
+      cause: error?.message,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function requestPath(request) {
@@ -285,10 +367,7 @@ async function requireAssetsResult(promise, fallbackMessage) {
 }
 
 function gmgnCredentialsConfigured() {
-  return Boolean(
-    String(process.env.GMGN_API_KEY || "").trim() &&
-      String(process.env.GMGN_PRIVATE_KEY || "").trim(),
-  );
+  return Boolean(String(process.env.GMGN_API_KEY || "").trim());
 }
 
 function validSolanaAddress(value) {
@@ -313,36 +392,6 @@ function positiveDecimal(value, field) {
 function launchPlatformId(platform) {
   if (platform && typeof platform === "object") return String(platform.id || platform.name || "").toLowerCase();
   return String(platform || "").toLowerCase();
-}
-
-function nestedGmgnValue(result, keys) {
-  const roots = [result, result?.data, result?.data?.report, result?.report];
-  for (const root of roots) {
-    if (!root || typeof root !== "object") continue;
-    for (const key of keys) {
-      const value = root[key];
-      if (value !== undefined && value !== null && String(value).trim()) return String(value);
-    }
-  }
-  return null;
-}
-
-function gmgnOrderId(result) {
-  return nestedGmgnValue(result, ["order_id", "orderId"]);
-}
-
-function gmgnTokenAddress(result) {
-  return nestedGmgnValue(result, ["output_token", "outputToken", "token_address", "tokenAddress", "mint_address", "mintAddress"]);
-}
-
-function gmgnTxHash(result) {
-  return nestedGmgnValue(result, ["hash", "tx_hash", "txHash", "transaction_hash", "transactionHash"]);
-}
-
-function gmgnStatus(result) {
-  return String(
-    result?.data?.status || result?.data?.state || result?.data?.order_status || result?.data?.report?.status || result?.status || "",
-  ).toLowerCase();
 }
 
 async function ownedLaunchDraft(supabase, userId, draftId) {
@@ -405,12 +454,6 @@ async function ownedExecutionGroup(supabase, userId, groupId, purpose) {
 }
 
 async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
-  if (!gmgnCredentialsConfigured()) {
-    throw Object.assign(new Error("GMGN live launch credentials are not configured on the server"), {
-      status: 503,
-      code: "GMGN_LIVE_NOT_CONFIGURED",
-    });
-  }
   const draft = await ownedLaunchDraft(supabase, userId, draftId);
   if (!draft) {
     throw Object.assign(new Error("The launch draft was not found"), {
@@ -443,7 +486,7 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
       code: "COOKING_WALLET_INVALID",
     });
   }
-  const initialBuy = positiveDecimal(token.initial_buy, "initial_buy");
+  const initialBuy = token.initial_buy ? positiveDecimal(token.initial_buy, "initial_buy") : "0";
   const bundleBuy = token.bundle_buy_per_wallet ? positiveDecimal(token.bundle_buy_per_wallet, "bundle_buy_per_wallet") : null;
   if (!token.name || !token.symbol || !token.description || !token.image_url) {
     throw Object.assign(new Error("Complete token name, symbol, description, and image URL before launching"), {
@@ -452,93 +495,255 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
     });
   }
 
-  const adapter = new GmgnExecutionAdapter({
-    enabled: true,
-    cliPath: process.env.GMGN_CLI_PATH || undefined,
-    timeoutMs: 45_000,
-  });
-  const existing = draft.metadata?.gmgn_execution || {};
-  let createResult = null;
-  let orderId = existing.order_id || null;
-  if (!orderId && !["failed", "expired"].includes(String(existing.status || "").toLowerCase())) {
-    const bundleWallets = bundleBuy
-      ? bundled.wallets.map((wallet) => ({ from_address: wallet.public_address, buy_amt: bundleBuy }))
-      : [];
-    createResult = await adapter.cookingCreate({
-      chain: "solana",
-      dex: "pump",
-      fromAddress: cooking.wallets[0].public_address,
-      name: token.name,
-      symbol: token.symbol,
-      buyAmount: initialBuy,
-      imageUrl: token.image_url,
-      description: token.description,
-      twitter: token.x_url,
-      website: token.website_url,
-      bundleWallets,
-      requestId: draftId,
+  if (bundleBuy) {
+    throw Object.assign(new Error("Bundled buys need a signer for every selected wallet. The selected group is not yet connected to direct signers."), {
+      status: 409,
+      code: "DIRECT_BUNDLED_BUY_REQUIRES_SIGNER",
     });
-    orderId = gmgnOrderId(createResult);
-    if (!orderId) {
-      throw Object.assign(new Error("GMGN did not return a cooking order id"), {
-        status: 502,
-        code: createResult?.status === "unavailable" ? "GMGN_LAUNCH_UNAVAILABLE" : "GMGN_ORDER_ID_MISSING",
-      });
-    }
   }
-  const finalResult = orderId
-    ? await adapter.waitForCookingOrder({ chain: "solana", orderId, requestId: draftId })
-    : createResult;
-  const tokenAddress = gmgnTokenAddress(finalResult) || gmgnTokenAddress(createResult);
-  const txHash = gmgnTxHash(finalResult) || gmgnTxHash(createResult);
-  const finalState = gmgnStatus(finalResult);
-  const status = ["failed", "expired"].includes(finalState)
-    ? finalState
-    : tokenAddress && ["confirmed", "successful"].includes(finalState)
-      ? "confirmed"
-      : "submitted";
+  const existing = draft.metadata?.direct_execution || {};
+  if (existing.status === "confirmed" && existing.tx_hash) {
+    return {
+      schema_version: "go.launch_execution.v1",
+      status: "confirmed",
+      provider: "pump.fun",
+      execution_mode: "client_signed",
+      launchpad: "pump",
+      tx_hash: existing.tx_hash,
+      token_address: existing.token_address || null,
+      cooking_wallet_group_id: cookingId,
+      bundled_wallet_group_id: bundledId,
+      bundled_wallet_count: 0,
+    };
+  }
+  if (existing.status === "requires_user_signature" && existing.transaction_base64 && existing.message_hash) {
+    return {
+      schema_version: "go.launch_execution.v1",
+      status: "requires_user_signature",
+      provider: "pump.fun",
+      execution_mode: "client_signed",
+      launchpad: "pump",
+      plan: {
+        mintAddress: existing.mint_address,
+        metadataUri: existing.metadata_uri,
+        transactionBase64: existing.transaction_base64,
+        lastValidBlockHeight: existing.last_valid_block_height,
+      },
+      cooking_wallet_group_id: cookingId,
+      bundled_wallet_group_id: bundledId,
+      bundled_wallet_count: 0,
+      message: "Pump transaction prepared. Sign it with the selected Cooking wallet to broadcast it.",
+    };
+  }
+  const planner = await directLaunchPlanner();
+  const plan = await planner.plan({
+    platform: "pump",
+    walletAddress: cooking.wallets[0].public_address,
+    name: token.name,
+    symbol: token.symbol,
+    description: token.description,
+    imageBase64: await imageUrlToDataUrl(token.image_url),
+    imageName: "narraops-token-image",
+    imageType: "image/png",
+    twitter: token.x_url || "",
+    telegram: token.telegram_url || "",
+    website: token.website_url || "",
+    developerBuyAmount: initialBuy,
+  });
+  const { Transaction } = await solanaWeb3();
   const execution = {
-    provider: "gmgn",
+    provider: "pump.fun",
     launchpad: "pump",
-    status,
-    order_id: orderId,
-    tx_hash: txHash,
-    token_address: tokenAddress,
+    execution_mode: "client_signed",
+    status: "requires_user_signature",
+    mint_address: plan.mintAddress,
+    metadata_uri: plan.metadataUri,
+    transaction_base64: plan.transactionBase64,
+    message_hash: createHash("sha256").update(Transaction.from(Buffer.from(plan.transactionBase64, "base64")).serializeMessage()).digest("hex"),
+    last_valid_block_height: plan.lastValidBlockHeight,
     cooking_wallet_group_id: cookingId,
     bundled_wallet_group_id: bundledId,
-    bundled_wallet_count: bundleBuy ? bundled.wallets.length : 0,
+    bundled_wallet_count: 0,
     updated_at: new Date().toISOString(),
   };
   await requireAssetsResult(
     supabase
       .from("go_launch_drafts")
       .update({
-        status,
-        confirmation_status: status === "confirmed" ? "confirmed" : status,
+        status: "requires_user_signature",
+        confirmation_status: "requires_user_signature",
         execution_mode: "live",
-        signing_status: "signed",
-        broadcasting_status: status === "confirmed" ? "confirmed" : status === "submitted" ? "submitted" : "failed",
-        metadata: { ...(draft.metadata || {}), gmgn_execution: execution },
+        signing_status: "awaiting_user_signature",
+        broadcasting_status: "awaiting_user_signature",
+        metadata: { ...(draft.metadata || {}), direct_execution: execution },
         updated_at: new Date().toISOString(),
       })
       .eq("launch_draft_id", draftId)
       .eq("user_id", userId)
       .select("*")
       .single(),
-    "Unable to save the GMGN launch receipt",
+    "Unable to save the direct Pump launch plan",
   );
   return {
     schema_version: "go.launch_execution.v1",
-    status,
-    provider: "gmgn",
+    status: "requires_user_signature",
+    provider: "pump.fun",
+    execution_mode: "client_signed",
     launchpad: "pump",
-    order_id: orderId,
-    tx_hash: txHash,
-    token_address: tokenAddress,
+    plan: {
+      mintAddress: plan.mintAddress,
+      metadataUri: plan.metadataUri,
+      transactionBase64: plan.transactionBase64,
+      lastValidBlockHeight: plan.lastValidBlockHeight,
+    },
     cooking_wallet_group_id: cookingId,
     bundled_wallet_group_id: bundledId,
-    bundled_wallet_count: execution.bundled_wallet_count,
-    ...(status !== "confirmed" ? { message: "GMGN accepted the launch and is still confirming it on-chain." } : {}),
+    bundled_wallet_count: 0,
+    message: "Pump transaction prepared. Sign it with the selected Cooking wallet to broadcast it.",
+  };
+}
+
+async function submitDirectLaunchDraft({ supabase, userId, draftId, signedTransactionBase64 }) {
+  const draft = await ownedLaunchDraft(supabase, userId, draftId);
+  if (!draft) {
+    throw Object.assign(new Error("The launch draft was not found"), { status: 404, code: "LAUNCH_DRAFT_NOT_FOUND" });
+  }
+  const expected = draft.metadata?.direct_execution || {};
+  if (!expected.mint_address) {
+    throw Object.assign(new Error("Prepare the direct Pump launch before signing it"), { status: 409, code: "DIRECT_LAUNCH_NOT_PREPARED" });
+  }
+  const encoded = String(signedTransactionBase64 || "").trim();
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length > 2_000_000) {
+    throw Object.assign(new Error("signedTransactionBase64 is invalid"), { status: 400, code: "INVALID_SIGNED_TRANSACTION" });
+  }
+  const { PublicKey, Transaction } = await solanaWeb3();
+  const transaction = Transaction.from(Buffer.from(encoded, "base64"));
+  if (!transaction.verifySignatures()) {
+    throw Object.assign(new Error("The signed Pump transaction could not be verified"), { status: 400, code: "SIGNED_TRANSACTION_INVALID" });
+  }
+  const messageHash = createHash("sha256").update(transaction.serializeMessage()).digest("hex");
+  if (!expected.message_hash || messageHash !== expected.message_hash) {
+    throw Object.assign(new Error("The signed transaction does not match the prepared Pump launch"), { status: 409, code: "SIGNED_TRANSACTION_PLAN_MISMATCH" });
+  }
+  const cookingId = expected.cooking_wallet_group_id || draft.metadata?.cooking_wallet_group_id;
+  const cooking = await ownedExecutionGroup(supabase, userId, cookingId, "cooking");
+  if (cooking.wallets.length !== 1 || !transaction.feePayer?.equals(new PublicKey(cooking.wallets[0].public_address))) {
+    throw Object.assign(new Error("The signed transaction does not belong to the selected Cooking wallet"), { status: 400, code: "COOKING_WALLET_SIGNATURE_MISMATCH" });
+  }
+  const connection = (await directLaunchPlanner()).pump.connection;
+  let txHash;
+  try {
+    txHash = await connection.sendRawTransaction(Buffer.from(encoded, "base64"), { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 });
+    const confirmation = await connection.confirmTransaction(txHash, "confirmed");
+    if (confirmation?.value?.err) throw new Error("Pump launch transaction failed on-chain");
+  } catch (error) {
+    await requireAssetsResult(
+      supabase.from("go_launch_drafts").update({
+        status: "failed",
+        confirmation_status: "failed",
+        broadcasting_status: "failed",
+        metadata: { ...(draft.metadata || {}), direct_execution: { ...expected, status: "failed", error: error.message, updated_at: new Date().toISOString() } },
+        updated_at: new Date().toISOString(),
+      }).eq("launch_draft_id", draftId).eq("user_id", userId),
+      "Unable to save the direct Pump launch failure",
+    );
+    throw Object.assign(new Error(error.message || "Unable to broadcast the Pump launch"), { status: 502, code: "DIRECT_PUMP_BROADCAST_FAILED" });
+  }
+  const execution = { ...expected, status: "confirmed", tx_hash: txHash, token_address: expected.mint_address, updated_at: new Date().toISOString() };
+  await requireAssetsResult(
+    supabase.from("go_launch_drafts").update({
+      status: "confirmed",
+      confirmation_status: "confirmed",
+      execution_mode: "live",
+      signing_status: "signed",
+      broadcasting_status: "confirmed",
+      metadata: { ...(draft.metadata || {}), direct_execution: execution },
+      updated_at: new Date().toISOString(),
+    }).eq("launch_draft_id", draftId).eq("user_id", userId).select("*").single(),
+    "Unable to save the direct Pump launch receipt",
+  );
+  return {
+    schema_version: "go.launch_execution.v1",
+    status: "confirmed",
+    provider: "pump.fun",
+    execution_mode: "client_signed",
+    launchpad: "pump",
+    tx_hash: txHash,
+    token_address: expected.mint_address,
+    cooking_wallet_group_id: cookingId,
+    bundled_wallet_group_id: expected.bundled_wallet_group_id || draft.metadata?.bundled_wallet_group_id || null,
+    bundled_wallet_count: 0,
+  };
+}
+
+async function submitDirectSwap({
+  supabase,
+  userId,
+  walletGroupId,
+  signedTransactionBase64,
+  messageHash,
+}) {
+  const group = await ownedExecutionGroup(supabase, userId, walletGroupId, null);
+  if (group.wallets.length !== 1) {
+    throw Object.assign(new Error("Direct browser Swap requires exactly one active wallet in the selected group"), {
+      status: 400,
+      code: "DIRECT_SWAP_WALLET_COUNT_INVALID",
+    });
+  }
+  const encoded = String(signedTransactionBase64 || "").trim();
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length > 2_000_000) {
+    throw Object.assign(new Error("signedTransactionBase64 is invalid"), { status: 400, code: "INVALID_SIGNED_TRANSACTION" });
+  }
+  const { PublicKey, VersionedTransaction } = await solanaWeb3();
+  let transaction;
+  try {
+    transaction = VersionedTransaction.deserialize(Buffer.from(encoded, "base64"));
+  } catch {
+    throw Object.assign(new Error("The signed Swap transaction could not be decoded"), { status: 400, code: "SIGNED_TRANSACTION_INVALID" });
+  }
+  const payer = transaction.message.staticAccountKeys?.[0]?.toBase58?.() || "";
+  const expectedPayer = group.wallets[0].public_address;
+  if (payer !== expectedPayer) {
+    throw Object.assign(new Error("The signed Swap transaction does not belong to the selected Assets wallet"), { status: 400, code: "SWAP_WALLET_SIGNATURE_MISMATCH" });
+  }
+  const serializedMessage = transaction.message.serialize();
+  const payerSignature = transaction.signatures?.[0];
+  if (
+    !payerSignature
+    || payerSignature.every((byte) => byte === 0)
+    || !nacl.sign.detached.verify(serializedMessage, payerSignature, new PublicKey(expectedPayer).toBytes())
+  ) {
+    throw Object.assign(new Error("The signed Swap transaction could not be verified"), { status: 400, code: "SIGNED_TRANSACTION_INVALID" });
+  }
+  const actualMessageHash = createHash("sha256").update(serializedMessage).digest("hex");
+  if (messageHash && String(messageHash) !== actualMessageHash) {
+    throw Object.assign(new Error("The signed Swap transaction does not match the prepared route"), { status: 409, code: "SIGNED_SWAP_PLAN_MISMATCH" });
+  }
+  const planner = await directLaunchPlanner();
+  const connection = planner.pump.connection;
+  let txHash;
+  try {
+    txHash = await connection.sendRawTransaction(Buffer.from(encoded, "base64"), {
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+      maxRetries: 3,
+    });
+    const confirmation = await connection.confirmTransaction(txHash, "confirmed");
+    if (confirmation?.value?.err) throw new Error("Swap transaction failed on-chain");
+  } catch (error) {
+    throw Object.assign(new Error(error.message || "Unable to broadcast the Swap transaction"), {
+      status: 502,
+      code: "DIRECT_SWAP_BROADCAST_FAILED",
+    });
+  }
+  return {
+    schema_version: "go.swap_execution.v1",
+    status: "confirmed",
+    provider: "jupiter",
+    execution_mode: "client_signed",
+    tx_hash: txHash,
+    wallet_group_id: walletGroupId,
+    wallet_address: expectedPayer,
   };
 }
 
@@ -1169,7 +1374,11 @@ export default async function handler(request, response) {
       status: "ok",
       version: "v1",
       persistence: serverSupabase() ? "supabase" : "unconfigured",
-      execution: gmgnCredentialsConfigured() ? "gmgn_live" : "gmgn_not_configured",
+      execution: "direct_wallet_signature",
+      launch: "pump_direct_wallet_signature",
+      gmgn_market: gmgnCredentialsConfigured() ? "read_only" : "not_configured",
+      gmgn_trade: "read_only",
+      direct_swap: "direct_wallet_signature",
     });
   }
   if (request.method === "GET" && path === "/api/v1/pulse") {
@@ -1349,6 +1558,74 @@ export default async function handler(request, response) {
         error.status || 500,
         error.code || "LIVE_LAUNCH_FAILED",
         error.message || "Unable to complete the live Pump launch",
+      );
+    }
+  }
+
+  if (request.method === "GET" && /^\/api\/v1\/agent\/tasks\/[0-9a-f-]{36}$/i.test(path)) {
+    try {
+      const taskId = path.split("/").pop();
+      const task = await getAgentTask(taskId);
+      if (!task) return apiError(response, 404, "TASK_NOT_FOUND", "Agent task was not found");
+      return sendJson(response, 200, {
+        task_id: task.taskId || task.task_id,
+        type: task.type,
+        status: task.status,
+        progress: task.progress,
+        requires_confirmation: Boolean(task.requiresConfirmation || task.requires_confirmation),
+        execution_mode: task.executionMode || task.execution_mode || "live",
+        ...(task.result !== undefined ? { result: task.result } : {}),
+        ...(task.failure !== undefined ? { failure: task.failure } : {}),
+      }, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(response, error.status || 500, error.code || "TASK_READ_FAILED", error.message || "Unable to read agent task");
+    }
+  }
+
+  if (request.method === "POST" && /^\/api\/v1\/go\/launch-drafts\/[0-9a-f-]{36}\/submit$/i.test(path)) {
+    try {
+      const body = await readBody(request);
+      const launchSupabase = serverSupabase();
+      const session = launchSupabase ? await loadSession(launchSupabase, request) : null;
+      const userId = authenticatedUserId(session);
+      const draftId = path.split("/")[5];
+      const result = await submitDirectLaunchDraft({
+        supabase: launchSupabase,
+        userId,
+        draftId,
+        signedTransactionBase64: body.signedTransactionBase64 || body.signed_transaction_base64,
+      });
+      return sendJson(response, 200, result, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "DIRECT_LAUNCH_SUBMIT_FAILED",
+        error.message || "Unable to submit the signed Pump launch",
+      );
+    }
+  }
+
+  if (request.method === "POST" && path === "/api/v1/swaps/submit") {
+    try {
+      const body = await readBody(request);
+      const swapSupabase = serverSupabase();
+      const session = swapSupabase ? await loadSession(swapSupabase, request) : null;
+      const userId = authenticatedUserId(session);
+      const result = await submitDirectSwap({
+        supabase: swapSupabase,
+        userId,
+        walletGroupId: body.walletGroupId || body.wallet_group_id,
+        signedTransactionBase64: body.signedTransactionBase64 || body.signed_transaction_base64,
+        messageHash: body.messageHash || body.message_hash,
+      });
+      return sendJson(response, 200, result, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "DIRECT_SWAP_SUBMIT_FAILED",
+        error.message || "Unable to complete the direct Swap",
       );
     }
   }

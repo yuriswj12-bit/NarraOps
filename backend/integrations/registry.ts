@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { GmgnMarketAdapter } from "./gmgn-market-adapter.ts";
-import { GmgnExecutionAdapter } from "./gmgn-execution-adapter.ts";
-import { HertzFlowAdapter } from "./hertzflow-adapter.ts";
+import { SolanaSwapAdapter } from "./solana-swap-adapter.ts";
 
 const PLATFORM_ALIASES = new Map([
   ["x", "x"],
@@ -59,18 +58,11 @@ export function createIntegrationRegistry(config = {}) {
     timeoutMs: config.externalTimeoutMs,
     maxRetries: config.externalMaxRetries,
   });
-  const gmgnExecution = new GmgnExecutionAdapter({
-    // Real execution is the intended product mode. The adapter still fails
-    // closed when GMGN credentials or wallet binding are not available, but
-    // REAL_EXECUTION_ENABLED is no longer a hidden product kill-switch.
-    enabled: config.gmgnExecutionEnabled === true,
-    cliPath: config.gmgnCliPath,
-    timeoutMs: config.externalTimeoutMs ? Math.max(Number(config.externalTimeoutMs) * 6, 30_000) : 30_000,
-  });
-  const hertzflow = new HertzFlowAdapter({
-    enabled: config.hertzflowLiveEnabled === true && config.gmgnLiveEnabled === true,
-    marketAdapter: gmgnMarket,
-    timeoutMs: config.externalTimeoutMs ? Math.max(Number(config.externalTimeoutMs) * 8, 60_000) : 120_000,
+  const solanaSwap = new SolanaSwapAdapter({
+    baseUrl: config.jupiterApiBaseUrl,
+    apiKey: config.jupiterApiKey,
+    rpcUrl: config.solanaRpcUrl,
+    timeoutMs: config.externalTimeoutMs,
   });
 
   return {
@@ -106,26 +98,17 @@ export function createIntegrationRegistry(config = {}) {
       return gmgnMarket.analyzeToken(options);
     },
     tokenSecurity(options) {
-      return gmgnExecution.tokenSecurity(options);
+      return gmgnMarket.analyzeToken({ ...options, includeWallets: false });
     },
-    executeMultiSwap(options) {
-      return gmgnExecution.multiSwap(options);
+    prepareDirectSwap(options) {
+      return solanaSwap.prepare(options);
     },
-    getTradeOrder(options) {
-      return gmgnExecution.waitForOrder(options);
-    },
-    async analyzeMeme(options) {
-      const normalizedOptions = {
+    analyzeMeme(options) {
+      return gmgnMarket.analyzeToken({
         ...options,
         address: options?.address || options?.contractAddress,
-      };
-      const hertzflowResult = await hertzflow.analyze(normalizedOptions);
-      return {
-        ...hertzflowResult,
-        provider: "hertzflow",
-        source: "hertzflow",
-        ...(hertzflowResult.status === "completed" ? { analysis_status: "completed" } : {}),
-      };
+        includeWallets: true,
+      });
     },
   };
 }
