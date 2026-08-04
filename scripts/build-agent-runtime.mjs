@@ -8,7 +8,9 @@ const outfile = path.join(root, "api", "v1", "agent", "runtime.cjs");
 await build({
   entryPoints: [entryPoint],
   bundle: true,
-  packages: "external",
+  // Bundle dependencies so Vercel does not mix CommonJS rpc-websockets with
+  // the ESM-only uuid package under its Node.js runtime.
+  packages: "bundle",
   platform: "node",
   format: "cjs",
   target: "node20",
