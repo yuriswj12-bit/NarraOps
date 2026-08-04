@@ -286,89 +286,10 @@ function pageHeading(kicker, title, subtitle, actions = "") {
 }
 
 function renderPulse() {
-  // Pulse always renders the live API-backed view model. There is no sample
-  // or hardcoded opportunity fallback in the user-facing path.
   return renderPulseConnected();
-
-  /* legacy static rendering retained only as a migration marker; unreachable
-     and intentionally excluded from the live Pulse UI.
-
-  const actions = `
-    <span class="simulation-pill"><i class="fa-solid fa-database" aria-hidden="true"></i>${t("样本信号", "Sample signals")}</span>
-    <button class="secondary-button" type="button" data-action="scan"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> ${t("刷新样本", "Refresh samples")}</button>
-  `;
-
-  const signalCards = [
-    ["fa-solid fa-arrow-trend-up", t("叙事传播速度", "Narrative velocity"), "82.4", "+18.7%", t("跨平台 24 小时变化", "Cross-platform 24h change")],
-    ["fa-solid fa-link", t("来源共振", "Source resonance"), "7 / 10", "+11.2%", t("X · TikTok · Instagram", "X · TikTok · Instagram")],
-    ["fa-solid fa-rocket", t("发射准备度", "Launch readiness"), "86", "+9.4%", t("叙事与受众匹配", "Narrative and audience fit")],
-  ].map((card, index) => `
-    <article class="signal-card">
-      <div class="signal-topline">
-        <span class="signal-name">${card[1]}</span>
-        <span class="signal-icon"><i class="${card[0]}" aria-hidden="true"></i></span>
-      </div>
-      <div class="signal-value"><strong>${card[2]}</strong><span class="positive">${card[3]}</span></div>
-      <canvas class="sparkline" data-chart="signal-${index}" role="img" aria-label="${card[1]}"></canvas>
-      <div class="card-meta"><span>${card[4]}</span><span>${t("刚刚更新", "Updated now")}</span></div>
-    </article>
-  `).join("");
-
-  const opportunityCards = opportunities.map((item) => `
-    <button class="opportunity-card" type="button" data-opportunity="${item.id}">
-      <div class="opportunity-topline">
-        <span class="opportunity-source">
-          <span class="source-icon"><i class="${item.icon}" aria-hidden="true"></i></span>
-          <span class="source-pill">${item.source}</span>
-        </span>
-        <span class="score-pill">${item.score}</span>
-      </div>
-      <h3>${state.language === "zh" ? item.titleZh : item.titleEn}</h3>
-      <p>${state.language === "zh" ? item.bodyZh : item.bodyEn}</p>
-      <div class="opportunity-footer">
-        <span class="metric-stack"><span>${t("动量", "Momentum")}</span><strong>${item.momentum}</strong></span>
-        <span class="metric-stack"><span>${t("触达", "Reach")}</span><strong>${item.reach}</strong></span>
-      </div>
-    </button>
-  `).join("");
-
-  const intelCards = [
-    ["fa-solid fa-chart-line", t("宏观注意力", "Macro attention"), t("风险偏好温和回升", "Risk appetite is recovering"), "+12.4%"],
-    ["fa-solid fa-cubes-stacked", t("链上拥挤度", "On-chain congestion"), t("当前处于中低区间", "Currently in the low-mid range"), "34 / 100"],
-    ["fa-solid fa-people-group", t("叙事拥挤度", "Narrative crowding"), t("相似主题数量增加", "Similar themes are increasing"), "49 / 100"],
-    ["fa-solid fa-tower-broadcast", t("来源一致度", "Source consensus"), t("多个媒体源同步上升", "Multiple sources are rising together"), "76 / 100"],
-  ].map((card, index) => `
-    <article class="intel-card">
-      <div class="intel-topline"><span class="signal-icon"><i class="${card[0]}" aria-hidden="true"></i></span><strong class="positive">${card[3]}</strong></div>
-      <h3>${card[1]}</h3>
-      <p>${card[2]}</p>
-      <canvas class="sparkline" data-chart="intel-${index}" role="img" aria-label="${card[1]}"></canvas>
-    </article>
-  `).join("");
-
-  viewRoot.innerHTML = `
-    ${pageHeading(
-      "Narra Pulse",
-      t("发现下一条可发射叙事", "Discover the next launchable narrative"),
-      t("聚合社交传播、叙事共振与链上环境，形成可审阅的机会简报。", "Combine social velocity, narrative resonance, and on-chain context into reviewable opportunity briefs."),
-      actions,
-    )}
-    <section aria-label="${t("核心信号", "Core signals")}"><div class="signal-grid">${signalCards}</div></section>
-    <section class="section-block">
-      <div class="section-header"><div><h2>${t("发现机会", "Discover opportunities")}</h2><p>${t("按传播速度、可塑性与历史相似案例排序", "Ranked by velocity, adaptability, and historical analogs")}</p></div><button class="text-button" type="button" data-action="view-all">${t("查看全部", "View all")} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>
-      <div class="opportunity-grid">${opportunityCards}</div>
-    </section>
-    <section class="section-block">
-      <div class="section-header"><div><h2>${t("精选情报", "Selected intelligence")}</h2><p>${t("宏观、链上与叙事环境概览", "Macro, on-chain, and narrative context")}</p></div></div>
-      <div class="intel-grid">${intelCards}</div>
-    </section>
-  `;
-
-  requestAnimationFrame(drawVisibleCharts);
 }
 
 function pulseViewModel(card) {
-*/
   const evidence = Array.isArray(card?.evidence) ? card.evidence : [];
   const missingEvidence = Array.isArray(card?.missingEvidence) ? card.missingEvidence : [];
   return {
@@ -406,20 +327,31 @@ async function loadPulse() {
   if (state.view === "pulse") renderPulseConnected();
   try {
     const [pulseResult, marketResult, devPnlResult, narrativesResult] = await Promise.allSettled([
-      apiRequest("/api/v1/pulse", { cache: "no-store" }),
-      apiRequest("/api/v1/pulse/market", { cache: "no-store" }),
-      apiRequest("/api/v1/pulse/dev-wallet-pnl", { cache: "no-store" }),
-      apiRequest("/api/v1/pulse/narratives", { cache: "no-store" }),
+      apiRequest("/api/v1/pulse", { cache: "no-store", timeoutMs: 12_000 }),
+      apiRequest("/api/v1/pulse/market", { cache: "no-store", timeoutMs: 12_000 }),
+      apiRequest("/api/v1/pulse/dev-wallet-pnl", { cache: "no-store", timeoutMs: 12_000 }),
+      apiRequest("/api/v1/pulse/narratives", { cache: "no-store", timeoutMs: 12_000 }),
     ]);
-    if (pulseResult.status === "rejected") throw pulseResult.reason;
-    const payload = pulseResult.value;
-    opportunities = Array.isArray(payload.opportunities)
-      ? payload.opportunities.map(pulseViewModel)
-      : [];
-    state.pulse.dataStatus = payload.data_status || "unavailable";
-    state.pulse.observedAt = payload.observed_at || null;
-    state.pulse.collector = payload.collector || null;
-    state.pulse.limitations = Array.isArray(payload.limitations) ? payload.limitations : [];
+    if (pulseResult.status === "fulfilled") {
+      const payload = pulseResult.value;
+      opportunities = Array.isArray(payload.opportunities)
+        ? payload.opportunities.map(pulseViewModel)
+        : [];
+      state.pulse.dataStatus = payload.data_status || "unavailable";
+      state.pulse.observedAt = payload.observed_at || null;
+      state.pulse.collector = payload.collector || null;
+      state.pulse.limitations = Array.isArray(payload.limitations) ? payload.limitations : [];
+      state.pulse.error = null;
+    } else {
+      opportunities = [];
+      state.pulse.dataStatus = "unavailable";
+      state.pulse.observedAt = null;
+      state.pulse.collector = null;
+      state.pulse.limitations = [];
+      state.pulse.error = pulseResult.reason instanceof Error
+        ? pulseResult.reason.message
+        : String(pulseResult.reason || "Unavailable");
+    }
     if (marketResult.status === "fulfilled") {
       state.pulse.market = marketResult.value;
       state.pulse.marketError = null;
@@ -448,17 +380,7 @@ async function loadPulse() {
         : String(narrativesResult.reason || "Unavailable");
     }
   } catch (error) {
-    opportunities = [];
-    state.pulse.dataStatus = "unavailable";
     state.pulse.error = error instanceof Error ? error.message : String(error);
-    state.pulse.collector = null;
-    state.pulse.limitations = [];
-    state.pulse.market = null;
-    state.pulse.marketError = null;
-    state.pulse.devPnl = null;
-    state.pulse.devPnlError = null;
-    state.pulse.narratives = null;
-    state.pulse.narrativesError = null;
   } finally {
     state.pulse.loading = false;
     if (state.view === "pulse") renderPulseConnected();
@@ -1084,9 +1006,25 @@ async function loadAssets({ keepGroup = true } = {}) {
       apiRequest("/api/v1/wallet-groups"),
       state.auth.session ? apiRequest("/api/v1/account/login-wallet-assets") : Promise.resolve({ wallets: [] }),
     ]);
+    let groupsPayload = groupsResult;
+    const legacyGroups = (groupsResult.groups || []).filter(
+      (group) => Number(group.walletCount || 0) > Number(group.activeWalletCount || 0),
+    );
+    if (legacyGroups.length) {
+      await Promise.all(
+        legacyGroups.map((group) =>
+          apiRequest(`/api/v1/wallet-groups/${group.groupId}/provision`, {
+            method: "POST",
+            body: "{}",
+            timeoutMs: 20_000,
+          }),
+        ),
+      );
+      groupsPayload = await apiRequest("/api/v1/wallet-groups");
+    }
     state.assets.portfolio = portfolio;
-    state.assets.mode = groupsResult.mode || "live";
-    state.assets.groups = groupsResult.groups || [];
+    state.assets.mode = groupsPayload.mode || "live";
+    state.assets.groups = groupsPayload.groups || [];
     state.assets.loginWallets = loginWalletResult.wallets || [];
     if (!keepGroup || !state.assets.groups.some((group) => group.groupId === state.assets.selectedGroupId)) state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
     if (state.assets.selectedGroupId) {
@@ -1515,11 +1453,9 @@ function renderAssets() {
   const selectedGroup = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
   const visibleGroups = state.assets.groups.filter((group) => network === "solana" ? group.network === "solana" : group.network === "evm");
   const groupRows = visibleGroups.map((group) => {
-    const ready = group.executionMode === "live_ready" || group.executionMode === "encrypted_vault";
-    const status = ready ? t("可执行", "Live ready") : t("待绑定钱包", "Bind wallets");
-    return `<tr class="${group.groupId === state.assets.selectedGroupId ? "selected-row" : ""}"><td><button class="group-name-button" type="button" data-wallet-group="${group.groupId}"><i class="fa-solid ${group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i><span><strong>${escapeHtml(group.name)}</strong><small>${group.purpose === "cooking" ? "Cooking" : t("常规", "General")}</small></span></button></td><td><span class="network-badge">${network === "solana" ? "SOL" : "EVM"}</span></td><td>${group.walletCount}</td><td>${escapeHtml(group.balances?.[unit] || "—")} ${group.balances?.[unit] ? unit : ""}</td><td>${status}</td><td><button class="table-action" type="button" data-wallet-group="${group.groupId}">${t("管理", "Manage")}</button></td></tr>`;
+    return `<tr class="${group.groupId === state.assets.selectedGroupId ? "selected-row" : ""}"><td><button class="group-name-button" type="button" data-wallet-group="${group.groupId}"><i class="fa-solid ${group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i><span><strong>${escapeHtml(group.name)}</strong><small>${group.purpose === "cooking" ? "Cooking" : t("捆绑钱包组", "Bundled")}</small></span></button></td><td><span class="network-badge">${network === "solana" ? "SOL" : "EVM"}</span></td><td>${group.walletCount}</td><td>${escapeHtml(group.balances?.[unit] || "—")} ${group.balances?.[unit] ? unit : ""}</td><td><button class="table-action" type="button" data-wallet-group="${group.groupId}">${t("管理", "Manage")}</button></td></tr>`;
   }).join("");
-  const walletRows = state.assets.wallets.map((wallet) => { const address = walletAddressForGroup(wallet, selectedGroup); const balance = Object.values(wallet.balances || {}).find((item) => item.asset === unit); return `<tr><td><strong>${escapeHtml(wallet.label)}</strong></td><td><code>${escapeHtml(shortAddress(address || "—"))}</code></td><td>${escapeHtml(balance?.amount || "—")} ${balance?.amount ? unit : ""}</td><td><span class="state-pill">${wallet.provisioningStatus === "active" ? t("已绑定", "Bound") : t("待绑定", "Needs binding")}</span></td></tr>`; }).join("");
+  const walletRows = state.assets.wallets.map((wallet) => { const address = walletAddressForGroup(wallet, selectedGroup); const balance = Object.values(wallet.balances || {}).find((item) => item.asset === unit); return `<tr><td><strong>${escapeHtml(wallet.label)}</strong></td><td><code>${escapeHtml(shortAddress(address || "—"))}</code></td><td>${escapeHtml(balance?.amount || "—")} ${balance?.amount ? unit : ""}</td></tr>`; }).join("");
   const nativeImage = nativeAssetImages[unit];
   const assetRows = total > 0 ? `<tr><td><span class="compact-token">${nativeImage ? `<img src="${nativeImage}" alt="${unit}" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" />` : ""}<strong>${unit}</strong></span></td><td>${total.toLocaleString(undefined,{maximumFractionDigits:9})}</td><td>≈ ${total.toLocaleString(undefined,{maximumFractionDigits:9})} ${unit}</td><td><span class="asset-share-bar"><i style="width:100%"></i></span>100%</td></tr>` : "";
   viewRoot.innerHTML = `<div class="compact-assets-page assets-v3">
@@ -1528,9 +1464,7 @@ function renderAssets() {
     <button class="secondary-button assets-refresh-button" type="button" data-action="refresh-assets"><i class="fa-solid fa-arrows-rotate"></i>${t("刷新", "Refresh")}</button>
   </div>
   <div class="asset-toolbar"><select class="compact-select" id="assetNetworkFilter"><option value="solana" ${network === "solana" ? "selected" : ""}>Solana</option><option value="bsc" ${network === "bsc" ? "selected" : ""}>BSC</option></select><span class="balance-chip">${t("总余额", "Total balance")}: <strong>${total.toLocaleString(undefined,{maximumFractionDigits:9})} ${unit}</strong></span>${state.assets.section === "portfolio" ? `<span class="balance-chip">${t("代币数", "Tokens")}: <strong>${total > 0 ? 1 : 0}</strong></span>` : ""}<div class="toolbar-spacer"></div>${state.assets.section === "groups" ? `<button class="compact-button" type="button" data-action="open-export"><i class="fa-solid fa-file-export"></i>${t("导出", "Export")}</button><button class="compact-button" type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i>${t("转账", "Transfer")}</button><button class="primary-button compact" type="button" data-action="open-create-group"><i class="fa-solid fa-plus"></i>${t("新建钱包组", "New group")}</button>` : ""}</div>
-  ${state.assets.section === "pnl" ? renderPnlAnalysis(network, unit) : state.assets.section === "portfolio" ? `<section class="compact-data-panel portfolio-only-assets"><div class="compact-panel-tabs"><button class="active">${t("币种", "Assets")}</button><button>${t("交易历史", "History")}</button><span>${t("当前仅包含已验证的链上资产", "Verified on-chain assets only")}</span></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("资产", "Asset")}</th><th>${t("余额", "Balance")}</th><th>${t("折合", "Value")}</th><th>${t("资产占比", "Allocation")}</th></tr></thead><tbody>${assetRows || `<tr><td colspan="4" class="empty-state">${t(`暂无 ${unit} 网络资产`, `No ${unit} assets`)}</td></tr>`}</tbody></table></div></section>` : `<section class="compact-data-panel"><div class="compact-panel-tabs"><strong>${t("钱包组", "Wallet groups")} (${visibleGroups.length})</strong><span>${network === "solana" ? "Solana" : "EVM / BSC"}</span></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("名称", "Name")}</th><th>${t("网络", "Network")}</th><th>${t("钱包数", "Wallets")}</th><th>${t("余额", "Balance")}</th><th>${t("状态", "Status")}</th><th>${t("操作", "Action")}</th></tr></thead><tbody>${groupRows || `<tr><td colspan="6" class="empty-state">${t("暂无该网络的钱包组", "No wallet groups on this network")}</td></tr>`}</tbody></table></div>${selectedGroup && visibleGroups.some((group) => group.groupId === selectedGroup.groupId) ? `<div class="compact-group-detail"><div class="detail-heading"><div><span>${unit} · ${selectedGroup.purpose === "cooking" ? "Cooking" : t("常规", "General")}</span><h2>${escapeHtml(selectedGroup.name)}</h2></div><div><button class="compact-button" type="button" data-action="deposit-disabled">${t("充值", "Deposit")}</button><button class="compact-button" type="button" data-action="open-transfer">${t("转账", "Transfer")}</button>${selectedGroup.purpose !== "cooking" ? `<button class="compact-button" type="button" data-action="open-add-wallet">${t("添加钱包", "Add wallet")}</button>` : ""}</div></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("钱包", "Wallet")}</th><th>${t("地址", "Address")}</th><th>${t("链上余额", "On-chain balance")}</th><th>${t("状态", "Status")}</th></tr></thead><tbody>${walletRows}</tbody></table></div></div>` : ""}</section>`}</div>`;
-  const bindWalletButton = viewRoot.querySelector('[data-action="deposit-disabled"]');
-  if (bindWalletButton) bindWalletButton.textContent = t("绑定钱包", "Bind wallet");
+  ${state.assets.section === "pnl" ? renderPnlAnalysis(network, unit) : state.assets.section === "portfolio" ? `<section class="compact-data-panel portfolio-only-assets"><div class="compact-panel-tabs"><button class="active">${t("币种", "Assets")}</button><button>${t("交易历史", "History")}</button><span>${t("当前仅包含已验证的链上资产", "Verified on-chain assets only")}</span></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("资产", "Asset")}</th><th>${t("余额", "Balance")}</th><th>${t("折合", "Value")}</th><th>${t("资产占比", "Allocation")}</th></tr></thead><tbody>${assetRows || `<tr><td colspan="4" class="empty-state">${t(`暂无 ${unit} 网络资产`, `No ${unit} assets`)}</td></tr>`}</tbody></table></div></section>` : `<section class="compact-data-panel"><div class="compact-panel-tabs"><strong>${t("钱包组", "Wallet groups")} (${visibleGroups.length})</strong><span>${network === "solana" ? "Solana" : "EVM / BSC"}</span></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("名称", "Name")}</th><th>${t("网络", "Network")}</th><th>${t("钱包数", "Wallets")}</th><th>${t("余额", "Balance")}</th><th>${t("操作", "Action")}</th></tr></thead><tbody>${groupRows || `<tr><td colspan="5" class="empty-state">${t("暂无该网络的钱包组", "No wallet groups on this network")}</td></tr>`}</tbody></table></div>${selectedGroup && visibleGroups.some((group) => group.groupId === selectedGroup.groupId) ? `<div class="compact-group-detail"><div class="detail-heading"><div><span>${unit} · ${selectedGroup.purpose === "cooking" ? "Cooking" : t("捆绑钱包组", "Bundled")}</span><h2>${escapeHtml(selectedGroup.name)}</h2></div><div><button class="compact-button" type="button" data-action="open-deposit-addresses">${t("充值", "Deposit")}</button><button class="compact-button" type="button" data-action="open-transfer">${t("资金分配", "Distribute")}</button>${selectedGroup.purpose !== "cooking" ? `<button class="compact-button" type="button" data-action="open-add-wallet">${t("添加钱包", "Add wallet")}</button>` : ""}</div></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("钱包", "Wallet")}</th><th>${t("地址", "Address")}</th><th>${t("链上余额", "On-chain balance")}</th></tr></thead><tbody>${walletRows}</tbody></table></div></div>` : ""}</section>`}</div>`;
 }
 
 function renderCurrentView() {
@@ -2126,7 +2060,9 @@ function groupNetworkLabel(group) {
 }
 
 function walletAddressForGroup(wallet, group) {
-  return group?.network === "solana" ? wallet.addresses?.solana : wallet.addresses?.bsc || wallet.addresses?.robinhood || wallet.addresses?.solana;
+  return group?.network === "solana"
+    ? wallet.addresses?.solana || wallet.publicAddress
+    : wallet.addresses?.bsc || wallet.addresses?.robinhood || wallet.publicAddress;
 }
 
 function updateAuthButtons() {
@@ -2260,19 +2196,6 @@ function openAddWallets() {
     kicker: t("钱包组管理", "Wallet-group management"),
     title: t("添加加密钱包", "Add encrypted wallets"),
     content: `<form class="form-stack" id="addWalletsForm"><label class="field-label">${t("添加数量", "Number to add")}<input class="field-input" name="count" type="number" min="1" max="200" value="1" required /></label><p>${t("将为每个钱包生成真实 Solana 与 EVM 地址，密钥仅以加密密文保存。", "Each wallet receives real Solana and EVM addresses; keys are stored only as encrypted ciphertext.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("添加钱包", "Add wallets")}</button></div></form>`,
-  });
-}
-
-function openBindWalletDialog() {
-  const selected = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
-  if (!selected) return showToast(t("请先选择钱包组", "Select a wallet group first"));
-  if (selected.network !== "solana") return showToast(t("当前真实发射只支持 Solana 钱包", "Live launch currently supports Solana wallets only"));
-  const wallets = state.assets.wallets.filter((wallet) => wallet.provisioningStatus !== "active" || !wallet.publicAddress);
-  if (!wallets.length) return showToast(t("该钱包组的钱包已经全部绑定", "All wallets in this group are already bound"));
-  openModal({
-    kicker: t("真实执行准备", "Live execution setup"),
-    title: t("绑定 Solana 执行钱包", "Bind Solana execution wallet"),
-    content: `<form class="form-stack" id="bindWalletForm"><label class="field-label">${t("钱包", "Wallet")}<select class="field-select" name="walletId" required>${wallets.map((wallet) => `<option value="${escapeHtml(wallet.walletId)}">${escapeHtml(wallet.label)}${wallet.publicAddress ? ` · ${escapeHtml(shortAddress(wallet.publicAddress))}` : ""}</option>`).join("")}</select></label><label class="field-label">${t("Solana 公开地址", "Solana public address")}<input class="field-input" name="publicAddress" required placeholder="Solana address" autocomplete="off" /></label><label class="field-label">${t("签名服务引用（可选）", "Signer/provider reference (optional)")}<input class="field-input" name="signerReference" placeholder="e.g. vault key reference" autocomplete="off" /></label><p>${t("只填写公开地址或签名服务引用。不要在网页、聊天框或本表单粘贴私钥。绑定后，发射与交易会使用该真实钱包。", "Enter only the public address or a signer reference. Never paste a private key into the web app, chat, or this form. Live launches and trades will use this wallet after binding.")}</p><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="primary-button" type="submit">${t("保存绑定", "Save binding")}</button></div></form>`,
   });
 }
 
@@ -2682,10 +2605,11 @@ async function submitAgentConversation(command, pendingId) {
     const conversationId = await ensureGoAgentConversation();
     const payload = await apiRequest(`/api/v1/agent/conversations/${conversationId}/messages`, {
       method: "POST",
+      timeoutMs: 22_000,
       body: JSON.stringify({
         message: command,
         wait: true,
-        timeout_ms: 15_000,
+        timeout_ms: 12_000,
         context: { language: state.language, currentView: "go" },
       }),
     });
@@ -2731,6 +2655,7 @@ function switchView(view) {
   state.view = view;
   window.location.hash = view;
   renderCurrentView();
+  if (view === "pulse" && !state.pulse.loading) void loadPulse();
   if (view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -3011,8 +2936,8 @@ viewRoot.addEventListener("click", async (event) => {
     state.assets.transferDestination = previous;
     state.assets.transferPreview = null;
     renderAssets();
-  } else if (action === "deposit-disabled") {
-    openBindWalletDialog();
+  } else if (action === "open-deposit-addresses") {
+    openDepositAddresses();
   } else if (action === "withdraw-disabled") {
     openTransferDialog("login_wallet");
   } else if (action === "confirm-transfer-plan") {
@@ -3184,16 +3109,6 @@ modal.addEventListener("submit", async (event) => {
       closeModal();
       await loadAssets();
       showToast(t("钱包已添加", "Wallets added"));
-    } catch (error) { showToast(error.message); }
-  }
-  if (event.target.id === "bindWalletForm") {
-    event.preventDefault();
-    const form = new FormData(event.target);
-    try {
-      await apiRequest(`/api/v1/wallet-groups/${state.assets.selectedGroupId}/wallets/${form.get("walletId")}/bind`, { method: "POST", body: JSON.stringify({ publicAddress: String(form.get("publicAddress") || "").trim(), signerReference: String(form.get("signerReference") || "").trim() }) });
-      closeModal();
-      await loadAssets({ keepGroup: true });
-      showToast(t("执行钱包已绑定", "Execution wallet bound"));
     } catch (error) { showToast(error.message); }
   }
 });

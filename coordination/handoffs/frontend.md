@@ -2,6 +2,23 @@
 
 > Current rule (2026-07-22): the first-level product surfaces are Go, Pulse, and Assets. The Launch and Invite sections below are historical implementation records, not current navigation requirements.
 
+## 2026-08-04 Go, Pulse, and Assets acceptance repair
+
+- Added a bounded browser request timeout so a stalled Agent request becomes a
+  visible retryable failure instead of an endless pending message.
+- Pulse now settles `/pulse`, `/pulse/market`, `/pulse/dev-wallet-pnl`, and
+  `/pulse/narratives` independently. Failure of the legacy aggregate endpoint
+  no longer clears real market or narrative results.
+- Removed the unreachable legacy Pulse renderer and its malformed comment
+  boundary. Entering Pulse triggers an immediate real refresh.
+- Removed wallet-group and wallet-level binding status columns and the external
+  wallet binding action. Assets now exposes product wallet deposit addresses
+  and labels group-to-group transfers as fund distribution.
+- Existing placeholder groups request one server-side encrypted-wallet
+  provisioning pass before their addresses are shown.
+- Verification: frontend typecheck, frontend/API build, syntax check, and
+  `git diff --check` pass.
+
 ## 2026-08-02 Go launch draft form
 
 - Replaced the generic launch-draft metric/JSON dump with one editable form for
