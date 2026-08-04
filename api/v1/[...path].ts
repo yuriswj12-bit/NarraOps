@@ -1,10 +1,9 @@
 // @ts-nocheck
-import { createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createHash, randomBytes, scryptSync } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
 import { getAddress, verifyMessage, Wallet } from "ethers";
-import { sealWalletSecret } from "../../backend/execution/encrypted-wallet-vault.ts";
 import { buildPulsePlanResponse } from "./go/pulse-plan";
 import { buildNarrativeSnapshotPlanResponse } from "./go/narrative-snapshot-plan";
 import { loadPulseMarketResponse } from "./pulse-market";
@@ -808,6 +807,37 @@ function walletVaultPassword() {
   return password;
 }
 
+function sealAssetWalletSecret({ walletReferenceId, publicAddress, privateKey, password }) {
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const key = scryptSync(password, salt, 32, {
+    N: 32768,
+    r: 8,
+    p: 1,
+    maxmem: 64 * 1024 * 1024,
+  });
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(Buffer.from(`${walletReferenceId}:${publicAddress}`, "utf8"));
+  const plaintext = Buffer.from(privateKey, "utf8");
+  try {
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    return {
+      format: "narraops-wallet-vault-v1",
+      kdf: "scrypt-N32768-r8-p1",
+      cipher: "aes-256-gcm",
+      walletReferenceId,
+      publicAddress,
+      salt: salt.toString("base64url"),
+      iv: iv.toString("base64url"),
+      ciphertext: ciphertext.toString("base64url"),
+      authTag: cipher.getAuthTag().toString("base64url"),
+    };
+  } finally {
+    plaintext.fill(0);
+    key.fill(0);
+  }
+}
+
 async function provisionAssetWallets(supabase, userId, group, wallets) {
   const password = walletVaultPassword();
   const provisioned = [];
@@ -831,7 +861,7 @@ async function provisionAssetWallets(supabase, userId, group, wallets) {
       privateKey = evmWallet.privateKey;
     }
     try {
-      const envelope = sealWalletSecret({
+      const envelope = sealAssetWalletSecret({
         walletReferenceId,
         publicAddress,
         privateKey,
