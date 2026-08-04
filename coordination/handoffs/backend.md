@@ -1,5 +1,22 @@
 # Backend handoff
 
+## 2026-08-04 Agent timeout and product wallet provisioning
+
+- Reduced the bounded OpenAI-compatible reply call to seven seconds and set the
+  Vercel Node function duration to 60 seconds, keeping the Go request inside a
+  deterministic browser/server budget with structured fallback.
+- Replaced the Vercel placeholder/external-bind wallet path with product wallet
+  generation. Solana or EVM private material is encrypted with the existing
+  authenticated wallet-vault envelope before persistence; API responses expose
+  public addresses only.
+- Added migration `021_asset_wallet_encrypted_vault.sql` for a service-role-only
+  encrypted envelope table and a provisioning route for legacy placeholder
+  groups. Removed the public-address binding route.
+- Production requires migration 021 and a strong server-only
+  `WALLET_VAULT_PASSWORD` before the provisioning endpoint is usable.
+- Verification: TypeScript, API 83/83, execution 35/35, frontend/backend builds,
+  Vercel artifact build, and `git diff --check` pass.
+
 ## 2026-08-02 Conversation-aware launch-draft continuation
 
 - Reproduced the production failure with the exact two-turn flow: send a

@@ -3,7 +3,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
-import { getAddress, verifyMessage } from "ethers";
+import { getAddress, verifyMessage, Wallet } from "ethers";
+import { sealWalletSecret } from "../../backend/execution/encrypted-wallet-vault.ts";
 import { buildPulsePlanResponse } from "./go/pulse-plan";
 import { buildNarrativeSnapshotPlanResponse } from "./go/narrative-snapshot-plan";
 import { loadPulseMarketResponse } from "./pulse-market";
@@ -796,6 +797,80 @@ function validateWalletCount(body) {
   return count;
 }
 
+function walletVaultPassword() {
+  const password = String(process.env.WALLET_VAULT_PASSWORD || "");
+  if (password.length < 16) {
+    throw Object.assign(new Error("Product wallet generation is not configured"), {
+      status: 503,
+      code: "WALLET_VAULT_NOT_CONFIGURED",
+    });
+  }
+  return password;
+}
+
+async function provisionAssetWallets(supabase, userId, group, wallets) {
+  const password = walletVaultPassword();
+  const provisioned = [];
+  for (const wallet of wallets || []) {
+    if (wallet.provisioning_status === "active" && wallet.public_address) {
+      provisioned.push(wallet);
+      continue;
+    }
+    const walletReferenceId = `${wallet.wallet_id}:${group.network}`;
+    let publicAddress;
+    let privateKey;
+    let solanaKeypair = null;
+    if (group.network === "solana") {
+      const { Keypair } = await solanaWeb3();
+      solanaKeypair = Keypair.generate();
+      publicAddress = solanaKeypair.publicKey.toBase58();
+      privateKey = Buffer.from(solanaKeypair.secretKey).toString("base64");
+    } else {
+      const evmWallet = Wallet.createRandom();
+      publicAddress = evmWallet.address;
+      privateKey = evmWallet.privateKey;
+    }
+    try {
+      const envelope = sealWalletSecret({
+        walletReferenceId,
+        publicAddress,
+        privateKey,
+        password,
+      });
+      await requireAssetsResult(
+        supabase.from("asset_wallet_secrets").upsert({
+          wallet_id: wallet.wallet_id,
+          user_id: userId,
+          encrypted_envelope: envelope,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "wallet_id" }),
+        "Unable to store the encrypted wallet",
+      );
+      const updated = await requireAssetsResult(
+        supabase
+          .from("asset_wallets")
+          .update({
+            public_address: publicAddress,
+            provisioning_status: "active",
+            signer_reference: walletReferenceId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("wallet_id", wallet.wallet_id)
+          .eq("group_id", group.group_id)
+          .eq("user_id", userId)
+          .select("wallet_id,group_id,user_id,wallet_index,public_address,provisioning_status,created_at,updated_at")
+          .single(),
+        "Unable to activate the generated wallet",
+      );
+      provisioned.push(updated);
+    } finally {
+      solanaKeypair?.secretKey.fill(0);
+      privateKey = "";
+    }
+  }
+  return provisioned;
+}
+
 function publicWallet(wallet, network) {
   const isBound = wallet.provisioning_status === "active" && Boolean(wallet.public_address);
   return {
@@ -809,7 +884,7 @@ function publicWallet(wallet, network) {
     balances: {},
     balance: null,
     balanceAsset: null,
-    custodyMode: isBound ? "provider_bound" : "unprovisioned",
+    custodyMode: isBound ? "narraops_encrypted_vault" : "provisioning",
     provisioningStatus: wallet.provisioning_status,
     exportEligible: false,
     createdAt: wallet.created_at,
@@ -828,7 +903,7 @@ function publicGroup(group, walletCount, activeWalletCount = 0) {
     totalBalance: null,
     balanceAsset: null,
     activeWalletCount,
-    executionMode: activeWalletCount > 0 ? "live_ready" : "provider_binding_required",
+    executionMode: activeWalletCount === walletCount && walletCount > 0 ? "encrypted_vault" : "provisioning",
     createdAt: group.created_at,
     updatedAt: group.updated_at,
   };
@@ -907,16 +982,29 @@ async function createWalletGroup(supabase, userId, body) {
     public_address: null,
     signer_reference: null,
   }));
-  const { error } = await supabase.from("asset_wallets").insert(walletRows);
+  const { data: createdWallets, error } = await supabase
+    .from("asset_wallets")
+    .insert(walletRows)
+    .select("wallet_id,group_id,user_id,wallet_index,public_address,provisioning_status,created_at,updated_at");
   if (error) {
     await supabase
       .from("asset_wallet_groups")
       .delete()
       .eq("group_id", group.group_id)
       .eq("user_id", userId);
-    assetsError(error, "Unable to create planned wallets");
+    assetsError(error, "Unable to create wallets");
   }
-  return publicGroup(group, input.walletCount);
+  try {
+    const provisioned = await provisionAssetWallets(supabase, userId, group, createdWallets);
+    return publicGroup(group, provisioned.length, provisioned.length);
+  } catch (error) {
+    await supabase
+      .from("asset_wallet_groups")
+      .delete()
+      .eq("group_id", group.group_id)
+      .eq("user_id", userId);
+    throw error;
+  }
 }
 
 async function listGroupWallets(supabase, userId, groupId) {
@@ -979,86 +1067,30 @@ async function addGroupWallets(supabase, userId, groupId, body) {
     public_address: null,
     signer_reference: null,
   }));
-  await requireAssetsResult(
-    supabase.from("asset_wallets").insert(rows),
-    "Unable to add planned wallets",
+  const created = await requireAssetsResult(
+    supabase
+      .from("asset_wallets")
+      .insert(rows)
+      .select("wallet_id,group_id,user_id,wallet_index,public_address,provisioning_status,created_at,updated_at"),
+    "Unable to add wallets",
   );
+  await provisionAssetWallets(supabase, userId, group, created);
   return listGroupWallets(supabase, userId, groupId);
 }
 
-async function bindWalletAddress(supabase, userId, groupId, walletId, body) {
+async function provisionGroupWallets(supabase, userId, groupId) {
   const group = await ownedGroup(supabase, userId, groupId);
-  if (group.network !== "solana") {
-    throw Object.assign(new Error("Only Solana provider wallets can be bound to live Go execution right now"), {
-      status: 400,
-      code: "WALLET_NETWORK_UNSUPPORTED",
-    });
-  }
-  const publicAddress = String(body?.publicAddress || body?.public_address || "").trim();
-  if (!validSolanaAddress(publicAddress)) {
-    throw Object.assign(new Error("publicAddress must be a valid Solana address"), {
-      status: 400,
-      code: "INVALID_PUBLIC_ADDRESS",
-    });
-  }
-  const wallet = await requireAssetsResult(
+  const wallets = await requireAssetsResult(
     supabase
       .from("asset_wallets")
-      .select("wallet_id,group_id,user_id")
-      .eq("wallet_id", walletId)
-      .eq("group_id", groupId)
-      .eq("user_id", userId)
-      .maybeSingle(),
-    "Unable to read the wallet to bind",
-  );
-  if (!wallet) {
-    throw Object.assign(new Error("Wallet was not found in the selected group"), {
-      status: 404,
-      code: "WALLET_NOT_FOUND",
-    });
-  }
-  const duplicate = await requireAssetsResult(
-    supabase
-      .from("asset_wallets")
-      .select("wallet_id")
-      .eq("user_id", userId)
-      .eq("public_address", publicAddress)
-      .neq("wallet_id", walletId)
-      .maybeSingle(),
-    "Unable to verify the wallet address",
-  );
-  if (duplicate) {
-    throw Object.assign(new Error("This Solana address is already bound to another wallet in your account"), {
-      status: 409,
-      code: "PUBLIC_ADDRESS_ALREADY_BOUND",
-    });
-  }
-  const signerReference = String(body?.signerReference || body?.signer_reference || "").trim();
-  const updated = await requireAssetsResult(
-    supabase
-      .from("asset_wallets")
-      .update({
-        public_address: publicAddress,
-        provisioning_status: "active",
-        signer_reference: signerReference || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("wallet_id", walletId)
-      .eq("group_id", groupId)
-      .eq("user_id", userId)
       .select("wallet_id,group_id,user_id,wallet_index,public_address,provisioning_status,created_at,updated_at")
-      .single(),
-    "Unable to bind the provider wallet",
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .order("wallet_index", { ascending: true }),
+    "Unable to read wallets for generation",
   );
-  const listing = await listGroupWallets(supabase, userId, groupId);
-  return {
-    mode: "live",
-    provider: "external_wallet",
-    group: listing.group,
-    wallet: publicWallet(updated, group.network),
-    wallets: listing.wallets,
-    note: "Only the public address and optional provider reference were stored. Private keys are never accepted by this endpoint.",
-  };
+  await provisionAssetWallets(supabase, userId, group, wallets);
+  return listGroupWallets(supabase, userId, groupId);
 }
 
 export async function handleAssetsRoute({
@@ -1108,18 +1140,15 @@ export async function handleAssetsRoute({
     sendJson(response, 201, result);
     return true;
   }
-  const bindWalletMatch = path.match(
-    /^\/api\/v1\/wallet-groups\/([0-9a-f-]{36})\/wallets\/([0-9a-f-]{36})\/bind$/i,
+  const provisionWalletsMatch = path.match(
+    /^\/api\/v1\/wallet-groups\/([0-9a-f-]{36})\/provision$/i,
   );
-  if (bindWalletMatch && request.method === "POST") {
-    const result = await bindWalletAddress(
-      supabase,
-      userId,
-      bindWalletMatch[1],
-      bindWalletMatch[2],
-      await readBody(request),
+  if (provisionWalletsMatch && request.method === "POST") {
+    sendJson(
+      response,
+      200,
+      await provisionGroupWallets(supabase, userId, provisionWalletsMatch[1]),
     );
-    sendJson(response, 200, result);
     return true;
   }
   if (request.method === "GET" && path === "/api/v1/account/portfolio") {
