@@ -311,6 +311,129 @@ function fakeSupabase(tables: Record<string, Array<Record<string, unknown>>>) {
   };
 }
 
+function mutableAssetsSupabase({
+  failWalletActivationAt = Number.POSITIVE_INFINITY,
+}: {
+  failWalletActivationAt?: number;
+} = {}) {
+  const tables: Record<string, Array<Record<string, unknown>>> = {
+    asset_wallet_groups: [],
+    asset_wallets: [],
+    asset_wallet_secrets: [],
+  };
+  let nextGroup = 1;
+  let nextWallet = 1;
+  let walletActivations = 0;
+
+  const client = {
+    tables,
+    from(table: string) {
+      const filters: Array<[string, unknown]> = [];
+      let operation: "select" | "insert" | "upsert" | "update" | "delete" = "select";
+      let payload: Record<string, unknown> | Array<Record<string, unknown>> | null = null;
+      let one = false;
+      const query = {
+        select() {
+          return query;
+        },
+        insert(value: Record<string, unknown> | Array<Record<string, unknown>>) {
+          operation = "insert";
+          payload = value;
+          return query;
+        },
+        upsert(value: Record<string, unknown>) {
+          operation = "upsert";
+          payload = value;
+          return query;
+        },
+        update(value: Record<string, unknown>) {
+          operation = "update";
+          payload = value;
+          return query;
+        },
+        delete() {
+          operation = "delete";
+          return query;
+        },
+        eq(column: string, value: unknown) {
+          filters.push([column, value]);
+          return query;
+        },
+        order() {
+          return query;
+        },
+        single() {
+          one = true;
+          return query;
+        },
+        maybeSingle() {
+          one = true;
+          return query;
+        },
+        then(resolve: (result: unknown) => unknown) {
+          const matches = (row: Record<string, unknown>) =>
+            filters.every(([column, value]) => row[column] === value);
+          let data: Array<Record<string, unknown>> = [];
+          let error: Record<string, unknown> | null = null;
+
+          if (operation === "insert") {
+            const rows = (Array.isArray(payload) ? payload : [payload]).map((value) => {
+              const row = { ...value } as Record<string, unknown>;
+              if (table === "asset_wallet_groups") {
+                row.group_id ||= `30000000-0000-4000-8000-${String(nextGroup++).padStart(12, "0")}`;
+              }
+              if (table === "asset_wallets") {
+                row.wallet_id ||= `40000000-0000-4000-8000-${String(nextWallet++).padStart(12, "0")}`;
+              }
+              row.created_at ||= "2026-08-09T00:00:00.000Z";
+              row.updated_at ||= row.created_at;
+              tables[table].push(row);
+              return row;
+            });
+            data = rows;
+          } else if (operation === "upsert") {
+            const value = { ...(payload as Record<string, unknown>) };
+            const index = tables[table].findIndex(({ wallet_id }) => wallet_id === value.wallet_id);
+            if (index >= 0) tables[table][index] = { ...tables[table][index], ...value };
+            else tables[table].push(value);
+            data = [value];
+          } else if (operation === "update") {
+            if (table === "asset_wallets" && ++walletActivations === failWalletActivationAt) {
+              error = { code: "TEST_ACTIVATION_FAILURE", message: "Injected activation failure" };
+            } else {
+              data = tables[table].filter(matches);
+              for (const row of data) Object.assign(row, payload);
+            }
+          } else if (operation === "delete") {
+            const removed = tables[table].filter(matches);
+            tables[table] = tables[table].filter((row) => !matches(row));
+            if (table === "asset_wallet_groups") {
+              const groupIds = new Set(removed.map(({ group_id }) => group_id));
+              const walletIds = new Set(
+                tables.asset_wallets
+                  .filter(({ group_id }) => groupIds.has(group_id))
+                  .map(({ wallet_id }) => wallet_id),
+              );
+              tables.asset_wallets = tables.asset_wallets.filter(
+                ({ group_id }) => !groupIds.has(group_id),
+              );
+              tables.asset_wallet_secrets = tables.asset_wallet_secrets.filter(
+                ({ wallet_id }) => !walletIds.has(wallet_id),
+              );
+            }
+          } else {
+            data = tables[table].filter(matches);
+          }
+
+          return Promise.resolve(resolve({ data: one ? data[0] || null : data, error }));
+        },
+      };
+      return query;
+    },
+  };
+  return client;
+}
+
 test("Vercel health endpoint works without database credentials", async () => {
   const recorder = responseRecorder();
   await handler(
@@ -438,6 +561,94 @@ test("Vercel Assets rejects anonymous and cross-user wallet-group access", async
     }),
     ({ code }: { code: string }) => code === "WALLET_GROUP_NOT_FOUND",
   );
+});
+
+test("Vercel Assets creates three real encrypted Solana wallets", async () => {
+  const previousPassword = process.env.WALLET_VAULT_PASSWORD;
+  process.env.WALLET_VAULT_PASSWORD = "test-only-wallet-vault-password";
+  const supabase = mutableAssetsSupabase();
+  const recorder = responseRecorder();
+  try {
+    await handleAssetsRoute({
+      supabase,
+      request: {
+        method: "POST",
+        url: "/api/v1/wallet-groups",
+        headers: {},
+        body: {
+          name: "Three Solana Wallets",
+          network: "solana",
+          purpose: "general",
+          walletCount: 3,
+        },
+      },
+      response: recorder.response,
+      session: {
+        user: {
+          userId: "11111111-1111-4111-8111-111111111111",
+          identities: [],
+        },
+      },
+    });
+    assert.equal(recorder.result().status, 201);
+    assert.equal(recorder.result().body.walletCount, 3);
+    assert.equal(recorder.result().body.activeWalletCount, 3);
+    assert.equal(supabase.tables.asset_wallet_groups.length, 1);
+    assert.equal(supabase.tables.asset_wallets.length, 3);
+    assert.equal(supabase.tables.asset_wallet_secrets.length, 3);
+    assert.equal(
+      new Set(supabase.tables.asset_wallets.map(({ public_address }) => public_address)).size,
+      3,
+    );
+    for (const secret of supabase.tables.asset_wallet_secrets) {
+      assert.equal(
+        (secret.encrypted_envelope as { format: string }).format,
+        "narraops-wallet-vault-v1",
+      );
+      assert.equal(JSON.stringify(secret).includes("secretKey"), false);
+    }
+  } finally {
+    if (previousPassword === undefined) delete process.env.WALLET_VAULT_PASSWORD;
+    else process.env.WALLET_VAULT_PASSWORD = previousPassword;
+  }
+});
+
+test("Vercel Assets removes wallet groups, wallets, and secrets after provisioning failure", async () => {
+  const previousPassword = process.env.WALLET_VAULT_PASSWORD;
+  process.env.WALLET_VAULT_PASSWORD = "test-only-wallet-vault-password";
+  const supabase = mutableAssetsSupabase({ failWalletActivationAt: 2 });
+  try {
+    await assert.rejects(
+      handleAssetsRoute({
+        supabase,
+        request: {
+          method: "POST",
+          url: "/api/v1/wallet-groups",
+          headers: {},
+          body: {
+            name: "Rollback Solana Wallets",
+            network: "solana",
+            purpose: "general",
+            walletCount: 3,
+          },
+        },
+        response: responseRecorder().response,
+        session: {
+          user: {
+            userId: "11111111-1111-4111-8111-111111111111",
+            identities: [],
+          },
+        },
+      }),
+      ({ code }: { code: string }) => code === "TEST_ACTIVATION_FAILURE",
+    );
+    assert.equal(supabase.tables.asset_wallet_groups.length, 0);
+    assert.equal(supabase.tables.asset_wallets.length, 0);
+    assert.equal(supabase.tables.asset_wallet_secrets.length, 0);
+  } finally {
+    if (previousPassword === undefined) delete process.env.WALLET_VAULT_PASSWORD;
+    else process.env.WALLET_VAULT_PASSWORD = previousPassword;
+  }
 });
 
 test("Vercel auth endpoints fail closed without server credentials", async () => {

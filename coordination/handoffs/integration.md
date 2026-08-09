@@ -1,5 +1,25 @@
 # Integration handoff
 
+## 2026-08-09 Solana wallet-group Vercel runtime repair
+
+- Pinned `@solana/web3.js` to `1.98.4`, Vercel/Node to `24.x`, and overrode
+  `rpc-websockets 9.3.9` to use its CommonJS-compatible `uuid 11.1.0`
+  dependency. This removes the strict CommonJS `ERR_REQUIRE_ESM` startup path
+  without modifying installed packages.
+- The wallet-group creation path now loads Solana Web3 before its first
+  database write. Provisioning failures remove a newly stored secret, and
+  failed group creation checks the group deletion that cascades to wallet and
+  secret rows.
+- Added a strict-CJS runtime check that creates three unique real Solana
+  keypairs, plus Vercel handler coverage for three encrypted wallets and
+  injected-failure cleanup.
+
+Verification: strict-CJS Solana runtime passed, Vercel handler `20/20`, root
+production build passed, Vercel CLI production build passed, and
+`git diff --check` passed. The full API suite remains `84/86` because two
+pre-existing Agent conversation assertions fail; the dirty backend TypeScript
+work also has pre-existing typecheck errors outside this repair.
+
 ## 2026-07-11 worktree split
 
 - `main` contains the merged backend, execution, shared contract, deployment, and collaboration foundations.

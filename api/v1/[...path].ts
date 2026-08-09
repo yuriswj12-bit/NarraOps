@@ -797,12 +797,17 @@ function validateWalletCount(body) {
 }
 
 function walletVaultPassword() {
-  const password = String(process.env.WALLET_VAULT_PASSWORD || "");
+  const password = String(process.env.WALLET_VAULT_PASSWORD || "").trim();
   if (password.length < 16) {
-    throw Object.assign(new Error("Product wallet generation is not configured"), {
-      status: 503,
-      code: "WALLET_VAULT_NOT_CONFIGURED",
-    });
+    throw Object.assign(
+      new Error(
+        "Wallet vault is not configured. Set WALLET_VAULT_PASSWORD (16+ chars) in the production environment before creating wallet groups.",
+      ),
+      {
+        status: 503,
+        code: "WALLET_VAULT_NOT_CONFIGURED",
+      },
+    );
   }
   return password;
 }
@@ -850,8 +855,16 @@ async function provisionAssetWallets(supabase, userId, group, wallets) {
     let publicAddress;
     let privateKey;
     let solanaKeypair = null;
+    let secretStored = false;
     if (group.network === "solana") {
-      const { Keypair } = await solanaWeb3();
+      const web3 = await solanaWeb3();
+      const Keypair = web3.Keypair || web3.default?.Keypair;
+      if (!Keypair) {
+        throw Object.assign(new Error("Solana wallet generation module failed to load"), {
+          status: 503,
+          code: "SOLANA_WEB3_UNAVAILABLE",
+        });
+      }
       solanaKeypair = Keypair.generate();
       publicAddress = solanaKeypair.publicKey.toBase58();
       privateKey = Buffer.from(solanaKeypair.secretKey).toString("base64");
@@ -876,6 +889,7 @@ async function provisionAssetWallets(supabase, userId, group, wallets) {
         }, { onConflict: "wallet_id" }),
         "Unable to store the encrypted wallet",
       );
+      secretStored = true;
       const updated = await requireAssetsResult(
         supabase
           .from("asset_wallets")
@@ -893,6 +907,25 @@ async function provisionAssetWallets(supabase, userId, group, wallets) {
         "Unable to activate the generated wallet",
       );
       provisioned.push(updated);
+    } catch (error) {
+      if (secretStored) {
+        const { error: cleanupError } = await supabase
+          .from("asset_wallet_secrets")
+          .delete()
+          .eq("wallet_id", wallet.wallet_id)
+          .eq("user_id", userId);
+        if (cleanupError) {
+          throw Object.assign(
+            new Error("Wallet provisioning failed and secret cleanup could not be confirmed"),
+            {
+              status: 503,
+              code: "WALLET_SECRET_ROLLBACK_FAILED",
+              cause: error,
+            },
+          );
+        }
+      }
+      throw error;
     } finally {
       solanaKeypair?.secretKey.fill(0);
       privateKey = "";
@@ -989,8 +1022,30 @@ async function listWalletGroups(supabase, userId) {
   );
 }
 
+async function removeFailedWalletGroup(supabase, userId, groupId) {
+  const { error } = await supabase
+    .from("asset_wallet_groups")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("user_id", userId);
+  if (error) {
+    throw Object.assign(
+      new Error("Wallet group creation failed and rollback could not be confirmed"),
+      {
+        status: 503,
+        code: "WALLET_GROUP_ROLLBACK_FAILED",
+      },
+    );
+  }
+}
+
 async function createWalletGroup(supabase, userId, body) {
   const input = validateGroupInput(body);
+  // Load crypto dependencies and vault configuration before the first database write.
+  walletVaultPassword();
+  if (input.network === "solana") {
+    await solanaWeb3();
+  }
   const group = await requireAssetsResult(
     supabase
       .from("asset_wallet_groups")
@@ -1017,22 +1072,14 @@ async function createWalletGroup(supabase, userId, body) {
     .insert(walletRows)
     .select("wallet_id,group_id,user_id,wallet_index,public_address,provisioning_status,created_at,updated_at");
   if (error) {
-    await supabase
-      .from("asset_wallet_groups")
-      .delete()
-      .eq("group_id", group.group_id)
-      .eq("user_id", userId);
+    await removeFailedWalletGroup(supabase, userId, group.group_id);
     assetsError(error, "Unable to create wallets");
   }
   try {
     const provisioned = await provisionAssetWallets(supabase, userId, group, createdWallets);
     return publicGroup(group, provisioned.length, provisioned.length);
   } catch (error) {
-    await supabase
-      .from("asset_wallet_groups")
-      .delete()
-      .eq("group_id", group.group_id)
-      .eq("user_id", userId);
+    await removeFailedWalletGroup(supabase, userId, group.group_id);
     throw error;
   }
 }
