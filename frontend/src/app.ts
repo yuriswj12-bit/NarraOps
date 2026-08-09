@@ -1481,7 +1481,8 @@ function renderAssets() {
   const selectedGroup = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
   const visibleGroups = state.assets.groups.filter((group) => network === "solana" ? group.network === "solana" : group.network === "evm");
   const groupRows = visibleGroups.map((group) => {
-    return `<tr class="${group.groupId === state.assets.selectedGroupId ? "selected-row" : ""}"><td><button class="group-name-button" type="button" data-wallet-group="${group.groupId}"><i class="fa-solid ${group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i><span><strong>${escapeHtml(group.name)}</strong><small>${group.purpose === "cooking" ? "Cooking" : t("捆绑钱包组", "Bundled")}</small></span></button></td><td><span class="network-badge">${network === "solana" ? "SOL" : "EVM"}</span></td><td>${group.walletCount}</td><td>${escapeHtml(group.balances?.[unit] || "—")} ${group.balances?.[unit] ? unit : ""}</td><td><button class="table-action" type="button" data-wallet-group="${group.groupId}">${t("管理", "Manage")}</button></td></tr>`;
+    const pending = group.pendingCreation === true;
+    return `<tr class="${group.groupId === state.assets.selectedGroupId ? "selected-row" : ""}"><td><button class="group-name-button" type="button" data-wallet-group="${group.groupId}" ${pending ? "disabled" : ""}><i class="fa-solid ${pending ? "fa-spinner fa-spin" : group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i><span><strong>${escapeHtml(group.name)}</strong><small>${pending ? t("正在安全生成钱包…", "Securely generating wallets…") : group.purpose === "cooking" ? "Cooking" : t("捆绑钱包组", "Bundled")}</small></span></button></td><td><span class="network-badge">${network === "solana" ? "SOL" : "EVM"}</span></td><td>${pending ? `0 / ${group.walletCount}` : group.walletCount}</td><td>${pending ? "—" : `${escapeHtml(group.balances?.[unit] || "—")} ${group.balances?.[unit] ? unit : ""}`}</td><td>${pending ? `<span>${t("创建中", "Creating")}</span>` : `<button class="table-action" type="button" data-wallet-group="${group.groupId}">${t("管理", "Manage")}</button>`}</td></tr>`;
   }).join("");
   const walletRows = state.assets.wallets.map((wallet) => { const address = walletAddressForGroup(wallet, selectedGroup); const balance = Object.values(wallet.balances || {}).find((item) => item.asset === unit); return `<tr><td><strong>${escapeHtml(wallet.label)}</strong></td><td><code>${escapeHtml(shortAddress(address || "—"))}</code></td><td>${escapeHtml(balance?.amount || "—")} ${balance?.amount ? unit : ""}</td></tr>`; }).join("");
   const nativeImage = nativeAssetImages[unit];
@@ -3125,25 +3126,51 @@ modal.addEventListener("submit", async (event) => {
       const submitButton = event.target.querySelector('button[type="submit"]');
       if (submitButton) submitButton.disabled = true;
       const form = new FormData(event.target);
+      const purpose = String(form.get("purpose") || "general");
+      const walletCount = purpose === "cooking" ? 1 : Number(form.get("walletCount"));
+      const optimisticGroupId = `pending-${globalThis.crypto?.randomUUID?.() || Date.now()}`;
+      const optimisticGroup = {
+        groupId: optimisticGroupId,
+        name: String(form.get("name") || "").trim(),
+        network: String(form.get("network") || "solana"),
+        purpose,
+        walletCount,
+        activeWalletCount: 0,
+        balances: {},
+        executionMode: "provisioning",
+        pendingCreation: true,
+      };
+      state.assets.groups = [optimisticGroup, ...state.assets.groups];
+      state.assets.selectedGroupId = optimisticGroupId;
+      closeModal();
+      renderAssets();
+      showToast(t(
+        `正在安全生成 ${walletCount} 个钱包…`,
+        `Securely generating ${walletCount} wallets…`,
+      ));
       try {
-        const purpose = form.get("purpose");
         const group = await apiRequest("/api/v1/wallet-groups", {
           method: "POST",
           timeoutMs: 45_000,
-          body: JSON.stringify({ name: form.get("name"), network: form.get("network"), purpose, walletCount: purpose === "cooking" ? 1 : Number(form.get("walletCount")) }),
+          body: JSON.stringify({ name: form.get("name"), network: form.get("network"), purpose, walletCount }),
         });
         const createdGroupId = group.groupId || group.group_id;
+        state.assets.groups = state.assets.groups.filter((item) => item.groupId !== optimisticGroupId);
         state.assets.selectedGroupId = createdGroupId;
-        closeModal();
-      await loadAssets({ keepGroup: true, reloadAfterCurrent: true });
-      if (!state.assets.groups.some((item) => item.groupId === createdGroupId)) {
-        throw new Error(t(
-          "钱包组已写入，但列表重新读取失败。请刷新页面，切勿重复创建。",
-          "The wallet group was saved but could not be reloaded. Refresh the page and do not create it again.",
-        ));
-      }
-      showToast(t("钱包组已创建", "Wallet group created"));
+        await loadAssets({ keepGroup: true, reloadAfterCurrent: true });
+        if (!state.assets.groups.some((item) => item.groupId === createdGroupId)) {
+          throw new Error(t(
+            "钱包组已写入，但列表重新读取失败。请刷新页面，切勿重复创建。",
+            "The wallet group was saved but could not be reloaded. Refresh the page and do not create it again.",
+          ));
+        }
+        showToast(t("钱包组已创建", "Wallet group created"));
       } catch (error) {
+        state.assets.groups = state.assets.groups.filter((item) => item.groupId !== optimisticGroupId);
+        if (state.assets.selectedGroupId === optimisticGroupId) {
+          state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
+        }
+        renderAssets();
         showToast(error.message);
       } finally {
         event.target.dataset.submitting = "false";

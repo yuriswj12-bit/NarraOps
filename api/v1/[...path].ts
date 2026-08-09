@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { createCipheriv, createHash, randomBytes, scryptSync } from "node:crypto";
+import { createCipheriv, createHash, randomBytes, scrypt } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
@@ -819,14 +819,19 @@ function walletVaultPassword() {
   return password;
 }
 
-function sealAssetWalletSecret({ walletReferenceId, publicAddress, privateKey, password }) {
+async function sealAssetWalletSecret({ walletReferenceId, publicAddress, privateKey, password }) {
   const salt = randomBytes(16);
   const iv = randomBytes(12);
-  const key = scryptSync(password, salt, 32, {
-    N: 32768,
-    r: 8,
-    p: 1,
-    maxmem: 64 * 1024 * 1024,
+  const key = await new Promise((resolve, reject) => {
+    scrypt(password, salt, 32, {
+      N: 32768,
+      r: 8,
+      p: 1,
+      maxmem: 64 * 1024 * 1024,
+    }, (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve(derivedKey);
+    });
   });
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   cipher.setAAD(Buffer.from(`${walletReferenceId}:${publicAddress}`, "utf8"));
@@ -852,11 +857,9 @@ function sealAssetWalletSecret({ walletReferenceId, publicAddress, privateKey, p
 
 async function provisionAssetWallets(supabase, userId, group, wallets) {
   const password = walletVaultPassword();
-  const provisioned = [];
-  for (const wallet of wallets || []) {
+  const tasks = (wallets || []).map(async (wallet) => {
     if (wallet.provisioning_status === "active" && wallet.public_address) {
-      provisioned.push(wallet);
-      continue;
+      return wallet;
     }
     const walletReferenceId = `${wallet.wallet_id}:${group.network}`;
     let publicAddress;
@@ -881,7 +884,7 @@ async function provisionAssetWallets(supabase, userId, group, wallets) {
       privateKey = evmWallet.privateKey;
     }
     try {
-      const envelope = sealAssetWalletSecret({
+      const envelope = await sealAssetWalletSecret({
         walletReferenceId,
         publicAddress,
         privateKey,
@@ -913,7 +916,7 @@ async function provisionAssetWallets(supabase, userId, group, wallets) {
           .single(),
         "Unable to activate the generated wallet",
       );
-      provisioned.push(updated);
+      return updated;
     } catch (error) {
       if (secretStored) {
         const { error: cleanupError } = await supabase
@@ -937,8 +940,11 @@ async function provisionAssetWallets(supabase, userId, group, wallets) {
       solanaKeypair?.secretKey.fill(0);
       privateKey = "";
     }
-  }
-  return provisioned;
+  });
+  const results = await Promise.allSettled(tasks);
+  const failed = results.find((result) => result.status === "rejected");
+  if (failed) throw failed.reason;
+  return results.map((result) => result.value);
 }
 
 function publicWallet(wallet, network) {
