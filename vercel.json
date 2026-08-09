@@ -10,7 +10,7 @@
       }
     },
     {
-      "src": "api/v1/**/*.ts",
+      "src": "api/v1/[...path].ts",
       "use": "@vercel/node",
       "config": {
         "maxDuration": 60,
@@ -50,36 +50,8 @@
   ],
   "routes": [
     {
-      "src": "/api/v1/agent/(.*)",
-      "dest": "/api/v1/[...path].ts"
-    },
-    {
-      "src": "/api/v1/go/launch-drafts/([^/]+)",
-      "dest": "/api/v1/[...path].ts"
-    },
-    {
-      "src": "/api/v1/launch/drafts/([^/]+)",
-      "dest": "/api/v1/[...path].ts"
-    },
-    {
-      "src": "/api/v1/telegram/webhook",
-      "dest": "/api/v1/[...path].ts"
-    },
-    {
-      "src": "/api/v1/swaps/submit",
-      "dest": "/api/v1/[...path].ts"
-    },
-    {
-      "src": "/api/v1/wallet-groups/([^/]+)/wallets",
-      "dest": "/api/v1/wallet-groups/[groupId]/wallets.ts"
-    },
-    {
-      "src": "/api/v1/wallet-groups/([^/]+)/provision",
-      "dest": "/api/v1/[...path].ts"
-    },
-    {
       "src": "/api/v1/(.*)",
-      "dest": "/api/v1/$1.ts"
+      "dest": "/api/v1/[...path].ts"
     },
     {
       "handle": "filesystem"
