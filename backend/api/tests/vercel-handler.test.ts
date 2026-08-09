@@ -618,6 +618,82 @@ test("Vercel Assets creates three real encrypted Solana wallets", async () => {
   }
 });
 
+test("Vercel Assets exports decrypted Solana private keys through the catch-all route", async () => {
+  const previousPassword = process.env.WALLET_VAULT_PASSWORD;
+  process.env.WALLET_VAULT_PASSWORD = "test-only-wallet-vault-password";
+  const userId = "11111111-1111-4111-8111-111111111111";
+  const supabase = mutableAssetsSupabase();
+  try {
+    const createRecorder = responseRecorder();
+    await handleAssetsRoute({
+      supabase,
+      request: {
+        method: "POST",
+        url: "/api/v1/wallet-groups",
+        headers: {},
+        body: {
+          name: "Export Solana Wallets",
+          network: "solana",
+          purpose: "general",
+          walletCount: 3,
+        },
+      },
+      response: createRecorder.response,
+      session: { user: { userId, identities: [] } },
+    });
+    const groupId = createRecorder.result().body.groupId;
+
+    await assert.rejects(
+      handleAssetsRoute({
+        supabase,
+        request: {
+          method: "POST",
+          url: `/api/v1/wallet-groups/${groupId}/exports`,
+          headers: {},
+          body: { confirmExport: true, reason: "test export" },
+        },
+        response: responseRecorder().response,
+        session: { user: { userId, identities: [] } },
+      }),
+      ({ code }: { code: string }) => code === "RECENT_REAUTHENTICATION_REQUIRED",
+    );
+
+    const exportRecorder = responseRecorder();
+    await handleAssetsRoute({
+      supabase,
+      request: {
+        method: "POST",
+        url: `/api/v1/wallet-groups/${groupId}/exports`,
+        headers: {
+          "x-reauthenticated-at": new Date().toISOString(),
+          "x-mfa-verified": "true",
+        },
+        body: { confirmExport: true, reason: "test export" },
+      },
+      response: exportRecorder.response,
+      session: { user: { userId, identities: [] } },
+    });
+    const result = exportRecorder.result();
+    assert.equal(result.status, 200);
+    assert.equal(result.body.walletCount, 3);
+    assert.equal(result.body.keyFormat, "base58-secret-key");
+    assert.match(result.body.fileName, /^Export Solana Wallets-solana-/);
+    assert.equal(String(result.headers.get("cache-control")), "private, no-store");
+    for (const wallet of supabase.tables.asset_wallets) {
+      assert.match(result.body.content, new RegExp(String(wallet.public_address)));
+    }
+    assert.equal(
+      (result.body.content.match(/Solana private key \(base58\): [1-9A-HJ-NP-Za-km-z]{80,100}/g) || []).length,
+      3,
+    );
+    assert.equal(result.body.content.includes("ciphertext"), false);
+    assert.equal(result.body.content.includes("encrypted_envelope"), false);
+  } finally {
+    if (previousPassword === undefined) delete process.env.WALLET_VAULT_PASSWORD;
+    else process.env.WALLET_VAULT_PASSWORD = previousPassword;
+  }
+});
+
 test("Vercel Assets removes wallet groups, wallets, and secrets after provisioning failure", async () => {
   const previousPassword = process.env.WALLET_VAULT_PASSWORD;
   process.env.WALLET_VAULT_PASSWORD = "test-only-wallet-vault-password";

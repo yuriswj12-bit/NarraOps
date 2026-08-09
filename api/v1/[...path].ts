@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { createCipheriv, createHash, randomBytes, scrypt } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes, scrypt } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
@@ -819,10 +819,8 @@ function walletVaultPassword() {
   return password;
 }
 
-async function sealAssetWalletSecret({ walletReferenceId, publicAddress, privateKey, password }) {
-  const salt = randomBytes(16);
-  const iv = randomBytes(12);
-  const key = await new Promise((resolve, reject) => {
+function deriveAssetWalletKey(password, salt) {
+  return new Promise((resolve, reject) => {
     scrypt(password, salt, 32, {
       N: 32768,
       r: 8,
@@ -833,6 +831,12 @@ async function sealAssetWalletSecret({ walletReferenceId, publicAddress, private
       else resolve(derivedKey);
     });
   });
+}
+
+async function sealAssetWalletSecret({ walletReferenceId, publicAddress, privateKey, password }) {
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const key = await deriveAssetWalletKey(password, salt);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   cipher.setAAD(Buffer.from(`${walletReferenceId}:${publicAddress}`, "utf8"));
   const plaintext = Buffer.from(privateKey, "utf8");
@@ -851,6 +855,43 @@ async function sealAssetWalletSecret({ walletReferenceId, publicAddress, private
     };
   } finally {
     plaintext.fill(0);
+    key.fill(0);
+  }
+}
+
+async function openAssetWalletSecret(envelope, password) {
+  if (
+    !envelope ||
+    envelope.format !== "narraops-wallet-vault-v1" ||
+    envelope.kdf !== "scrypt-N32768-r8-p1" ||
+    envelope.cipher !== "aes-256-gcm"
+  ) {
+    throw Object.assign(new Error("Unsupported wallet secret envelope"), {
+      status: 503,
+      code: "UNSUPPORTED_WALLET_SECRET",
+    });
+  }
+  const key = await deriveAssetWalletKey(password, Buffer.from(envelope.salt, "base64url"));
+  const decipher = createDecipheriv(
+    "aes-256-gcm",
+    key,
+    Buffer.from(envelope.iv, "base64url"),
+  );
+  decipher.setAAD(
+    Buffer.from(`${envelope.walletReferenceId}:${envelope.publicAddress}`, "utf8"),
+  );
+  decipher.setAuthTag(Buffer.from(envelope.authTag, "base64url"));
+  try {
+    return Buffer.concat([
+      decipher.update(Buffer.from(envelope.ciphertext, "base64url")),
+      decipher.final(),
+    ]);
+  } catch {
+    throw Object.assign(
+      new Error("Wallet password is incorrect or encrypted material is damaged"),
+      { status: 503, code: "WALLET_UNLOCK_FAILED" },
+    );
+  } finally {
     key.fill(0);
   }
 }
@@ -1127,6 +1168,120 @@ async function listGroupWallets(supabase, userId, groupId) {
   };
 }
 
+function requestHeader(request, name) {
+  const target = String(name).toLowerCase();
+  const entries = Object.entries(request.headers || {});
+  return entries.find(([key]) => key.toLowerCase() === target)?.[1];
+}
+
+async function exportWalletGroup(supabase, userId, groupId, request, body) {
+  if (body?.confirmExport !== true) {
+    throw Object.assign(new Error("Explicit private-key export confirmation is required"), {
+      status: 400,
+      code: "EXPORT_CONFIRMATION_REQUIRED",
+    });
+  }
+  const reason = String(body?.reason || "").trim();
+  if (!reason) {
+    throw Object.assign(new Error("An export reason is required"), {
+      status: 400,
+      code: "EXPORT_REASON_REQUIRED",
+    });
+  }
+  const reauthenticatedAt = Date.parse(
+    String(requestHeader(request, "x-reauthenticated-at") || ""),
+  );
+  const reauthAge = Date.now() - reauthenticatedAt;
+  if (
+    !Number.isFinite(reauthenticatedAt) ||
+    reauthAge < -5_000 ||
+    reauthAge > 5 * 60_000
+  ) {
+    throw Object.assign(
+      new Error("Wallet export requires recent reauthentication"),
+      { status: 401, code: "RECENT_REAUTHENTICATION_REQUIRED" },
+    );
+  }
+  if (String(requestHeader(request, "x-mfa-verified") || "").toLowerCase() !== "true") {
+    throw Object.assign(new Error("Wallet export requires a verified MFA challenge"), {
+      status: 403,
+      code: "MFA_REQUIRED",
+    });
+  }
+
+  const password = walletVaultPassword();
+  const group = await ownedGroup(supabase, userId, groupId);
+  const wallets = await requireAssetsResult(
+    supabase
+      .from("asset_wallets")
+      .select("wallet_id,wallet_index,public_address,provisioning_status")
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .order("wallet_index", { ascending: true }),
+    "Unable to read wallets for export",
+  );
+  if (!wallets.length) {
+    throw Object.assign(new Error("Wallet group has no wallets to export"), {
+      status: 409,
+      code: "WALLET_GROUP_EMPTY",
+    });
+  }
+
+  const blocks = [];
+  for (const wallet of wallets) {
+    if (wallet.provisioning_status !== "active" || !wallet.public_address) {
+      throw Object.assign(new Error(`Wallet ${wallet.wallet_index} is not ready for export`), {
+        status: 409,
+        code: "WALLET_NOT_READY",
+      });
+    }
+    const secret = await requireAssetsResult(
+      supabase
+        .from("asset_wallet_secrets")
+        .select("encrypted_envelope")
+        .eq("wallet_id", wallet.wallet_id)
+        .eq("user_id", userId)
+        .maybeSingle(),
+      "Unable to read the encrypted wallet",
+    );
+    if (!secret?.encrypted_envelope) {
+      throw Object.assign(new Error(`Encrypted material is missing for Wallet ${wallet.wallet_index}`), {
+        status: 503,
+        code: "WALLET_SECRET_NOT_FOUND",
+      });
+    }
+    const plaintext = await openAssetWalletSecret(secret.encrypted_envelope, password);
+    try {
+      const privateKey = group.network === "solana"
+        ? bs58.encode(Buffer.from(plaintext.toString("utf8"), "base64"))
+        : plaintext.toString("utf8");
+      blocks.push([
+        `Wallet ${wallet.wallet_index}`,
+        `${group.network === "solana" ? "Solana" : "EVM"} address: ${wallet.public_address}`,
+        `${group.network === "solana" ? "Solana private key (base58)" : "EVM private key"}: ${privateKey}`,
+      ].join("\n"));
+    } finally {
+      plaintext.fill(0);
+    }
+  }
+
+  const safeName = String(group.name || "wallet-group").replace(/[\\/:*?"<>|]/g, "_");
+  return {
+    fileName: `${safeName}-${group.network}-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
+    content: [
+      "NarraOps private-key export",
+      `Group: ${group.name}`,
+      `Network: ${group.network}`,
+      "WARNING: Anyone with these private keys can control the wallets.",
+      "",
+      blocks.join("\n\n"),
+      "",
+    ].join("\n"),
+    walletCount: wallets.length,
+    keyFormat: group.network === "solana" ? "base58-secret-key" : "hex-private-key",
+  };
+}
+
 async function addGroupWallets(supabase, userId, groupId, body) {
   const count = validateWalletCount(body);
   const group = await ownedGroup(supabase, userId, groupId);
@@ -1339,6 +1494,24 @@ export async function handleAssetsRoute({
   );
   if (groupMatch && request.method === "DELETE") {
     sendJson(response, 200, await removeWalletGroup(supabase, userId, groupMatch[1]));
+    return true;
+  }
+  const exportMatch = path.match(
+    /^\/api\/v1\/wallet-groups\/([0-9a-f-]{36})\/exports$/i,
+  );
+  if (exportMatch && request.method === "POST") {
+    sendJson(
+      response,
+      200,
+      await exportWalletGroup(
+        supabase,
+        userId,
+        exportMatch[1],
+        request,
+        await readBody(request),
+      ),
+      { "cache-control": "private, no-store" },
+    );
     return true;
   }
   const singleWalletMatch = path.match(
@@ -2098,6 +2271,7 @@ export default async function handler(request, response) {
       path === "/api/v1/account/login-wallet-assets" ||
       /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}\/wallets$/i.test(path) ||
       /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}$/i.test(path) ||
+      /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}\/exports$/i.test(path) ||
       /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}\/wallets\/[0-9a-f-]{36}$/i.test(path) ||
       /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}\/wallets\/[0-9a-f-]{36}\/bind$/i.test(path)
     ) {
