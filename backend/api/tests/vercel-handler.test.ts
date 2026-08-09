@@ -420,6 +420,11 @@ function mutableAssetsSupabase({
               tables.asset_wallet_secrets = tables.asset_wallet_secrets.filter(
                 ({ wallet_id }) => !walletIds.has(wallet_id),
               );
+            } else if (table === "asset_wallets") {
+              const walletIds = new Set(removed.map(({ wallet_id }) => wallet_id));
+              tables.asset_wallet_secrets = tables.asset_wallet_secrets.filter(
+                ({ wallet_id }) => !walletIds.has(wallet_id),
+              );
             }
           } else {
             data = tables[table].filter(matches);
@@ -649,6 +654,116 @@ test("Vercel Assets removes wallet groups, wallets, and secrets after provisioni
     if (previousPassword === undefined) delete process.env.WALLET_VAULT_PASSWORD;
     else process.env.WALLET_VAULT_PASSWORD = previousPassword;
   }
+});
+
+test("Vercel Assets wallet deletion removes an empty group and cascades secrets", async () => {
+  const userId = "11111111-1111-4111-8111-111111111111";
+  const groupId = "30000000-0000-4000-8000-000000000001";
+  const walletA = "40000000-0000-4000-8000-000000000001";
+  const walletB = "40000000-0000-4000-8000-000000000002";
+  const supabase = mutableAssetsSupabase();
+  supabase.tables.asset_wallet_groups.push({
+    group_id: groupId,
+    user_id: userId,
+    name: "Managed Wallets",
+    purpose: "general",
+    network: "solana",
+  });
+  for (const [walletId, walletIndex] of [[walletA, 1], [walletB, 2]]) {
+    supabase.tables.asset_wallets.push({
+      wallet_id: walletId,
+      group_id: groupId,
+      user_id: userId,
+      wallet_index: walletIndex,
+      public_address: null,
+      provisioning_status: "planned",
+    });
+    supabase.tables.asset_wallet_secrets.push({
+      wallet_id: walletId,
+      user_id: userId,
+      encrypted_envelope: {},
+    });
+  }
+
+  const firstRecorder = responseRecorder();
+  await handleAssetsRoute({
+    supabase,
+    request: {
+      method: "DELETE",
+      url: `/api/v1/wallet-groups/${groupId}/wallets/${walletA}`,
+      headers: {},
+    },
+    response: firstRecorder.response,
+    session: { user: { userId, identities: [] } },
+  });
+  assert.equal(firstRecorder.result().status, 200);
+  assert.equal(firstRecorder.result().body.groupDeleted, false);
+  assert.equal(supabase.tables.asset_wallet_groups.length, 1);
+  assert.equal(supabase.tables.asset_wallets.length, 1);
+  assert.equal(supabase.tables.asset_wallet_secrets.length, 1);
+
+  const lastRecorder = responseRecorder();
+  await handleAssetsRoute({
+    supabase,
+    request: {
+      method: "DELETE",
+      url: `/api/v1/wallet-groups/${groupId}/wallets/${walletB}`,
+      headers: {},
+    },
+    response: lastRecorder.response,
+    session: { user: { userId, identities: [] } },
+  });
+  assert.equal(lastRecorder.result().status, 200);
+  assert.equal(lastRecorder.result().body.groupDeleted, true);
+  assert.equal(supabase.tables.asset_wallet_groups.length, 0);
+  assert.equal(supabase.tables.asset_wallets.length, 0);
+  assert.equal(supabase.tables.asset_wallet_secrets.length, 0);
+});
+
+test("Vercel Assets delete-all removes the group, wallets, and secrets", async () => {
+  const userId = "11111111-1111-4111-8111-111111111111";
+  const groupId = "30000000-0000-4000-8000-000000000003";
+  const supabase = mutableAssetsSupabase();
+  supabase.tables.asset_wallet_groups.push({
+    group_id: groupId,
+    user_id: userId,
+    name: "Delete All",
+    purpose: "general",
+    network: "solana",
+  });
+  for (const walletIndex of [1, 2, 3]) {
+    const walletId = `40000000-0000-4000-8000-${String(walletIndex + 10).padStart(12, "0")}`;
+    supabase.tables.asset_wallets.push({
+      wallet_id: walletId,
+      group_id: groupId,
+      user_id: userId,
+      wallet_index: walletIndex,
+      public_address: null,
+      provisioning_status: "planned",
+    });
+    supabase.tables.asset_wallet_secrets.push({
+      wallet_id: walletId,
+      user_id: userId,
+      encrypted_envelope: {},
+    });
+  }
+
+  const recorder = responseRecorder();
+  await handleAssetsRoute({
+    supabase,
+    request: {
+      method: "DELETE",
+      url: `/api/v1/wallet-groups/${groupId}`,
+      headers: {},
+    },
+    response: recorder.response,
+    session: { user: { userId, identities: [] } },
+  });
+  assert.equal(recorder.result().status, 200);
+  assert.equal(recorder.result().body.deletedWalletCount, 3);
+  assert.equal(supabase.tables.asset_wallet_groups.length, 0);
+  assert.equal(supabase.tables.asset_wallets.length, 0);
+  assert.equal(supabase.tables.asset_wallet_secrets.length, 0);
 });
 
 test("Vercel auth endpoints fail closed without server credentials", async () => {

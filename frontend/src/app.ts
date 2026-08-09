@@ -1478,13 +1478,11 @@ function renderAssets() {
   const network = state.assets.networkFilter === "bsc" ? "bsc" : "solana";
   const unit = network === "solana" ? "SOL" : "BNB";
   const total = sumAssetBalance(unit);
-  const selectedGroup = state.assets.groups.find((group) => group.groupId === state.assets.selectedGroupId);
   const visibleGroups = state.assets.groups.filter((group) => network === "solana" ? group.network === "solana" : group.network === "evm");
   const groupRows = visibleGroups.map((group) => {
     const pending = group.pendingCreation === true;
-    return `<tr class="${group.groupId === state.assets.selectedGroupId ? "selected-row" : ""}"><td><button class="group-name-button" type="button" data-wallet-group="${group.groupId}" ${pending ? "disabled" : ""}><i class="fa-solid ${pending ? "fa-spinner fa-spin" : group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i><span><strong>${escapeHtml(group.name)}</strong><small>${pending ? t("正在安全生成钱包…", "Securely generating wallets…") : group.purpose === "cooking" ? "Cooking" : t("捆绑钱包组", "Bundled")}</small></span></button></td><td><span class="network-badge">${network === "solana" ? "SOL" : "EVM"}</span></td><td>${pending ? `0 / ${group.walletCount}` : group.walletCount}</td><td>${pending ? "—" : `${escapeHtml(group.balances?.[unit] || "—")} ${group.balances?.[unit] ? unit : ""}`}</td><td>${pending ? `<span>${t("创建中", "Creating")}</span>` : `<button class="table-action" type="button" data-wallet-group="${group.groupId}">${t("管理", "Manage")}</button>`}</td></tr>`;
+    return `<tr><td><div class="group-name-button"><i class="fa-solid ${pending ? "fa-spinner fa-spin" : group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i><span><strong>${escapeHtml(group.name)}</strong><small>${pending ? t("正在安全生成钱包…", "Securely generating wallets…") : group.purpose === "cooking" ? "Cooking" : t("捆绑钱包组", "Bundled")}</small></span></div></td><td><span class="network-badge">${network === "solana" ? "SOL" : "EVM"}</span></td><td>${pending ? `0 / ${group.walletCount}` : group.walletCount}</td><td>${pending ? "—" : `${escapeHtml(group.balances?.[unit] || "—")} ${group.balances?.[unit] ? unit : ""}`}</td><td>${pending ? `<span>${t("创建中", "Creating")}</span>` : `<button class="table-action" type="button" data-manage-wallet-group="${group.groupId}">${t("管理", "Manage")}</button>`}</td></tr>`;
   }).join("");
-  const walletRows = state.assets.wallets.map((wallet) => { const address = walletAddressForGroup(wallet, selectedGroup); const balance = Object.values(wallet.balances || {}).find((item) => item.asset === unit); return `<tr><td><strong>${escapeHtml(wallet.label)}</strong></td><td><code>${escapeHtml(shortAddress(address || "—"))}</code></td><td>${escapeHtml(balance?.amount || "—")} ${balance?.amount ? unit : ""}</td></tr>`; }).join("");
   const nativeImage = nativeAssetImages[unit];
   const assetRows = total > 0 ? `<tr><td><span class="compact-token">${nativeImage ? `<img src="${nativeImage}" alt="${unit}" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" />` : ""}<strong>${unit}</strong></span></td><td>${total.toLocaleString(undefined,{maximumFractionDigits:9})}</td><td>≈ ${total.toLocaleString(undefined,{maximumFractionDigits:9})} ${unit}</td><td><span class="asset-share-bar"><i style="width:100%"></i></span>100%</td></tr>` : "";
   viewRoot.innerHTML = `<div class="compact-assets-page assets-v3">
@@ -1493,7 +1491,7 @@ function renderAssets() {
     <button class="secondary-button assets-refresh-button" type="button" data-action="refresh-assets"><i class="fa-solid fa-arrows-rotate"></i>${t("刷新", "Refresh")}</button>
   </div>
   <div class="asset-toolbar"><select class="compact-select" id="assetNetworkFilter"><option value="solana" ${network === "solana" ? "selected" : ""}>Solana</option><option value="bsc" ${network === "bsc" ? "selected" : ""}>BSC</option></select><span class="balance-chip">${t("总余额", "Total balance")}: <strong>${total.toLocaleString(undefined,{maximumFractionDigits:9})} ${unit}</strong></span>${state.assets.section === "portfolio" ? `<span class="balance-chip">${t("代币数", "Tokens")}: <strong>${total > 0 ? 1 : 0}</strong></span>` : ""}<div class="toolbar-spacer"></div>${state.assets.section === "groups" ? `<button class="compact-button" type="button" data-action="open-export"><i class="fa-solid fa-file-export"></i>${t("导出", "Export")}</button><button class="compact-button" type="button" data-action="open-transfer"><i class="fa-solid fa-arrow-right-arrow-left"></i>${t("转账", "Transfer")}</button><button class="primary-button compact" type="button" data-action="open-create-group"><i class="fa-solid fa-plus"></i>${t("新建钱包组", "New group")}</button>` : ""}</div>
-  ${state.assets.section === "pnl" ? renderPnlAnalysis(network, unit) : state.assets.section === "portfolio" ? `<section class="compact-data-panel portfolio-only-assets"><div class="compact-panel-tabs"><button class="active">${t("币种", "Assets")}</button><button>${t("交易历史", "History")}</button><span>${t("当前仅包含已验证的链上资产", "Verified on-chain assets only")}</span></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("资产", "Asset")}</th><th>${t("余额", "Balance")}</th><th>${t("折合", "Value")}</th><th>${t("资产占比", "Allocation")}</th></tr></thead><tbody>${assetRows || `<tr><td colspan="4" class="empty-state">${t(`暂无 ${unit} 网络资产`, `No ${unit} assets`)}</td></tr>`}</tbody></table></div></section>` : `<section class="compact-data-panel"><div class="compact-panel-tabs"><strong>${t("钱包组", "Wallet groups")} (${visibleGroups.length})</strong><span>${network === "solana" ? "Solana" : "EVM / BSC"}</span></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("名称", "Name")}</th><th>${t("网络", "Network")}</th><th>${t("钱包数", "Wallets")}</th><th>${t("余额", "Balance")}</th><th>${t("操作", "Action")}</th></tr></thead><tbody>${groupRows || `<tr><td colspan="5" class="empty-state">${t("暂无该网络的钱包组", "No wallet groups on this network")}</td></tr>`}</tbody></table></div>${selectedGroup && visibleGroups.some((group) => group.groupId === selectedGroup.groupId) ? `<div class="compact-group-detail"><div class="detail-heading"><div><span>${unit} · ${selectedGroup.purpose === "cooking" ? "Cooking" : t("捆绑钱包组", "Bundled")}</span><h2>${escapeHtml(selectedGroup.name)}</h2></div><div><button class="compact-button" type="button" data-action="open-deposit-addresses">${t("充值", "Deposit")}</button><button class="compact-button" type="button" data-action="open-transfer">${t("资金分配", "Distribute")}</button>${selectedGroup.purpose !== "cooking" ? `<button class="compact-button" type="button" data-action="open-add-wallet">${t("添加钱包", "Add wallet")}</button>` : ""}</div></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("钱包", "Wallet")}</th><th>${t("地址", "Address")}</th><th>${t("链上余额", "On-chain balance")}</th></tr></thead><tbody>${walletRows}</tbody></table></div></div>` : ""}</section>`}</div>`;
+  ${state.assets.section === "pnl" ? renderPnlAnalysis(network, unit) : state.assets.section === "portfolio" ? `<section class="compact-data-panel portfolio-only-assets"><div class="compact-panel-tabs"><button class="active">${t("币种", "Assets")}</button><button>${t("交易历史", "History")}</button><span>${t("当前仅包含已验证的链上资产", "Verified on-chain assets only")}</span></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("资产", "Asset")}</th><th>${t("余额", "Balance")}</th><th>${t("折合", "Value")}</th><th>${t("资产占比", "Allocation")}</th></tr></thead><tbody>${assetRows || `<tr><td colspan="4" class="empty-state">${t(`暂无 ${unit} 网络资产`, `No ${unit} assets`)}</td></tr>`}</tbody></table></div></section>` : `<section class="compact-data-panel"><div class="compact-panel-tabs"><strong>${t("钱包组", "Wallet groups")} (${visibleGroups.length})</strong><span>${network === "solana" ? "Solana" : "EVM / BSC"}</span></div><div class="compact-table-wrap"><table class="compact-asset-table"><thead><tr><th>${t("名称", "Name")}</th><th>${t("网络", "Network")}</th><th>${t("钱包数", "Wallets")}</th><th>${t("余额", "Balance")}</th><th>${t("操作", "Action")}</th></tr></thead><tbody>${groupRows || `<tr><td colspan="5" class="empty-state">${t("暂无该网络的钱包组", "No wallet groups on this network")}</td></tr>`}</tbody></table></div></section>`}</div>`;
 }
 
 function renderCurrentView() {
@@ -2219,6 +2217,60 @@ function openExportDialog() {
   openModal({ kicker: t("私钥导出", "Private-key export"), title: t("导出钱包组", "Export wallet group"), content: `<form class="form-stack" id="walletExportForm"><label class="field-label">${t("选择钱包组", "Wallet group")}<select class="field-select" name="groupId">${groups.map((group) => `<option value="${group.groupId}">${escapeHtml(group.name)} · ${group.walletCount}</option>`).join("")}</select></label><div class="export-danger"><i class="fa-solid fa-triangle-exclamation"></i><span>${t("文件包含可直接控制资产的私钥。下载后请离线保存，NarraOps 无法撤销已导出的密钥。", "This file contains keys that directly control funds. Store it offline; exported keys cannot be revoked by NarraOps.")}</span></div><label class="field-label">${t("输入“确认导出私钥”", "Type EXPORT PRIVATE KEYS")}<input class="field-input" name="confirmation" autocomplete="off" required /></label><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="danger-button" type="submit"><i class="fa-solid fa-file-arrow-down"></i>${t("导出文本文件", "Export text file")}</button></div></form>` });
 }
 
+function walletManagerMarkup(group, wallets) {
+  const canAdd = group.purpose !== "cooking";
+  const rows = wallets.map((wallet) => `
+    <div class="wallet-manager-row">
+      <span><strong>${escapeHtml(wallet.label)}</strong><code>${escapeHtml(shortAddress(wallet.publicAddress || wallet.addresses?.solana || wallet.addresses?.evm || "—"))}</code></span>
+      <button class="danger-button wallet-manager-delete" type="button" data-delete-wallet="${wallet.walletId}" data-delete-wallet-group="${group.groupId}">
+        <i class="fa-solid fa-trash"></i>${t("删除", "Delete")}
+      </button>
+    </div>
+  `).join("");
+  return `
+    <div class="wallet-manager" data-managed-group="${group.groupId}">
+      ${canAdd ? `
+        <form class="wallet-manager-add" id="walletGroupManagerAddForm" data-group-id="${group.groupId}">
+          <label class="field-label">${t("添加钱包数量", "Wallets to add")}
+            <input class="field-input" name="count" type="number" min="1" max="${Math.max(1, 200 - wallets.length)}" value="1" required />
+          </label>
+          <button class="primary-button" type="submit"><i class="fa-solid fa-plus"></i>${t("添加钱包", "Add wallets")}</button>
+        </form>
+      ` : `<p>${t("Cooking 钱包组固定包含一个钱包。", "A Cooking wallet group contains exactly one wallet.")}</p>`}
+      <div class="wallet-manager-list">${rows || `<div class="empty-state">${t("该组没有钱包", "This group has no wallets")}</div>`}</div>
+      <div class="wallet-manager-footer">
+        <span>${wallets.length} ${t("个钱包", "wallets")}</span>
+        <button class="danger-button" type="button" data-delete-wallet-group-all="${group.groupId}">
+          <i class="fa-solid fa-trash-can"></i>${t("全部删除", "Delete all")}
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+async function openWalletGroupManager(groupId) {
+  const group = state.assets.groups.find((item) => item.groupId === groupId);
+  if (!group || group.pendingCreation) return;
+  state.assets.selectedGroupId = groupId;
+  openModal({
+    kicker: t("钱包组管理", "Wallet-group management"),
+    title: group.name,
+    content: `<div class="wallet-manager-loading"><i class="fa-solid fa-spinner fa-spin"></i>${t("正在读取钱包…", "Loading wallets…")}</div>`,
+  });
+  try {
+    const detail = await apiRequest(`/api/v1/wallet-groups/${groupId}/wallets`);
+    state.assets.wallets = detail.wallets || [];
+    openModal({
+      kicker: t("钱包组管理", "Wallet-group management"),
+      title: group.name,
+      content: walletManagerMarkup(group, state.assets.wallets),
+    });
+  } catch (error) {
+    closeModal();
+    showToast(error instanceof Error ? error.message : String(error));
+  }
+}
+
 function openAddWallets() {
   if (!state.assets.selectedGroupId) return;
   openModal({
@@ -2896,10 +2948,9 @@ viewRoot.addEventListener("click", async (event) => {
     return;
   }
 
-  const walletGroup = event.target.closest("[data-wallet-group]")?.dataset.walletGroup;
-  if (walletGroup) {
-    state.assets.selectedGroupId = walletGroup;
-    await loadAssets();
+  const managedWalletGroup = event.target.closest("[data-manage-wallet-group]")?.dataset.manageWalletGroup;
+  if (managedWalletGroup) {
+    await openWalletGroupManager(managedWalletGroup);
     return;
   }
 
@@ -3071,6 +3122,28 @@ viewRoot.addEventListener("reset", (event) => {
 });
 
 modal.addEventListener("submit", async (event) => {
+  if (event.target.id === "walletGroupManagerAddForm") {
+    event.preventDefault();
+    const groupId = event.target.dataset.groupId;
+    const submitButton = event.submitter;
+    if (!groupId || submitButton?.disabled) return;
+    if (submitButton) submitButton.disabled = true;
+    try {
+      const form = new FormData(event.target);
+      await apiRequest(`/api/v1/wallet-groups/${groupId}/wallets`, {
+        method: "POST",
+        timeoutMs: 45_000,
+        body: JSON.stringify({ count: Number(form.get("count")) }),
+      });
+      await loadAssets({ keepGroup: true, reloadAfterCurrent: true });
+      await openWalletGroupManager(groupId);
+      showToast(t("钱包已添加", "Wallets added"));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error));
+      if (submitButton) submitButton.disabled = false;
+    }
+    return;
+  }
   if (event.target.id === "accountWithdrawForm") {
     event.preventDefault();
     const form = new FormData(event.target);
@@ -3326,6 +3399,60 @@ viewRoot.addEventListener("change", (event) => {
 });
 
 modal.addEventListener("click", async (event) => {
+  const deleteWalletButton = event.target.closest("[data-delete-wallet]");
+  if (deleteWalletButton) {
+    const walletId = deleteWalletButton.dataset.deleteWallet;
+    const groupId = deleteWalletButton.dataset.deleteWalletGroup;
+    const deletesGroup = state.assets.wallets.length === 1;
+    const confirmed = window.confirm(deletesGroup
+      ? t("这是该组最后一个钱包。删除后钱包组也会被删除，是否继续？", "This is the last wallet. Deleting it will also remove the wallet group. Continue?")
+      : t("确定删除这个钱包吗？此操作会删除其加密私钥。", "Delete this wallet? Its encrypted private key will also be removed."));
+    if (!confirmed) return;
+    deleteWalletButton.disabled = true;
+    try {
+      const result = await apiRequest(`/api/v1/wallet-groups/${groupId}/wallets/${walletId}`, {
+        method: "DELETE",
+        timeoutMs: 30_000,
+      });
+      await loadAssets({ keepGroup: !result.groupDeleted, reloadAfterCurrent: true });
+      if (result.groupDeleted) {
+        closeModal();
+        showToast(t("钱包和空钱包组已删除", "Wallet and empty group deleted"));
+      } else {
+        await openWalletGroupManager(groupId);
+        showToast(t("钱包已删除", "Wallet deleted"));
+      }
+    } catch (error) {
+      deleteWalletButton.disabled = false;
+      showToast(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  const deleteAllButton = event.target.closest("[data-delete-wallet-group-all]");
+  if (deleteAllButton) {
+    const groupId = deleteAllButton.dataset.deleteWalletGroupAll;
+    const confirmed = window.confirm(t(
+      "确定删除该组的全部钱包和钱包组吗？此操作会删除所有加密私钥，且无法撤销。",
+      "Delete every wallet and this wallet group? All encrypted private keys will be removed and this cannot be undone.",
+    ));
+    if (!confirmed) return;
+    deleteAllButton.disabled = true;
+    try {
+      await apiRequest(`/api/v1/wallet-groups/${groupId}`, {
+        method: "DELETE",
+        timeoutMs: 45_000,
+      });
+      closeModal();
+      await loadAssets({ keepGroup: false, reloadAfterCurrent: true });
+      showToast(t("钱包组已全部删除", "Wallet group deleted"));
+    } catch (error) {
+      deleteAllButton.disabled = false;
+      showToast(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
   const accountAction = event.target.closest("[data-account-action]")?.dataset.accountAction;
   if (accountAction) {
     openAccountAssets(accountAction);

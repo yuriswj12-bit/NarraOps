@@ -1035,7 +1035,12 @@ async function listWalletGroups(supabase, userId) {
   );
 }
 
-async function removeFailedWalletGroup(supabase, userId, groupId) {
+async function removeFailedWalletGroup(
+  supabase,
+  userId,
+  groupId,
+  failureMessage = "Wallet group creation failed and rollback could not be confirmed",
+) {
   const { error } = await supabase
     .from("asset_wallet_groups")
     .delete()
@@ -1043,7 +1048,7 @@ async function removeFailedWalletGroup(supabase, userId, groupId) {
     .eq("user_id", userId);
   if (error) {
     throw Object.assign(
-      new Error("Wallet group creation failed and rollback could not be confirmed"),
+      new Error(failureMessage),
       {
         status: 503,
         code: "WALLET_GROUP_ROLLBACK_FAILED",
@@ -1168,6 +1173,126 @@ async function addGroupWallets(supabase, userId, groupId, body) {
   return listGroupWallets(supabase, userId, groupId);
 }
 
+async function requireEmptyWalletBeforeDelete(group, wallet) {
+  if (!wallet?.public_address || wallet.provisioning_status !== "active") return;
+  try {
+    let atomicBalance = 0n;
+    if (group.network === "solana") {
+      const web3 = await solanaWeb3();
+      const Connection = web3.Connection || web3.default?.Connection;
+      const PublicKey = web3.PublicKey || web3.default?.PublicKey;
+      if (!Connection || !PublicKey) throw new Error("Solana balance module is unavailable");
+      const connection = new Connection(
+        process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
+        "confirmed",
+      );
+      atomicBalance = BigInt(await connection.getBalance(new PublicKey(wallet.public_address), "confirmed"));
+    } else {
+      const rpcUrl = process.env.BSC_RPC_URL || "https://bsc-dataseed.binance.org";
+      const rpcResponse = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "eth_getBalance",
+          params: [wallet.public_address, "latest"],
+        }),
+      });
+      const payload = await rpcResponse.json();
+      if (!rpcResponse.ok || payload.error || typeof payload.result !== "string") {
+        throw new Error(payload.error?.message || "BSC RPC balance lookup failed");
+      }
+      atomicBalance = BigInt(payload.result);
+    }
+    if (atomicBalance > 0n) {
+      throw Object.assign(
+        new Error("Transfer the wallet's native balance out before deleting it"),
+        { status: 409, code: "WALLET_HAS_BALANCE" },
+      );
+    }
+  } catch (error) {
+    if (error?.code === "WALLET_HAS_BALANCE") throw error;
+    throw Object.assign(
+      new Error("Wallet balance could not be verified; deletion was blocked"),
+      { status: 503, code: "WALLET_BALANCE_CHECK_FAILED", cause: error },
+    );
+  }
+}
+
+async function removeWalletGroup(supabase, userId, groupId) {
+  const group = await ownedGroup(supabase, userId, groupId);
+  const wallets = await requireAssetsResult(
+    supabase
+      .from("asset_wallets")
+      .select("wallet_id,group_id,user_id,public_address,provisioning_status")
+      .eq("group_id", groupId)
+      .eq("user_id", userId),
+    "Unable to read wallets before deleting the group",
+  );
+  for (const wallet of wallets || []) {
+    await requireEmptyWalletBeforeDelete(group, wallet);
+  }
+  await removeFailedWalletGroup(
+    supabase,
+    userId,
+    groupId,
+    "Wallet group could not be deleted",
+  );
+  return { groupId, deletedWalletCount: wallets.length, groupDeleted: true };
+}
+
+async function removeGroupWallet(supabase, userId, groupId, walletId) {
+  const group = await ownedGroup(supabase, userId, groupId);
+  const wallet = await requireAssetsResult(
+    supabase
+      .from("asset_wallets")
+      .select("wallet_id,group_id,user_id,public_address,provisioning_status")
+      .eq("wallet_id", walletId)
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .maybeSingle(),
+    "Unable to read the wallet before deleting it",
+  );
+  if (!wallet) {
+    throw Object.assign(new Error("Wallet was not found"), {
+      status: 404,
+      code: "WALLET_NOT_FOUND",
+    });
+  }
+  await requireEmptyWalletBeforeDelete(group, wallet);
+  const { error } = await supabase
+    .from("asset_wallets")
+    .delete()
+    .eq("wallet_id", walletId)
+    .eq("group_id", groupId)
+    .eq("user_id", userId);
+  if (error) assetsError(error, "Unable to delete the wallet");
+
+  const remaining = await requireAssetsResult(
+    supabase
+      .from("asset_wallets")
+      .select("wallet_id")
+      .eq("group_id", groupId)
+      .eq("user_id", userId),
+    "Unable to verify the remaining wallets",
+  );
+  if (!remaining.length) {
+    await removeFailedWalletGroup(
+      supabase,
+      userId,
+      groupId,
+      "Empty wallet group cleanup could not be confirmed",
+    );
+  }
+  return {
+    walletId,
+    groupId,
+    groupDeleted: remaining.length === 0,
+    remainingWalletCount: remaining.length,
+  };
+}
+
 async function provisionGroupWallets(supabase, userId, groupId) {
   const group = await ownedGroup(supabase, userId, groupId);
   const wallets = await requireAssetsResult(
@@ -1207,6 +1332,24 @@ export async function handleAssetsRoute({
       await readBody(request),
     );
     sendJson(response, 201, group);
+    return true;
+  }
+  const groupMatch = path.match(
+    /^\/api\/v1\/wallet-groups\/([0-9a-f-]{36})$/i,
+  );
+  if (groupMatch && request.method === "DELETE") {
+    sendJson(response, 200, await removeWalletGroup(supabase, userId, groupMatch[1]));
+    return true;
+  }
+  const singleWalletMatch = path.match(
+    /^\/api\/v1\/wallet-groups\/([0-9a-f-]{36})\/wallets\/([0-9a-f-]{36})$/i,
+  );
+  if (singleWalletMatch && request.method === "DELETE") {
+    sendJson(
+      response,
+      200,
+      await removeGroupWallet(supabase, userId, singleWalletMatch[1], singleWalletMatch[2]),
+    );
     return true;
   }
   const groupWalletsMatch = path.match(
@@ -1954,6 +2097,8 @@ export default async function handler(request, response) {
       path === "/api/v1/account/portfolio" ||
       path === "/api/v1/account/login-wallet-assets" ||
       /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}\/wallets$/i.test(path) ||
+      /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}$/i.test(path) ||
+      /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}\/wallets\/[0-9a-f-]{36}$/i.test(path) ||
       /^\/api\/v1\/wallet-groups\/[0-9a-f-]{36}\/wallets\/[0-9a-f-]{36}\/bind$/i.test(path)
     ) {
       const session = await loadSession(supabase, request);
