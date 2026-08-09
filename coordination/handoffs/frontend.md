@@ -2,6 +2,19 @@
 
 > Current rule (2026-07-22): the first-level product surfaces are Go, Pulse, and Assets. The Launch and Invite sections below are historical implementation records, not current navigation requirements.
 
+## 2026-08-09 immediate wallet deletion
+
+- Wallet and wallet-group deletion now updates the management modal, group
+  count, and Assets list before waiting for the API response.
+- The server-side deletion and zero-balance safety check remain authoritative.
+  A failed request restores the exact group and wallet snapshot in the modal.
+- Successful deletion no longer blocks on a full Assets reload or reopens the
+  manager through another wallet-list request. Reconciliation runs in the
+  background after the DELETE response.
+- Delete-all balance checks now run concurrently instead of serially.
+- Verification: frontend build/typecheck, JavaScript syntax check, optimistic
+  handler contract checks, and targeted Vercel wallet deletion tests pass.
+
 ## 2026-08-09 direct wallet deletion
 
 - Removed the browser-native confirmation dialogs from individual wallet

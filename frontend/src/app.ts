@@ -130,6 +130,7 @@ const state = {
     selectedGroupId: null,
     wallets: [],
     walletsByGroup: {},
+    pendingWalletDeletes: new Set(),
     loading: false,
     error: null,
     transferOpen: false,
@@ -2260,6 +2261,63 @@ function walletManagerMarkup(group, wallets, { loading = false, error = null } =
   `;
 }
 
+function applyOptimisticWalletDeletion(groupId, walletId = null) {
+  const group = state.assets.groups.find((item) => item.groupId === groupId);
+  if (!group) return null;
+  const previousWallets = [...(state.assets.walletsByGroup[groupId] || state.assets.wallets)];
+  const wallets = walletId
+    ? previousWallets.filter((wallet) => wallet.walletId !== walletId)
+    : [];
+  const snapshot = {
+    group,
+    groups: state.assets.groups,
+    selectedGroupId: state.assets.selectedGroupId,
+    wallets: previousWallets,
+  };
+
+  if (!wallets.length) {
+    state.assets.groups = state.assets.groups.filter((item) => item.groupId !== groupId);
+    state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
+    state.assets.wallets = [];
+    delete state.assets.walletsByGroup[groupId];
+    closeModal();
+  } else {
+    const deletedWallet = previousWallets.find((wallet) => wallet.walletId === walletId);
+    const deletedActiveWallet = deletedWallet?.provisioningStatus === "active" && Boolean(deletedWallet.publicAddress);
+    const nextGroup = {
+      ...group,
+      walletCount: wallets.length,
+      activeWalletCount: Math.max(
+        0,
+        Math.min(
+          Number(group.activeWalletCount || wallets.length) - (deletedActiveWallet ? 1 : 0),
+          wallets.length,
+        ),
+      ),
+    };
+    state.assets.groups = state.assets.groups.map((item) => item.groupId === groupId ? nextGroup : item);
+    state.assets.wallets = wallets;
+    state.assets.walletsByGroup[groupId] = wallets;
+    modalBody.innerHTML = walletManagerMarkup(nextGroup, wallets);
+  }
+  renderAssets();
+  return snapshot;
+}
+
+function rollbackOptimisticWalletDeletion(groupId, snapshot) {
+  if (!snapshot) return;
+  state.assets.groups = snapshot.groups;
+  state.assets.selectedGroupId = snapshot.selectedGroupId;
+  state.assets.wallets = snapshot.wallets;
+  state.assets.walletsByGroup[groupId] = snapshot.wallets;
+  renderAssets();
+  openModal({
+    kicker: t("钱包组管理", "Wallet-group management"),
+    title: snapshot.group.name,
+    content: walletManagerMarkup(snapshot.group, snapshot.wallets),
+  });
+}
+
 async function openWalletGroupManager(groupId) {
   const group = state.assets.groups.find((item) => item.groupId === groupId);
   if (!group || group.pendingCreation) return;
@@ -3432,24 +3490,35 @@ modal.addEventListener("click", async (event) => {
   if (deleteWalletButton) {
     const walletId = deleteWalletButton.dataset.deleteWallet;
     const groupId = deleteWalletButton.dataset.deleteWalletGroup;
-    deleteWalletButton.disabled = true;
+    const pendingKey = groupId;
+    if (state.assets.pendingWalletDeletes.has(pendingKey)) return;
+    state.assets.pendingWalletDeletes.add(pendingKey);
+    const snapshot = applyOptimisticWalletDeletion(groupId, walletId);
+    showToast(t("钱包已从列表移除，正在安全删除", "Wallet removed; secure deletion is finishing"));
     try {
       const result = await apiRequest(`/api/v1/wallet-groups/${groupId}/wallets/${walletId}`, {
         method: "DELETE",
         timeoutMs: 30_000,
       });
-      delete state.assets.walletsByGroup[groupId];
-      await loadAssets({ keepGroup: !result.groupDeleted, reloadAfterCurrent: true });
-      if (result.groupDeleted) {
+      if (result.groupDeleted && state.assets.groups.some((group) => group.groupId === groupId)) {
+        state.assets.groups = state.assets.groups.filter((group) => group.groupId !== groupId);
+        delete state.assets.walletsByGroup[groupId];
+        state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
         closeModal();
-        showToast(t("钱包和空钱包组已删除", "Wallet and empty group deleted"));
-      } else {
-        await openWalletGroupManager(groupId);
-        showToast(t("钱包已删除", "Wallet deleted"));
+        renderAssets();
       }
+      showToast(result.groupDeleted
+        ? t("钱包和空钱包组已删除", "Wallet and empty group deleted")
+        : t("钱包已删除", "Wallet deleted"));
+      window.setTimeout(() => void loadAssets({ keepGroup: !result.groupDeleted, reloadAfterCurrent: true }), 0);
     } catch (error) {
-      deleteWalletButton.disabled = false;
-      showToast(error instanceof Error ? error.message : String(error));
+      rollbackOptimisticWalletDeletion(groupId, snapshot);
+      showToast(t(
+        `删除失败，钱包已恢复：${error instanceof Error ? error.message : String(error)}`,
+        `Deletion failed; wallet restored: ${error instanceof Error ? error.message : String(error)}`,
+      ));
+    } finally {
+      state.assets.pendingWalletDeletes.delete(pendingKey);
     }
     return;
   }
@@ -3457,19 +3526,27 @@ modal.addEventListener("click", async (event) => {
   const deleteAllButton = event.target.closest("[data-delete-wallet-group-all]");
   if (deleteAllButton) {
     const groupId = deleteAllButton.dataset.deleteWalletGroupAll;
-    deleteAllButton.disabled = true;
+    const pendingKey = groupId;
+    if (state.assets.pendingWalletDeletes.has(pendingKey)) return;
+    state.assets.pendingWalletDeletes.add(pendingKey);
+    const snapshot = applyOptimisticWalletDeletion(groupId);
+    showToast(t("钱包组已从列表移除，正在安全删除", "Wallet group removed; secure deletion is finishing"));
     try {
       await apiRequest(`/api/v1/wallet-groups/${groupId}`, {
         method: "DELETE",
         timeoutMs: 45_000,
       });
       delete state.assets.walletsByGroup[groupId];
-      closeModal();
-      await loadAssets({ keepGroup: false, reloadAfterCurrent: true });
       showToast(t("钱包组已全部删除", "Wallet group deleted"));
+      window.setTimeout(() => void loadAssets({ keepGroup: false, reloadAfterCurrent: true }), 0);
     } catch (error) {
-      deleteAllButton.disabled = false;
-      showToast(error instanceof Error ? error.message : String(error));
+      rollbackOptimisticWalletDeletion(groupId, snapshot);
+      showToast(t(
+        `删除失败，钱包组已恢复：${error instanceof Error ? error.message : String(error)}`,
+        `Deletion failed; wallet group restored: ${error instanceof Error ? error.message : String(error)}`,
+      ));
+    } finally {
+      state.assets.pendingWalletDeletes.delete(pendingKey);
     }
     return;
   }

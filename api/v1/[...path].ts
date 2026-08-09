@@ -1385,9 +1385,9 @@ async function removeWalletGroup(supabase, userId, groupId) {
       .eq("user_id", userId),
     "Unable to read wallets before deleting the group",
   );
-  for (const wallet of wallets || []) {
-    await requireEmptyWalletBeforeDelete(group, wallet);
-  }
+  await Promise.all(
+    (wallets || []).map((wallet) => requireEmptyWalletBeforeDelete(group, wallet)),
+  );
   await removeFailedWalletGroup(
     supabase,
     userId,
