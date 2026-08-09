@@ -345,17 +345,24 @@ function assetsError(error, fallbackMessage) {
   const persistenceNotReady = ["42P01", "PGRST204", "PGRST205"].includes(
     error?.code,
   );
+  const detail = String(error?.message || error?.details || "").trim();
   throw Object.assign(
     new Error(
       persistenceNotReady
         ? "Assets persistence has not been migrated yet"
-        : fallbackMessage,
+        : detail
+          ? `${fallbackMessage}: ${detail}`
+          : fallbackMessage,
     ),
     {
       status: 503,
       code: persistenceNotReady
         ? "ASSETS_PERSISTENCE_NOT_READY"
-        : "ASSETS_PERSISTENCE_UNAVAILABLE",
+        : error?.code || "ASSETS_PERSISTENCE_UNAVAILABLE",
+      details: {
+        supabaseCode: error?.code || null,
+        supabaseMessage: error?.message || null,
+      },
     },
   );
 }

@@ -995,47 +995,75 @@ function shortAddress(value) {
   return address.length > 18 ? `${address.slice(0, 9)}…${address.slice(-6)}` : address;
 }
 
-async function loadAssets({ keepGroup = true } = {}) {
-  if (state.assets.loading) return;
-  state.assets.loading = true;
-  state.assets.error = null;
-  renderAssets();
-  try {
-    const [portfolio, groupsResult, loginWalletResult] = await Promise.all([
-      apiRequest(`/api/v1/account/portfolio?period=${state.assets.period}`),
-      apiRequest("/api/v1/wallet-groups"),
-      state.auth.session ? apiRequest("/api/v1/account/login-wallet-assets") : Promise.resolve({ wallets: [] }),
-    ]);
-    let groupsPayload = groupsResult;
-    const legacyGroups = (groupsResult.groups || []).filter(
-      (group) => Number(group.walletCount || 0) > Number(group.activeWalletCount || 0),
-    );
-    if (legacyGroups.length) {
-      await Promise.all(
-        legacyGroups.map((group) =>
-          apiRequest(`/api/v1/wallet-groups/${group.groupId}/provision`, {
-            method: "POST",
-            body: "{}",
-            timeoutMs: 20_000,
-          }),
-        ),
-      );
-      groupsPayload = await apiRequest("/api/v1/wallet-groups");
-    }
-    state.assets.portfolio = portfolio;
-    state.assets.mode = groupsPayload.mode || "live";
-    state.assets.groups = groupsPayload.groups || [];
-    state.assets.loginWallets = loginWalletResult.wallets || [];
-    if (!keepGroup || !state.assets.groups.some((group) => group.groupId === state.assets.selectedGroupId)) state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
-    if (state.assets.selectedGroupId) {
-      const detail = await apiRequest(`/api/v1/wallet-groups/${state.assets.selectedGroupId}/wallets`);
-      state.assets.wallets = detail.wallets || [];
-    } else state.assets.wallets = [];
-  } catch (error) {
-    state.assets.error = error.message;
-  } finally {
-    state.assets.loading = false;
+let assetsLoadPromise = null;
+
+async function loadAssets({ keepGroup = true, reloadAfterCurrent = false } = {}) {
+  if (assetsLoadPromise) {
+    await assetsLoadPromise;
+    if (!reloadAfterCurrent) return;
+  }
+
+  assetsLoadPromise = (async () => {
+    state.assets.loading = true;
+    state.assets.error = null;
     renderAssets();
+    try {
+      // Wallet groups are the source of truth for this screen. Portfolio and
+      // login-wallet balance failures must not discard a successful group list.
+      let groupsPayload = await apiRequest("/api/v1/wallet-groups");
+      const legacyGroups = (groupsPayload.groups || []).filter(
+        (group) => Number(group.walletCount || 0) > Number(group.activeWalletCount || 0),
+      );
+      if (legacyGroups.length) {
+        await Promise.allSettled(
+          legacyGroups.map((group) =>
+            apiRequest(`/api/v1/wallet-groups/${group.groupId}/provision`, {
+              method: "POST",
+              body: "{}",
+              timeoutMs: 20_000,
+            }),
+          ),
+        );
+        groupsPayload = await apiRequest("/api/v1/wallet-groups");
+      }
+
+      state.assets.mode = groupsPayload.mode || "live";
+      state.assets.groups = Array.isArray(groupsPayload.groups) ? groupsPayload.groups : [];
+      if (!keepGroup || !state.assets.groups.some((group) => group.groupId === state.assets.selectedGroupId)) {
+        state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
+      }
+
+      const [portfolioResult, loginWalletResult] = await Promise.allSettled([
+        apiRequest(`/api/v1/account/portfolio?period=${state.assets.period}`),
+        state.auth.session ? apiRequest("/api/v1/account/login-wallet-assets") : Promise.resolve({ wallets: [] }),
+      ]);
+      if (portfolioResult.status === "fulfilled") {
+        state.assets.portfolio = portfolioResult.value;
+      } else {
+        state.assets.error = portfolioResult.reason?.message || String(portfolioResult.reason);
+      }
+      state.assets.loginWallets = loginWalletResult.status === "fulfilled"
+        ? loginWalletResult.value.wallets || []
+        : [];
+
+      if (state.assets.selectedGroupId) {
+        const detail = await apiRequest(`/api/v1/wallet-groups/${state.assets.selectedGroupId}/wallets`);
+        state.assets.wallets = detail.wallets || [];
+      } else {
+        state.assets.wallets = [];
+      }
+    } catch (error) {
+      state.assets.error = error.message;
+    } finally {
+      state.assets.loading = false;
+      renderAssets();
+    }
+  })();
+
+  try {
+    await assetsLoadPromise;
+  } finally {
+    assetsLoadPromise = null;
   }
 }
 
@@ -3089,19 +3117,39 @@ modal.addEventListener("submit", async (event) => {
       showToast(t("私钥文件已导出", "Private-key file exported"));
     } catch (error) { showToast(error.message); }
     return;
-  }
-  if (event.target.id === "createWalletGroupForm") {
-    event.preventDefault();
-    const form = new FormData(event.target);
-    try {
-      const purpose = form.get("purpose");
-      const group = await apiRequest("/api/v1/wallet-groups", { method: "POST", body: JSON.stringify({ name: form.get("name"), network: form.get("network"), purpose, walletCount: purpose === "cooking" ? 1 : Number(form.get("walletCount")) }) });
-      state.assets.selectedGroupId = group.groupId;
-      closeModal();
-      await loadAssets();
+    }
+    if (event.target.id === "createWalletGroupForm") {
+      event.preventDefault();
+      if (event.target.dataset.submitting === "true") return;
+      event.target.dataset.submitting = "true";
+      const submitButton = event.target.querySelector('button[type="submit"]');
+      if (submitButton) submitButton.disabled = true;
+      const form = new FormData(event.target);
+      try {
+        const purpose = form.get("purpose");
+        const group = await apiRequest("/api/v1/wallet-groups", {
+          method: "POST",
+          timeoutMs: 45_000,
+          body: JSON.stringify({ name: form.get("name"), network: form.get("network"), purpose, walletCount: purpose === "cooking" ? 1 : Number(form.get("walletCount")) }),
+        });
+        const createdGroupId = group.groupId || group.group_id;
+        state.assets.selectedGroupId = createdGroupId;
+        closeModal();
+      await loadAssets({ keepGroup: true, reloadAfterCurrent: true });
+      if (!state.assets.groups.some((item) => item.groupId === createdGroupId)) {
+        throw new Error(t(
+          "钱包组已写入，但列表重新读取失败。请刷新页面，切勿重复创建。",
+          "The wallet group was saved but could not be reloaded. Refresh the page and do not create it again.",
+        ));
+      }
       showToast(t("钱包组已创建", "Wallet group created"));
-    } catch (error) { showToast(error.message); }
-  }
+      } catch (error) {
+        showToast(error.message);
+      } finally {
+        event.target.dataset.submitting = "false";
+        if (submitButton) submitButton.disabled = false;
+      }
+    }
   if (event.target.id === "addWalletsForm") {
     event.preventDefault();
     const form = new FormData(event.target);
