@@ -129,6 +129,7 @@ const state = {
     loginWallets: [],
     selectedGroupId: null,
     wallets: [],
+    walletsByGroup: {},
     loading: false,
     error: null,
     transferOpen: false,
@@ -1049,6 +1050,7 @@ async function loadAssets({ keepGroup = true, reloadAfterCurrent = false } = {})
       if (state.assets.selectedGroupId) {
         const detail = await apiRequest(`/api/v1/wallet-groups/${state.assets.selectedGroupId}/wallets`);
         state.assets.wallets = detail.wallets || [];
+        state.assets.walletsByGroup[state.assets.selectedGroupId] = state.assets.wallets;
       } else {
         state.assets.wallets = [];
       }
@@ -2217,14 +2219,23 @@ function openExportDialog() {
   openModal({ kicker: t("私钥导出", "Private-key export"), title: t("导出钱包组", "Export wallet group"), content: `<form class="form-stack" id="walletExportForm"><label class="field-label">${t("选择钱包组", "Wallet group")}<select class="field-select" name="groupId">${groups.map((group) => `<option value="${group.groupId}">${escapeHtml(group.name)} · ${group.walletCount}</option>`).join("")}</select></label><div class="export-danger"><i class="fa-solid fa-triangle-exclamation"></i><span>${t("文件包含可直接控制资产的私钥。下载后请离线保存，NarraOps 无法撤销已导出的密钥。", "This file contains keys that directly control funds. Store it offline; exported keys cannot be revoked by NarraOps.")}</span></div><label class="field-label">${t("输入“确认导出私钥”", "Type EXPORT PRIVATE KEYS")}<input class="field-input" name="confirmation" autocomplete="off" required /></label><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="danger-button" type="submit"><i class="fa-solid fa-file-arrow-down"></i>${t("导出文本文件", "Export text file")}</button></div></form>` });
 }
 
-function walletManagerMarkup(group, wallets) {
+function walletManagerMarkup(group, wallets, { loading = false, error = null } = {}) {
   const canAdd = group.purpose !== "cooking";
-  const rows = wallets.map((wallet) => `
+  const displayWallets = wallets.length
+    ? wallets
+    : loading
+      ? Array.from({ length: Number(group.walletCount || 0) }, (_, index) => ({
+          walletId: null,
+          label: `Wallet ${index + 1}`,
+          loading: true,
+        }))
+      : [];
+  const rows = displayWallets.map((wallet) => `
     <div class="wallet-manager-row">
-      <span><strong>${escapeHtml(wallet.label)}</strong><code>${escapeHtml(shortAddress(wallet.publicAddress || wallet.addresses?.solana || wallet.addresses?.evm || "—"))}</code></span>
-      <button class="danger-button wallet-manager-delete" type="button" data-delete-wallet="${wallet.walletId}" data-delete-wallet-group="${group.groupId}">
+      <span><strong>${escapeHtml(wallet.label)}</strong><code class="${wallet.loading ? "wallet-manager-skeleton" : ""}">${wallet.loading ? t("正在读取地址", "Loading address") : escapeHtml(shortAddress(wallet.publicAddress || wallet.addresses?.solana || wallet.addresses?.evm || "—"))}</code></span>
+      ${wallet.walletId ? `<button class="danger-button wallet-manager-delete" type="button" data-delete-wallet="${wallet.walletId}" data-delete-wallet-group="${group.groupId}">
         <i class="fa-solid fa-trash"></i>${t("删除", "Delete")}
-      </button>
+      </button>` : ""}
     </div>
   `).join("");
   return `
@@ -2237,9 +2248,10 @@ function walletManagerMarkup(group, wallets) {
           <button class="primary-button" type="submit"><i class="fa-solid fa-plus"></i>${t("添加钱包", "Add wallets")}</button>
         </form>
       ` : `<p>${t("Cooking 钱包组固定包含一个钱包。", "A Cooking wallet group contains exactly one wallet.")}</p>`}
+      ${error ? `<div class="wallet-manager-error"><span>${t("钱包列表暂时不可用", "Wallet list is temporarily unavailable")}</span><button class="secondary-button" type="button" data-refresh-wallet-manager="${group.groupId}">${t("重试", "Retry")}</button></div>` : ""}
       <div class="wallet-manager-list">${rows || `<div class="empty-state">${t("该组没有钱包", "This group has no wallets")}</div>`}</div>
       <div class="wallet-manager-footer">
-        <span>${wallets.length} ${t("个钱包", "wallets")}</span>
+        <span>${loading ? `<i class="fa-solid fa-spinner fa-spin"></i> ${t("正在同步钱包列表", "Syncing wallet list")}` : `${wallets.length} ${t("个钱包", "wallets")}`}</span>
         <button class="danger-button" type="button" data-delete-wallet-group-all="${group.groupId}">
           <i class="fa-solid fa-trash-can"></i>${t("全部删除", "Delete all")}
         </button>
@@ -2252,22 +2264,32 @@ async function openWalletGroupManager(groupId) {
   const group = state.assets.groups.find((item) => item.groupId === groupId);
   if (!group || group.pendingCreation) return;
   state.assets.selectedGroupId = groupId;
+  const cachedWallets = state.assets.walletsByGroup[groupId] || [];
+  state.assets.wallets = cachedWallets;
   openModal({
     kicker: t("钱包组管理", "Wallet-group management"),
     title: group.name,
-    content: `<div class="wallet-manager-loading"><i class="fa-solid fa-spinner fa-spin"></i>${t("正在读取钱包…", "Loading wallets…")}</div>`,
+    content: walletManagerMarkup(group, cachedWallets, { loading: true }),
   });
   try {
-    const detail = await apiRequest(`/api/v1/wallet-groups/${groupId}/wallets`);
-    state.assets.wallets = detail.wallets || [];
-    openModal({
-      kicker: t("钱包组管理", "Wallet-group management"),
-      title: group.name,
-      content: walletManagerMarkup(group, state.assets.wallets),
+    const detail = await apiRequest(`/api/v1/wallet-groups/${groupId}/wallets`, {
+      timeoutMs: 20_000,
     });
+    state.assets.wallets = detail.wallets || [];
+    state.assets.walletsByGroup[groupId] = state.assets.wallets;
+    if (
+      !modal.classList.contains("hidden") &&
+      modalBody.querySelector(`[data-managed-group="${groupId}"]`)
+    ) {
+      modalBody.innerHTML = walletManagerMarkup(group, state.assets.wallets);
+    }
   } catch (error) {
-    closeModal();
-    showToast(error instanceof Error ? error.message : String(error));
+    if (
+      !modal.classList.contains("hidden") &&
+      modalBody.querySelector(`[data-managed-group="${groupId}"]`)
+    ) {
+      modalBody.innerHTML = walletManagerMarkup(group, cachedWallets, { error });
+    }
   }
 }
 
@@ -3135,6 +3157,7 @@ modal.addEventListener("submit", async (event) => {
         timeoutMs: 45_000,
         body: JSON.stringify({ count: Number(form.get("count")) }),
       });
+      delete state.assets.walletsByGroup[groupId];
       await loadAssets({ keepGroup: true, reloadAfterCurrent: true });
       await openWalletGroupManager(groupId);
       showToast(t("钱包已添加", "Wallets added"));
@@ -3399,6 +3422,12 @@ viewRoot.addEventListener("change", (event) => {
 });
 
 modal.addEventListener("click", async (event) => {
+  const refreshWalletManager = event.target.closest("[data-refresh-wallet-manager]")?.dataset.refreshWalletManager;
+  if (refreshWalletManager) {
+    await openWalletGroupManager(refreshWalletManager);
+    return;
+  }
+
   const deleteWalletButton = event.target.closest("[data-delete-wallet]");
   if (deleteWalletButton) {
     const walletId = deleteWalletButton.dataset.deleteWallet;
@@ -3414,6 +3443,7 @@ modal.addEventListener("click", async (event) => {
         method: "DELETE",
         timeoutMs: 30_000,
       });
+      delete state.assets.walletsByGroup[groupId];
       await loadAssets({ keepGroup: !result.groupDeleted, reloadAfterCurrent: true });
       if (result.groupDeleted) {
         closeModal();
@@ -3443,6 +3473,7 @@ modal.addEventListener("click", async (event) => {
         method: "DELETE",
         timeoutMs: 45_000,
       });
+      delete state.assets.walletsByGroup[groupId];
       closeModal();
       await loadAssets({ keepGroup: false, reloadAfterCurrent: true });
       showToast(t("钱包组已全部删除", "Wallet group deleted"));

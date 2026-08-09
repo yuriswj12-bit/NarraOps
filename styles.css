@@ -78,9 +78,13 @@
 .wallet-manager-row + .wallet-manager-row { border-top:1px solid var(--line); }
 .wallet-manager-row > span { min-width:0; display:grid; gap:5px; }
 .wallet-manager-row code { color:var(--muted); overflow:hidden; text-overflow:ellipsis; }
+.wallet-manager-skeleton { display:inline-block; width:130px; min-height:14px; border-radius:6px; color:transparent !important; background:linear-gradient(90deg,var(--surface-2),var(--line-strong),var(--surface-2)); background-size:200% 100%; animation:wallet-manager-shimmer 1.2s linear infinite; }
+.wallet-manager-error { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 12px; border:1px solid var(--danger-border); border-radius:9px; background:var(--danger-bg); color:var(--danger-text); }
+.wallet-manager-error button { flex:0 0 auto; }
 .wallet-manager-delete { padding:8px 11px; flex:0 0 auto; }
 .wallet-manager-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:14px; border-top:1px solid var(--line); }
 .wallet-manager-footer > span { color:var(--muted); }
+@keyframes wallet-manager-shimmer { to { background-position:-200% 0; } }
 .detail-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
 .detail-heading h2 { margin:4px 0 0; font-size:22px; }.detail-heading>div:last-child { display:flex; gap:8px; }
 .transfer-summary-line { display:flex; align-items:center; gap:10px; padding:13px 14px; border:1px solid var(--line); border-radius:10px; }
