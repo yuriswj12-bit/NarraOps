@@ -2,6 +2,19 @@
 
 > Current rule (2026-07-22): the first-level product surfaces are Go, Pulse, and Assets. The Launch and Invite sections below are historical implementation records, not current navigation requirements.
 
+## 2026-08-09 direct wallet deletion
+
+- Removed the browser-native confirmation dialogs from individual wallet
+  deletion and wallet-group delete-all.
+- Both controls now execute their existing authenticated DELETE request on the
+  first click. Deleting the final wallet continues to remove the empty group
+  and its encrypted secret records through the existing backend cascade.
+- Audited the product frontend source and found no remaining native
+  `confirm`, `prompt`, or `alert` calls. Wallet-extension signing prompts and
+  required real-fund execution confirmation remain unchanged.
+- Verification: frontend build and typecheck, JavaScript syntax check, native
+  dialog source scan, and targeted Vercel wallet deletion tests pass.
+
 ## 2026-08-04 Go, Pulse, and Assets acceptance repair
 
 - Added a bounded browser request timeout so a stalled Agent request becomes a

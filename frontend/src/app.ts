@@ -3432,11 +3432,6 @@ modal.addEventListener("click", async (event) => {
   if (deleteWalletButton) {
     const walletId = deleteWalletButton.dataset.deleteWallet;
     const groupId = deleteWalletButton.dataset.deleteWalletGroup;
-    const deletesGroup = state.assets.wallets.length === 1;
-    const confirmed = window.confirm(deletesGroup
-      ? t("这是该组最后一个钱包。删除后钱包组也会被删除，是否继续？", "This is the last wallet. Deleting it will also remove the wallet group. Continue?")
-      : t("确定删除这个钱包吗？此操作会删除其加密私钥。", "Delete this wallet? Its encrypted private key will also be removed."));
-    if (!confirmed) return;
     deleteWalletButton.disabled = true;
     try {
       const result = await apiRequest(`/api/v1/wallet-groups/${groupId}/wallets/${walletId}`, {
@@ -3462,11 +3457,6 @@ modal.addEventListener("click", async (event) => {
   const deleteAllButton = event.target.closest("[data-delete-wallet-group-all]");
   if (deleteAllButton) {
     const groupId = deleteAllButton.dataset.deleteWalletGroupAll;
-    const confirmed = window.confirm(t(
-      "确定删除该组的全部钱包和钱包组吗？此操作会删除所有加密私钥，且无法撤销。",
-      "Delete every wallet and this wallet group? All encrypted private keys will be removed and this cannot be undone.",
-    ));
-    if (!confirmed) return;
     deleteAllButton.disabled = true;
     try {
       await apiRequest(`/api/v1/wallet-groups/${groupId}`, {
