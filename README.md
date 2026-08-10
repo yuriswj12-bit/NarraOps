@@ -37,6 +37,12 @@ Current capabilities include:
 
 Live signing, transaction submission, custody, and fund execution require authenticated provider configuration and an explicit user confirmation at the point of action.
 
+Pump Launch already has a production prepare/sign/submit flow. Its NarraOps
+Agent Runtime integration is being introduced behind independent feature flags:
+trusted semantic shadow first, durable approval and execution enforcement only
+after observation and rollback gates pass. Shadow records never authorize or
+broadcast a transaction.
+
 ## Engineering Language Split
 
 NarraOps should not remain a simple JavaScript-only codebase. The long-term codebase should use each language where it is strongest:

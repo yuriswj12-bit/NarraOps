@@ -5,6 +5,21 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function withRepoTimeout(promise, timeoutMs = 5_000, label = "supabase") {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(Object.assign(new Error(`${label} timed out after ${timeoutMs}ms`), {
+          status: 504,
+          code: "SUPABASE_TIMEOUT",
+        }));
+      }, timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 export class SupabaseConversationRepository {
   #supabase;
 
@@ -23,24 +38,36 @@ export class SupabaseConversationRepository {
       created_at: now,
       updated_at: now,
     };
-    const { error } = await this.#supabase.from("agent_conversations").insert(conversation);
+    const { error } = await withRepoTimeout(
+      this.#supabase.from("agent_conversations").insert(conversation),
+      5_000,
+      "agent_conversations.insert",
+    );
     if (error) throw error;
     return this.#publicConversation(conversation, []);
   }
 
   async get(conversationId) {
-    const { data: conversation, error } = await this.#supabase
-      .from("agent_conversations")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .maybeSingle();
+    const { data: conversation, error } = await withRepoTimeout(
+      this.#supabase
+        .from("agent_conversations")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .maybeSingle(),
+      5_000,
+      "agent_conversations.get",
+    );
     if (error) throw error;
     if (!conversation) return null;
-    const { data: messages, error: messageError } = await this.#supabase
-      .from("agent_messages")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true });
+    const { data: messages, error: messageError } = await withRepoTimeout(
+      this.#supabase
+        .from("agent_messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true }),
+      5_000,
+      "agent_messages.list",
+    );
     if (messageError) throw messageError;
     return this.#publicConversation(conversation, messages || []);
   }
@@ -59,7 +86,11 @@ export class SupabaseConversationRepository {
       blocks: asArray(message.blocks),
       created_at: message.createdAt || message.created_at || now,
     };
-    const { error } = await this.#supabase.from("agent_messages").insert(row);
+    const { error } = await withRepoTimeout(
+      this.#supabase.from("agent_messages").insert(row),
+      5_000,
+      "agent_messages.insert",
+    );
     if (error) throw error;
     await this.#supabase
       .from("agent_conversations")
@@ -121,6 +152,7 @@ export class SupabaseConversationRepository {
 
 export class SupabaseTaskRepository {
   #supabase;
+  #durabilityAvailable = null;
 
   constructor(supabase) {
     this.#supabase = supabase;
@@ -128,17 +160,32 @@ export class SupabaseTaskRepository {
 
   async create(task) {
     const row = this.#toRow(task);
-    const { error } = await this.#supabase.from("agent_tasks").upsert(row, { onConflict: "task_id" });
+    let { error } = await withRepoTimeout(
+      this.#supabase.from("agent_tasks").upsert(row, { onConflict: "task_id" }),
+      5_000,
+      "agent_tasks.upsert",
+    );
+    if (error && ["PGRST204", "42703"].includes(error.code)) {
+      ({ error } = await withRepoTimeout(
+        this.#supabase.from("agent_tasks").upsert(this.#legacyRow(row), { onConflict: "task_id" }),
+        5_000,
+        "agent_tasks.upsert_legacy",
+      ));
+    }
     if (error) throw error;
     return structuredClone(task);
   }
 
   async get(taskId) {
-    const { data, error } = await this.#supabase
-      .from("agent_tasks")
-      .select("*")
-      .eq("task_id", taskId)
-      .maybeSingle();
+    const { data, error } = await withRepoTimeout(
+      this.#supabase
+        .from("agent_tasks")
+        .select("*")
+        .eq("task_id", taskId)
+        .maybeSingle(),
+      5_000,
+      "agent_tasks.get",
+    );
     if (error) throw error;
     return data ? this.#fromRow(data) : null;
   }
@@ -151,11 +198,116 @@ export class SupabaseTaskRepository {
       ...patch,
       updatedAt: patch.updatedAt || new Date().toISOString(),
     };
-    const { error } = await this.#supabase
+    let { error } = await this.#supabase
       .from("agent_tasks")
       .upsert(this.#toRow(next), { onConflict: "task_id" });
+    if (error && ["PGRST204", "42703"].includes(error.code)) {
+      ({ error } = await this.#supabase
+        .from("agent_tasks")
+        .upsert(this.#legacyRow(this.#toRow(next)), { onConflict: "task_id" }));
+    }
     if (error) throw error;
     return structuredClone(next);
+  }
+
+  async transition(taskId, { expectedStatuses, expectedVersion, patch, event }) {
+    const current = await this.get(taskId);
+    if (!current) return null;
+    if (expectedStatuses?.length && !expectedStatuses.includes(current.status)) return null;
+    if (expectedVersion != null && current.stateVersion !== expectedVersion) return null;
+    const next = {
+      ...current,
+      ...patch,
+      updatedAt: patch.updatedAt || new Date().toISOString(),
+    };
+    if (this.#durabilityAvailable === false) {
+      const task = await this.update(taskId, patch);
+      return { task, event: event || null, durable: false };
+    }
+    const { data, error } = await withRepoTimeout(
+      this.#supabase.rpc("agent_transition_task_v2", {
+        p_task_id: taskId,
+        p_expected_statuses: expectedStatuses || [current.status],
+        p_expected_version: expectedVersion ?? current.stateVersion ?? 1,
+        p_patch: this.#toRow(next),
+        p_event: event || null,
+      }),
+      5_000,
+      "agent_transition_task_v2",
+    );
+    if (error && !["PGRST202", "42883"].includes(error.code)) throw error;
+    if (error) {
+      this.#durabilityAvailable = false;
+      const task = await this.update(taskId, patch);
+      return { task, event: event || null, durable: false };
+    }
+    this.#durabilityAvailable = true;
+    if (!data) return null;
+    return {
+      task: this.#fromRow(data.task),
+      event: data.event ? this.#fromEventRow(data.event) : null,
+      durable: true,
+    };
+  }
+
+  async appendEvent(event) {
+    const taskId = event.taskId || event.data?.task_id || event.task?.taskId;
+    if (!taskId) throw new Error("Durable Agent events require a taskId");
+    if (this.#durabilityAvailable === false) return { ...event, taskId, durable: false };
+    const { data, error } = await withRepoTimeout(
+      this.#supabase.rpc("agent_append_task_event_v2", {
+        p_task_id: taskId,
+        p_event: event,
+      }),
+      5_000,
+      "agent_append_task_event_v2",
+    );
+    if (error && !["PGRST202", "42883", "42P01"].includes(error.code)) throw error;
+    if (error) {
+      this.#durabilityAvailable = false;
+      return { ...event, taskId, durable: false };
+    }
+    this.#durabilityAvailable = true;
+    return this.#fromEventRow(data);
+  }
+
+  async listEvents(taskId, { afterSequence = 0, limit = 200 } = {}) {
+    if (this.#durabilityAvailable === false) return [];
+    const { data, error } = await withRepoTimeout(
+      this.#supabase
+        .from("agent_event_outbox")
+        .select("*")
+        .eq("task_id", taskId)
+        .gt("task_sequence", Math.max(0, Number(afterSequence) || 0))
+        .order("task_sequence", { ascending: true })
+        .limit(Math.min(Math.max(Number(limit) || 200, 1), 500)),
+      5_000,
+      "agent_event_outbox.list",
+    );
+    if (error && ["PGRST205", "42P01"].includes(error.code)) {
+      this.#durabilityAvailable = false;
+      return [];
+    }
+    if (error) throw error;
+    this.#durabilityAvailable = true;
+    return (data || []).map((row) => this.#fromEventRow(row));
+  }
+
+  async listRecoverable({ now = new Date().toISOString(), limit = 100 } = {}) {
+    const { data, error } = await withRepoTimeout(
+      this.#supabase
+        .from("agent_tasks")
+        .select("*")
+        .in("status", ["queued", "running"])
+        .or(`status.eq.queued,lease_expires_at.is.null,lease_expires_at.lte.${now}`)
+        .order("created_at", { ascending: true })
+        .limit(Math.min(Math.max(Number(limit) || 100, 1), 500)),
+      5_000,
+      "agent_tasks.recoverable",
+    );
+    if (error && error.code === "42703") return [];
+    if (error) throw error;
+    return (data || []).map((row) => this.#fromRow(row));
   }
 
   #toRow(task) {
@@ -175,6 +327,17 @@ export class SupabaseTaskRepository {
       created_at: task.createdAt,
       updated_at: task.updatedAt,
       completed_at: task.completedAt || null,
+      actor_id: task.actorId || task.parsedInput?.user_id || task.input?.context?.userId || task.input?.context?.user_id || null,
+      client: task.client || task.channel || task.parsedInput?.channel || null,
+      capability: task.capability || task.type,
+      context_refs: task.contextRefs || task.input?.context?.contextRefs || [],
+      idempotency_key: task.idempotencyKey || null,
+      state_version: task.stateVersion || 1,
+      lease_owner: task.leaseOwner || null,
+      lease_expires_at: task.leaseExpiresAt || null,
+      attempt_count: task.attemptCount || 0,
+      max_attempts: task.maxAttempts || 3,
+      expires_at: task.expiresAt || null,
     };
   }
 
@@ -198,8 +361,50 @@ export class SupabaseTaskRepository {
       parsedInput: {
         conversation_id: row.conversation_id,
         channel: row.channel,
+        user_id: row.actor_id,
       },
+      actorId: row.actor_id,
+      client: row.client,
+      capability: row.capability || row.type,
+      contextRefs: row.context_refs || [],
+      idempotencyKey: row.idempotency_key,
+      stateVersion: row.state_version || 1,
+      leaseOwner: row.lease_owner,
+      leaseExpiresAt: row.lease_expires_at,
+      attemptCount: row.attempt_count || 0,
+      maxAttempts: row.max_attempts || 3,
+      expiresAt: row.expires_at,
     };
+  }
+
+  #fromEventRow(row) {
+    return {
+      ...(row.payload || {}),
+      eventId: row.event_id || row.payload?.eventId,
+      taskId: row.task_id || row.payload?.taskId,
+      sequence: row.task_sequence || row.payload?.sequence,
+      cursor: String(row.outbox_sequence || row.payload?.cursor || ""),
+      createdAt: row.created_at || row.payload?.createdAt,
+      durable: true,
+    };
+  }
+
+  #legacyRow(row) {
+    const {
+      actor_id: _actorId,
+      client: _client,
+      capability: _capability,
+      context_refs: _contextRefs,
+      idempotency_key: _idempotencyKey,
+      state_version: _stateVersion,
+      lease_owner: _leaseOwner,
+      lease_expires_at: _leaseExpiresAt,
+      attempt_count: _attemptCount,
+      max_attempts: _maxAttempts,
+      expires_at: _expiresAt,
+      ...legacy
+    } = row;
+    return legacy;
   }
 }
 

@@ -16,11 +16,25 @@ import {
 import {
   createAgentConversation,
   createAgentTask,
+  getAgentCapabilities,
   getAgentTask,
+  listAgentTaskEvents,
+  cancelAgentTask,
   getAgentConversation,
   handleTelegramWebhook,
   getSharedAgentRuntime,
   postAgentConversationMessage,
+  recordAgentApprovalShadow,
+  recordPumpLaunchSemanticShadow,
+  preparePumpLaunchRuntimeExecution,
+  transitionPumpLaunchRuntimeExecution,
+  reconcilePumpLaunchRuntimeExecution,
+  getAgentApproval,
+  decideAgentApproval,
+  proposeAgentMemory,
+  decideAgentMemory,
+  forgetAgentMemory,
+  listAgentMemories,
   updateAgentLaunchDraft,
 } from "./agent/runtime.cjs";
 
@@ -57,6 +71,23 @@ function serverSupabase() {
 let launchPlannerSingleton = null;
 let launchPlannerModulePromise = null;
 let solanaWeb3ModulePromise = null;
+
+function withHardTimeout(promise, timeoutMs, label = "operation") {
+  const ms = Math.max(500, Number(timeoutMs) || 8000);
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(Object.assign(new Error(`${label} timed out after ${ms}ms`), {
+          status: 504,
+          code: "AGENT_TIMEOUT",
+        }));
+      }, ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 
 async function directLaunchPlanner() {
   if (!launchPlannerSingleton) {
@@ -278,10 +309,11 @@ async function requireResult(promise, fallbackMessage) {
 async function loadSession(supabase, request) {
   const token = parseCookie(request.headers.cookie);
   if (!token) return null;
+  return withHardTimeout((async () => {
   const session = await requireResult(
     supabase
       .from("web3_sessions")
-      .select("session_id,user_id,expires_at")
+      .select("session_id,user_id,expires_at,created_at")
       .eq("token_hash", tokenHash(token))
       .gt("expires_at", new Date().toISOString())
       .maybeSingle(),
@@ -312,6 +344,7 @@ async function loadSession(supabase, request) {
     .eq("session_id", session.session_id);
   return {
     authenticated: true,
+    authenticatedAt: session.created_at,
     user: {
       userId: user.user_id,
       displayName: user.display_name,
@@ -324,6 +357,7 @@ async function loadSession(supabase, request) {
       })),
     },
   };
+  })(), 5_000, "loadSession");
 }
 
 function authenticatedUserId(session) {
@@ -335,6 +369,21 @@ function authenticatedUserId(session) {
     );
   }
   return userId;
+}
+
+function assertAgentConversationAccess(conversation, userId) {
+  const ownerUserId =
+    conversation?.userId ||
+    conversation?.user_id ||
+    conversation?.context?.userId ||
+    conversation?.context?.user_id ||
+    null;
+  if (!ownerUserId || ownerUserId !== userId) {
+    throw Object.assign(
+      new Error("Agent conversation was not found"),
+      { status: 404, code: "CONVERSATION_NOT_FOUND" },
+    );
+  }
 }
 
 function assetsError(error, fallbackMessage) {
@@ -460,6 +509,227 @@ async function ownedExecutionGroup(supabase, userId, groupId, purpose) {
   return { group, wallets: active };
 }
 
+function launchApprovalParameters(draft) {
+  const token = draft?.token || {};
+  return {
+    chain: draft?.chain || null,
+    platform: launchPlatformId(draft?.platform) || null,
+    token: {
+      name: token.name || null,
+      symbol: token.symbol || null,
+      description: token.description || null,
+      image_url: token.image_url || null,
+      initial_buy: token.initial_buy || "0",
+      bundle_buy_per_wallet: token.bundle_buy_per_wallet || null,
+      website_url: token.website_url || null,
+      x_url: token.x_url || null,
+      telegram_url: token.telegram_url || null,
+    },
+    cooking_wallet_group_id: draft?.metadata?.cooking_wallet_group_id || null,
+    bundled_wallet_group_id: draft?.metadata?.bundled_wallet_group_id || null,
+  };
+}
+
+function assertTrustedApprovalOrigin(request) {
+  const supplied = String(requestHeader(request, "origin") || "");
+  const expected = process.env.APP_ORIGIN || "https://www.narraops.xyz";
+  let suppliedOrigin;
+  let expectedOrigin;
+  try {
+    suppliedOrigin = new URL(supplied).origin;
+    expectedOrigin = new URL(expected).origin;
+  } catch {
+    suppliedOrigin = null;
+    expectedOrigin = null;
+  }
+  if (!suppliedOrigin || suppliedOrigin !== expectedOrigin) {
+    throw Object.assign(new Error("Approval decisions require a trusted same-origin request"), {
+      status: 403,
+      code: "UNTRUSTED_REQUEST_ORIGIN",
+    });
+  }
+}
+
+function approvalErrorStatus(error) {
+  if (error?.status) return error.status;
+  if (error?.code === "APPROVAL_ACTOR_MISMATCH" || error?.code === "APPROVAL_NOT_FOUND") return 404;
+  if (error?.code === "APPROVAL_RECENT_AUTH_REQUIRED") return 401;
+  if (["APPROVAL_EXPIRED", "APPROVAL_STATE_CONFLICT", "APPROVAL_VERSION_CONFLICT"].includes(error?.code)) return 409;
+  if (String(error?.code || "").startsWith("APPROVAL_")) return 400;
+  return 500;
+}
+
+function memoryErrorStatus(error) {
+  if (error?.status) return error.status;
+  if (error?.code === "AGENT_MEMORY_NOT_FOUND") return 404;
+  if (String(error?.code || "").includes("CONFLICT")) return 409;
+  if (String(error?.code || "").startsWith("AGENT_MEMORY_")) return 400;
+  return 500;
+}
+
+export async function handleAgentMemoryRoute({
+  request,
+  response,
+  session,
+  proposeMemory = proposeAgentMemory,
+  decideMemory = decideAgentMemory,
+  forgetMemory = forgetAgentMemory,
+  listMemories = listAgentMemories,
+}) {
+  const path = requestPath(request);
+  const actorId = authenticatedUserId(session);
+
+  if (request.method === "GET" && path === "/api/v1/agent/memories") {
+    const url = new URL(request.url || "/", "https://narraops.invalid");
+    const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || 20)));
+    const review = url.searchParams.get("review") === "true";
+    const memories = await listMemories(actorId, {
+      scopes: ["user"],
+      kinds: ["user_preference", "user_fact"],
+      limit,
+      ...(review ? { statuses: ["proposed", "active"] } : {}),
+    });
+    sendJson(response, 200, {
+      schema_version: "agent.memory_list.v1",
+      memories,
+    }, { "cache-control": "private, no-store" });
+    return true;
+  }
+
+  if (request.method === "POST" && path === "/api/v1/agent/memories/proposals") {
+    assertTrustedApprovalOrigin(request);
+    const body = await readBody(request);
+    const kind = String(body.kind || "");
+    if (!["user_preference", "user_fact"].includes(kind)) {
+      throw Object.assign(new Error("Only user preferences and user facts are accepted"), {
+        status: 400,
+        code: "AGENT_MEMORY_KIND_INVALID",
+      });
+    }
+    const idempotencyKey = String(
+      requestHeader(request, "idempotency-key") || body.idempotencyKey || "",
+    ).trim();
+    if (!idempotencyKey) {
+      throw Object.assign(new Error("Idempotency-Key is required"), {
+        status: 400,
+        code: "AGENT_MEMORY_IDEMPOTENCY_KEY_INVALID",
+      });
+    }
+    const result = await proposeMemory(actorId, {
+      scope: "user",
+      kind,
+      content: body.content,
+      ...(body.structuredValue || body.structured_value
+        ? { structuredValue: body.structuredValue || body.structured_value }
+        : {}),
+      sensitivity: body.sensitivity === "sensitive" ? "sensitive" : "private",
+      source: {
+        type: "user_message",
+        id: `api:${idempotencyKey.slice(0, 251)}`,
+        refs: [],
+      },
+      confidence: 1,
+      idempotencyKey,
+      ...(body.expiresAt || body.expires_at
+        ? { expiresAt: body.expiresAt || body.expires_at }
+        : {}),
+    });
+    sendJson(response, result.idempotentReplay ? 200 : 201, result, {
+      "cache-control": "private, no-store",
+    });
+    return true;
+  }
+
+  const match = path.match(
+    /^\/api\/v1\/agent\/memories\/([0-9a-f-]{36})\/(confirm|reject|forget)$/i,
+  );
+  if (request.method === "POST" && match) {
+    assertTrustedApprovalOrigin(request);
+    const body = await readBody(request);
+    const expectedStateVersion = Number(
+      body.expectedStateVersion ?? body.expected_state_version,
+    );
+    if (!Number.isInteger(expectedStateVersion) || expectedStateVersion < 1) {
+      throw Object.assign(new Error("expectedStateVersion must be a positive integer"), {
+        status: 400,
+        code: "VALIDATION_ERROR",
+      });
+    }
+    const memoryId = match[1];
+    const action = match[2].toLowerCase();
+    const item = action === "forget"
+      ? await forgetMemory(actorId, { memoryId, expectedStateVersion })
+      : await decideMemory(actorId, {
+          memoryId,
+          decision: action === "confirm" ? "active" : "rejected",
+          expectedStateVersion,
+          confirmation: "user_explicit",
+        });
+    sendJson(response, 200, item, { "cache-control": "private, no-store" });
+    return true;
+  }
+
+  throw Object.assign(new Error("Memory route method is not supported"), {
+    status: 405,
+    code: "METHOD_NOT_ALLOWED",
+  });
+}
+
+export async function handleAgentApprovalRoute({
+  request,
+  response,
+  session,
+  readApproval = getAgentApproval,
+  decideApproval = decideAgentApproval,
+}) {
+  const path = requestPath(request);
+  const match = path.match(/^\/api\/v1\/agent\/approvals\/([0-9a-f-]{36})(?:\/(approve|reject))?$/i);
+  if (!match) return false;
+  const actorId = authenticatedUserId(session);
+  const approvalId = match[1];
+  const action = match[2] || null;
+
+  if (request.method === "GET" && !action) {
+    const approval = await readApproval(approvalId, actorId);
+    if (!approval) {
+      throw Object.assign(new Error("Approval was not found"), {
+        status: 404,
+        code: "APPROVAL_NOT_FOUND",
+      });
+    }
+    sendJson(response, 200, approval, { "cache-control": "private, no-store" });
+    return true;
+  }
+
+  if (request.method === "POST" && action) {
+    assertTrustedApprovalOrigin(request);
+    const body = await readBody(request);
+    const expectedStateVersion = Number(
+      body.expectedStateVersion ?? body.expected_state_version,
+    );
+    if (!Number.isInteger(expectedStateVersion) || expectedStateVersion < 1) {
+      throw Object.assign(new Error("expectedStateVersion must be a positive integer"), {
+        status: 400,
+        code: "VALIDATION_ERROR",
+      });
+    }
+    const approval = await decideApproval({
+      approvalId,
+      actorId,
+      decision: action === "approve" ? "approved" : "rejected",
+      expectedStateVersion,
+      recentAuthAt: session?.authenticatedAt,
+    });
+    sendJson(response, 200, approval, { "cache-control": "private, no-store" });
+    return true;
+  }
+
+  throw Object.assign(new Error("Approval route method is not supported"), {
+    status: 405,
+    code: "METHOD_NOT_ALLOWED",
+  });
+}
+
 async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
   const draft = await ownedLaunchDraft(supabase, userId, draftId);
   if (!draft) {
@@ -523,7 +793,23 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
       bundled_wallet_count: 0,
     };
   }
-  if (existing.status === "requires_user_signature" && existing.transaction_base64 && existing.message_hash) {
+  const runtimeShadow = existing.runtime_semantic_shadow || {};
+  const requiresRuntimeRefresh =
+    (process.env.AGENT_PUMP_SEMANTIC_SHADOW_ENABLED === "true"
+      && runtimeShadow.recorded !== true)
+    || (process.env.AGENT_PUMP_APPROVAL_DUAL_RUN_ENABLED === "true"
+      && runtimeShadow.approvalDualRun?.requested !== true)
+    || (process.env.AGENT_PUMP_ENFORCEMENT_ENABLED === "true"
+      && (
+        runtimeShadow.recorded !== true
+        || runtimeShadow.approvalDualRun?.requested !== true
+      ));
+  if (
+    existing.status === "requires_user_signature"
+    && existing.transaction_base64
+    && existing.message_hash
+    && !requiresRuntimeRefresh
+  ) {
     return {
       schema_version: "go.launch_execution.v1",
       status: "requires_user_signature",
@@ -539,6 +825,10 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
       cooking_wallet_group_id: cookingId,
       bundled_wallet_group_id: bundledId,
       bundled_wallet_count: 0,
+      runtime: existing.runtime_semantic_shadow || {
+        recorded: false,
+        reason: "semantic_shadow_not_recorded",
+      },
       message: "Pump transaction prepared. Sign it with the selected Cooking wallet to broadcast it.",
     };
   }
@@ -558,19 +848,70 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
     developerBuyAmount: initialBuy,
   });
   const { Transaction } = await solanaWeb3();
+  const preparedTransaction = Transaction.from(
+    Buffer.from(plan.transactionBase64, "base64"),
+  );
+  let runtimeSemanticShadow = {
+    recorded: false,
+    reason: "semantic_shadow_disabled",
+  };
+  if (process.env.AGENT_PUMP_SEMANTIC_SHADOW_ENABLED === "true") {
+    try {
+      const [fee, currentBlockHeight] = await Promise.all([
+        planner.pump.connection.getFeeForMessage(
+          preparedTransaction.compileMessage(),
+          "confirmed",
+        ),
+        planner.pump.connection.getBlockHeight("confirmed"),
+      ]);
+      if (!Number.isSafeInteger(fee?.value) || fee.value < 0) {
+        throw Object.assign(new Error("Solana RPC did not return a valid Pump fee"), {
+          code: "PUMP_FEE_ESTIMATE_INVALID",
+        });
+      }
+      runtimeSemanticShadow = await recordPumpLaunchSemanticShadow({
+        actorId: userId,
+        draftId,
+        transactionBase64: plan.transactionBase64,
+        feePayer: cooking.wallets[0].public_address,
+        mintAddress: plan.mintAddress,
+        name: token.name,
+        symbol: token.symbol,
+        metadataUri: plan.metadataUri,
+        creator: cooking.wallets[0].public_address,
+        developerBuyLamports: plan.developerBuyLamports,
+        estimatedFeeAtomic: String(fee.value),
+        currentBlockHeight,
+        lastValidBlockHeight: plan.lastValidBlockHeight,
+      });
+    } catch (error) {
+      console.error("pump_semantic_shadow_prepare_failed", {
+        code: error?.code || "PUMP_SEMANTIC_SHADOW_PREPARE_FAILED",
+        message: error?.message || String(error),
+        draftId,
+      });
+      runtimeSemanticShadow = {
+        recorded: false,
+        reason: "semantic_shadow_prepare_failed",
+        code: error?.code || "PUMP_SEMANTIC_SHADOW_PREPARE_FAILED",
+      };
+    }
+  }
   const execution = {
     provider: "pump.fun",
     launchpad: "pump",
     execution_mode: "client_signed",
     status: "requires_user_signature",
+    fee_payer: cooking.wallets[0].public_address,
     mint_address: plan.mintAddress,
     metadata_uri: plan.metadataUri,
     transaction_base64: plan.transactionBase64,
-    message_hash: createHash("sha256").update(Transaction.from(Buffer.from(plan.transactionBase64, "base64")).serializeMessage()).digest("hex"),
+    message_hash: createHash("sha256").update(preparedTransaction.serializeMessage()).digest("hex"),
     last_valid_block_height: plan.lastValidBlockHeight,
     cooking_wallet_group_id: cookingId,
     bundled_wallet_group_id: bundledId,
     bundled_wallet_count: 0,
+    runtime_semantic_shadow: runtimeSemanticShadow,
     updated_at: new Date().toISOString(),
   };
   await requireAssetsResult(
@@ -606,11 +947,17 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
     cooking_wallet_group_id: cookingId,
     bundled_wallet_group_id: bundledId,
     bundled_wallet_count: 0,
+    runtime: runtimeSemanticShadow,
     message: "Pump transaction prepared. Sign it with the selected Cooking wallet to broadcast it.",
   };
 }
 
-async function submitDirectLaunchDraft({ supabase, userId, draftId, signedTransactionBase64 }) {
+async function validateSignedDirectLaunchDraft({
+  supabase,
+  userId,
+  draftId,
+  signedTransactionBase64,
+}) {
   const draft = await ownedLaunchDraft(supabase, userId, draftId);
   if (!draft) {
     throw Object.assign(new Error("The launch draft was not found"), { status: 404, code: "LAUNCH_DRAFT_NOT_FOUND" });
@@ -637,13 +984,137 @@ async function submitDirectLaunchDraft({ supabase, userId, draftId, signedTransa
   if (cooking.wallets.length !== 1 || !transaction.feePayer?.equals(new PublicKey(cooking.wallets[0].public_address))) {
     throw Object.assign(new Error("The signed transaction does not belong to the selected Cooking wallet"), { status: 400, code: "COOKING_WALLET_SIGNATURE_MISMATCH" });
   }
+  const payerSignature = transaction.signatures?.[0]?.signature;
+  if (!payerSignature || payerSignature.length !== 64) {
+    throw Object.assign(new Error("The signed Pump transaction is missing its payer signature"), {
+      status: 400,
+      code: "SIGNED_TRANSACTION_INVALID",
+    });
+  }
+  return {
+    draft,
+    expected,
+    encoded,
+    messageHash,
+    cookingId,
+    signer: cooking.wallets[0].public_address,
+    derivedTxHash: bs58.encode(payerSignature),
+  };
+}
+
+export function buildDirectPumpExecutionResponse({
+  status,
+  txHash,
+  tokenAddress,
+  cookingWalletGroupId,
+  bundledWalletGroupId = null,
+  runtimeExecutionId = null,
+}) {
+  return {
+    schema_version: "go.launch_execution.v1",
+    status,
+    provider: "pump.fun",
+    execution_mode: "client_signed",
+    launchpad: "pump",
+    tx_hash: txHash,
+    token_address: tokenAddress,
+    ...(runtimeExecutionId
+      ? { runtime_execution_id: runtimeExecutionId }
+      : {}),
+    cooking_wallet_group_id: cookingWalletGroupId,
+    bundled_wallet_group_id: bundledWalletGroupId,
+    bundled_wallet_count: 0,
+  };
+}
+
+async function broadcastValidatedDirectLaunch({
+  supabase,
+  userId,
+  draftId,
+  validated,
+  runtimeExecution,
+}) {
+  const {
+    draft,
+    expected,
+    encoded,
+    cookingId,
+    derivedTxHash,
+  } = validated;
   const connection = (await directLaunchPlanner()).pump.connection;
   let txHash;
+  let chainRejected = false;
   try {
     txHash = await connection.sendRawTransaction(Buffer.from(encoded, "base64"), { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 });
+    if (txHash !== derivedTxHash) {
+      throw Object.assign(
+        new Error("Solana RPC returned a transaction signature that differs from the signed payload"),
+        { code: "PUMP_TRANSACTION_IDENTITY_MISMATCH" },
+      );
+    }
+    if (runtimeExecution?.enforced) {
+      const submitted = await transitionPumpLaunchRuntimeExecution({
+        actorId: userId,
+        executionId: runtimeExecution.executionId,
+        status: "submitted",
+        txHash,
+      });
+      runtimeExecution = {
+        ...runtimeExecution,
+        status: submitted.status,
+        stateVersion: submitted.stateVersion,
+        txHash: submitted.txHash,
+      };
+    }
     const confirmation = await connection.confirmTransaction(txHash, "confirmed");
-    if (confirmation?.value?.err) throw new Error("Pump launch transaction failed on-chain");
+    if (confirmation?.value?.err) {
+      chainRejected = true;
+      throw new Error("Pump launch transaction failed on-chain");
+    }
   } catch (error) {
+    if (runtimeExecution?.enforced) {
+      const runtimeStatus = chainRejected ? "failed" : "reconciliation_required";
+      await transitionPumpLaunchRuntimeExecution({
+        actorId: userId,
+        executionId: runtimeExecution.executionId,
+        status: runtimeStatus,
+        txHash: derivedTxHash,
+        ...(chainRejected
+          ? { failure: { code: "PUMP_TRANSACTION_REJECTED", message: error.message } }
+          : {}),
+      });
+      const execution = {
+        ...expected,
+        status: runtimeStatus,
+        tx_hash: derivedTxHash,
+        runtime_execution_id: runtimeExecution.executionId,
+        error: error.message,
+        updated_at: new Date().toISOString(),
+      };
+      await requireAssetsResult(
+        supabase.from("go_launch_drafts").update({
+          status: runtimeStatus,
+          confirmation_status: runtimeStatus,
+          broadcasting_status: runtimeStatus,
+          metadata: { ...(draft.metadata || {}), direct_execution: execution },
+          updated_at: new Date().toISOString(),
+        }).eq("launch_draft_id", draftId).eq("user_id", userId),
+        "Unable to save the direct Pump reconciliation state",
+      );
+      if (!chainRejected) {
+        return buildDirectPumpExecutionResponse({
+          status: "reconciliation_required",
+          txHash: derivedTxHash,
+          tokenAddress: expected.mint_address,
+          runtimeExecutionId: runtimeExecution.executionId,
+          cookingWalletGroupId: cookingId,
+          bundledWalletGroupId:
+            expected.bundled_wallet_group_id
+            || draft.metadata?.bundled_wallet_group_id
+            || null,
+        });
+      }
+    }
     await requireAssetsResult(
       supabase.from("go_launch_drafts").update({
         status: "failed",
@@ -656,7 +1127,24 @@ async function submitDirectLaunchDraft({ supabase, userId, draftId, signedTransa
     );
     throw Object.assign(new Error(error.message || "Unable to broadcast the Pump launch"), { status: 502, code: "DIRECT_PUMP_BROADCAST_FAILED" });
   }
-  const execution = { ...expected, status: "confirmed", tx_hash: txHash, token_address: expected.mint_address, updated_at: new Date().toISOString() };
+  if (runtimeExecution?.enforced) {
+    await transitionPumpLaunchRuntimeExecution({
+      actorId: userId,
+      executionId: runtimeExecution.executionId,
+      status: "confirmed",
+      txHash,
+    });
+  }
+  const execution = {
+    ...expected,
+    status: "confirmed",
+    tx_hash: txHash,
+    token_address: expected.mint_address,
+    ...(runtimeExecution?.executionId
+      ? { runtime_execution_id: runtimeExecution.executionId }
+      : {}),
+    updated_at: new Date().toISOString(),
+  };
   await requireAssetsResult(
     supabase.from("go_launch_drafts").update({
       status: "confirmed",
@@ -669,18 +1157,113 @@ async function submitDirectLaunchDraft({ supabase, userId, draftId, signedTransa
     }).eq("launch_draft_id", draftId).eq("user_id", userId).select("*").single(),
     "Unable to save the direct Pump launch receipt",
   );
-  return {
-    schema_version: "go.launch_execution.v1",
+  return buildDirectPumpExecutionResponse({
     status: "confirmed",
-    provider: "pump.fun",
-    execution_mode: "client_signed",
-    launchpad: "pump",
-    tx_hash: txHash,
-    token_address: expected.mint_address,
-    cooking_wallet_group_id: cookingId,
-    bundled_wallet_group_id: expected.bundled_wallet_group_id || draft.metadata?.bundled_wallet_group_id || null,
-    bundled_wallet_count: 0,
+    txHash,
+    tokenAddress: expected.mint_address,
+    runtimeExecutionId: runtimeExecution?.executionId || null,
+    cookingWalletGroupId: cookingId,
+    bundledWalletGroupId:
+      expected.bundled_wallet_group_id
+      || draft.metadata?.bundled_wallet_group_id
+      || null,
+  });
+}
+
+async function submitDirectLaunchDraft({
+  supabase,
+  userId,
+  draftId,
+  signedTransactionBase64,
+}) {
+  const validated = await validateSignedDirectLaunchDraft({
+    supabase,
+    userId,
+    draftId,
+    signedTransactionBase64,
+  });
+  let runtimeExecution = {
+    enforced: false,
+    reason: "pump_enforcement_disabled",
   };
+  if (process.env.AGENT_PUMP_ENFORCEMENT_ENABLED === "true") {
+    const connection = (await directLaunchPlanner()).pump.connection;
+    const currentBlockHeight = await connection.getBlockHeight("confirmed");
+    const semantic = validated.expected.runtime_semantic_shadow || {};
+    runtimeExecution = await preparePumpLaunchRuntimeExecution({
+      actorId: userId,
+      draftId,
+      shadowId: semantic.shadowId,
+      executionId: semantic.executionId,
+      intentDigest: semantic.intentDigest,
+      approvalDualRun: semantic.approvalDualRun,
+      messageHash: validated.messageHash,
+      txSignature: validated.derivedTxHash,
+      signer: validated.signer,
+      currentBlockHeight,
+    });
+    if (!runtimeExecution.broadcastClaimed) {
+      let observation = {
+        status: "unknown",
+        observedAt: new Date().toISOString(),
+      };
+      try {
+        const statuses = await connection.getSignatureStatuses(
+          [runtimeExecution.txHash],
+          { searchTransactionHistory: true },
+        );
+        const status = statuses?.value?.[0] || null;
+        observation = status
+          ? {
+              status: status.err
+                ? "failed"
+                : ["confirmed", "finalized"].includes(status.confirmationStatus)
+                  ? "confirmed"
+                  : "pending",
+              observedAt: new Date().toISOString(),
+              ...(status.err
+                ? {
+                    failure: {
+                      code: "PUMP_TRANSACTION_REJECTED",
+                      message: JSON.stringify(status.err),
+                    },
+                  }
+                : {}),
+            }
+          : {
+              status: "not_found",
+              observedAt: new Date().toISOString(),
+            };
+      } catch {
+        // Unknown reads are persisted for reconciliation and are never retried
+        // by broadcasting the signed transaction again.
+      }
+      runtimeExecution = await reconcilePumpLaunchRuntimeExecution({
+        actorId: userId,
+        executionId: runtimeExecution.executionId,
+        txHash: runtimeExecution.txHash,
+        observation,
+      });
+      return buildDirectPumpExecutionResponse({
+        status: runtimeExecution.status,
+        txHash: runtimeExecution.txHash,
+        tokenAddress: validated.expected.mint_address,
+        runtimeExecutionId: runtimeExecution.executionId,
+        cookingWalletGroupId: validated.cookingId,
+        bundledWalletGroupId:
+          validated.expected.bundled_wallet_group_id
+          || validated.draft.metadata?.bundled_wallet_group_id
+          || null,
+      });
+    }
+  }
+  return broadcastValidatedDirectLaunch({
+    supabase,
+    userId,
+    draftId,
+    validated,
+    runtimeExecution,
+  });
 }
 
 async function submitDirectSwap({
@@ -855,43 +1438,6 @@ async function sealAssetWalletSecret({ walletReferenceId, publicAddress, private
     };
   } finally {
     plaintext.fill(0);
-    key.fill(0);
-  }
-}
-
-async function openAssetWalletSecret(envelope, password) {
-  if (
-    !envelope ||
-    envelope.format !== "narraops-wallet-vault-v1" ||
-    envelope.kdf !== "scrypt-N32768-r8-p1" ||
-    envelope.cipher !== "aes-256-gcm"
-  ) {
-    throw Object.assign(new Error("Unsupported wallet secret envelope"), {
-      status: 503,
-      code: "UNSUPPORTED_WALLET_SECRET",
-    });
-  }
-  const key = await deriveAssetWalletKey(password, Buffer.from(envelope.salt, "base64url"));
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    key,
-    Buffer.from(envelope.iv, "base64url"),
-  );
-  decipher.setAAD(
-    Buffer.from(`${envelope.walletReferenceId}:${envelope.publicAddress}`, "utf8"),
-  );
-  decipher.setAuthTag(Buffer.from(envelope.authTag, "base64url"));
-  try {
-    return Buffer.concat([
-      decipher.update(Buffer.from(envelope.ciphertext, "base64url")),
-      decipher.final(),
-    ]);
-  } catch {
-    throw Object.assign(
-      new Error("Wallet password is incorrect or encrypted material is damaged"),
-      { status: 503, code: "WALLET_UNLOCK_FAILED" },
-    );
-  } finally {
     key.fill(0);
   }
 }
@@ -1095,6 +1641,43 @@ async function removeFailedWalletGroup(
         code: "WALLET_GROUP_ROLLBACK_FAILED",
       },
     );
+  }
+}
+
+async function openAssetWalletSecret(envelope, password) {
+  if (
+    !envelope ||
+    envelope.format !== "narraops-wallet-vault-v1" ||
+    envelope.kdf !== "scrypt-N32768-r8-p1" ||
+    envelope.cipher !== "aes-256-gcm"
+  ) {
+    throw Object.assign(new Error("Unsupported wallet secret envelope"), {
+      status: 503,
+      code: "UNSUPPORTED_WALLET_SECRET",
+    });
+  }
+  const key = await deriveAssetWalletKey(password, Buffer.from(envelope.salt, "base64url"));
+  const decipher = createDecipheriv(
+    "aes-256-gcm",
+    key,
+    Buffer.from(envelope.iv, "base64url"),
+  );
+  decipher.setAAD(
+    Buffer.from(`${envelope.walletReferenceId}:${envelope.publicAddress}`, "utf8"),
+  );
+  decipher.setAuthTag(Buffer.from(envelope.authTag, "base64url"));
+  try {
+    return Buffer.concat([
+      decipher.update(Buffer.from(envelope.ciphertext, "base64url")),
+      decipher.final(),
+    ]);
+  } catch {
+    throw Object.assign(
+      new Error("Wallet password is incorrect or encrypted material is damaged"),
+      { status: 503, code: "WALLET_UNLOCK_FAILED" },
+    );
+  } finally {
+    key.fill(0);
   }
 }
 
@@ -1865,6 +2448,26 @@ export default async function handler(request, response) {
     );
   }
 
+  if (request.method === "GET" && path === "/api/v1/agent/capabilities") {
+    try {
+      const capabilities = await withHardTimeout(
+        getAgentCapabilities(),
+        4_000,
+        "getAgentCapabilities",
+      );
+      return sendJson(response, 200, capabilities, {
+        "cache-control": "public, max-age=0, s-maxage=60, stale-while-revalidate=300",
+      });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 503,
+        error.code || "AGENT_CAPABILITIES_UNAVAILABLE",
+        error.message || "Unable to load Agent capabilities",
+      );
+    }
+  }
+
 
   if (request.method === "POST" && path === "/api/v1/agent/conversations") {
     try {
@@ -1873,10 +2476,14 @@ export default async function handler(request, response) {
       const session = authSupabase ? await loadSession(authSupabase, request) : null;
       const { userId: _ignoredUserId, user_id: _ignoredSnakeUserId, ...clientContext } = body.context || {};
       const userId = authenticatedUserId(session);
-      const conversation = await createAgentConversation({
-        ...body,
-        context: { ...clientContext, ...(userId ? { userId } : {}) },
-      });
+      const conversation = await withHardTimeout(
+        createAgentConversation({
+          ...body,
+          context: { ...clientContext, ...(userId ? { userId } : {}) },
+        }),
+        6_000,
+        "createAgentConversation",
+      );
       return sendJson(response, 201, conversation, { "cache-control": "private, no-store" });
     } catch (error) {
       return apiError(
@@ -1889,16 +2496,29 @@ export default async function handler(request, response) {
   }
 
   if (request.method === "GET" && path.startsWith("/api/v1/agent/conversations/")) {
-    const conversationId = path.slice("/api/v1/agent/conversations/".length);
-    if (!conversationId || conversationId.includes("/")) {
-      // allow message subpath to fall through if needed
-    }
-    if (conversationId && !conversationId.includes("/")) {
-      const conversation = await getAgentConversation(conversationId);
-      if (!conversation) {
-        return apiError(response, 404, "CONVERSATION_NOT_FOUND", "Agent conversation was not found");
+    try {
+      const conversationId = path.slice("/api/v1/agent/conversations/".length);
+      if (!conversationId || conversationId.includes("/")) {
+        // allow message subpath to fall through if needed
       }
-      return sendJson(response, 200, conversation, { "cache-control": "private, no-store" });
+      if (conversationId && !conversationId.includes("/")) {
+        const authSupabase = serverSupabase();
+        const session = authSupabase ? await loadSession(authSupabase, request) : null;
+        const userId = authenticatedUserId(session);
+        const conversation = await getAgentConversation(conversationId);
+        if (!conversation) {
+          return apiError(response, 404, "CONVERSATION_NOT_FOUND", "Agent conversation was not found");
+        }
+        assertAgentConversationAccess(conversation, userId);
+        return sendJson(response, 200, conversation, { "cache-control": "private, no-store" });
+      }
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "INTERNAL_ERROR",
+        error.message || "Unable to load agent conversation",
+      );
     }
   }
 
@@ -1910,12 +2530,24 @@ export default async function handler(request, response) {
       const session = authSupabase ? await loadSession(authSupabase, request) : null;
       const { userId: _ignoredUserId, user_id: _ignoredSnakeUserId, ...clientContext } = body.context || {};
       const userId = authenticatedUserId(session);
-      const result = await postAgentConversationMessage(conversationId, {
-        ...body,
-        channel: body.channel || "web",
-        wait: body.wait !== false,
-        context: { ...clientContext, ...(userId ? { userId } : {}) },
-      });
+      const conversation = await getAgentConversation(conversationId);
+      if (!conversation) {
+        return apiError(response, 404, "CONVERSATION_NOT_FOUND", "Agent conversation was not found");
+      }
+      assertAgentConversationAccess(conversation, userId);
+      const requestedTimeout = Number(body.timeout_ms || body.timeoutMs || 8_000);
+      const waitTimeout = Math.min(Math.max(requestedTimeout, 1_000), 30_000);
+      const result = await withHardTimeout(
+        postAgentConversationMessage(conversationId, {
+          ...body,
+          channel: body.channel || "web",
+          wait: body.wait !== false,
+          timeout_ms: waitTimeout,
+          context: { ...clientContext, ...(userId ? { userId } : {}) },
+        }),
+        waitTimeout + 8_000,
+        "postAgentConversationMessage",
+      );
       return sendJson(response, 200, result, { "cache-control": "private, no-store" });
     } catch (error) {
       return apiError(
@@ -1985,6 +2617,20 @@ export default async function handler(request, response) {
       const session = launchSupabase ? await loadSession(launchSupabase, request) : null;
       const userId = authenticatedUserId(session);
       const draftId = path.split("/")[5];
+      const approvalDraft = await ownedLaunchDraft(launchSupabase, userId, draftId);
+      if (!approvalDraft) {
+        return apiError(response, 404, "LAUNCH_DRAFT_NOT_FOUND", "The launch draft was not found");
+      }
+      await recordAgentApprovalShadow({
+        actorId: userId,
+        action: "launch.prepare",
+        resourceType: "go_launch_draft",
+        resourceId: draftId,
+        parameters: launchApprovalParameters(approvalDraft),
+        status: "approved",
+        legacyConfirmationKind: "explicit_boolean",
+        legacyRequestId: request.headers["x-request-id"] || undefined,
+      });
       const result = await executeLiveLaunchDraft({ supabase: launchSupabase, userId, draftId });
       return sendJson(response, 200, result, { "cache-control": "private, no-store" });
     } catch (error) {
@@ -2000,7 +2646,10 @@ export default async function handler(request, response) {
   if (request.method === "GET" && /^\/api\/v1\/agent\/tasks\/[0-9a-f-]{36}$/i.test(path)) {
     try {
       const taskId = path.split("/").pop();
-      const task = await getAgentTask(taskId);
+      const taskSupabase = serverSupabase();
+      const session = taskSupabase ? await loadSession(taskSupabase, request) : null;
+      const userId = authenticatedUserId(session);
+      const task = await getAgentTask(taskId, userId);
       if (!task) return apiError(response, 404, "TASK_NOT_FOUND", "Agent task was not found");
       return sendJson(response, 200, {
         task_id: task.taskId || task.task_id,
@@ -2017,6 +2666,96 @@ export default async function handler(request, response) {
     }
   }
 
+  if (request.method === "GET" && path === "/api/v1/agent/events") {
+    try {
+      const eventSupabase = serverSupabase();
+      const session = eventSupabase ? await loadSession(eventSupabase, request) : null;
+      const userId = authenticatedUserId(session);
+      const url = new URL(request.url || "/", "https://narraops.invalid");
+      const taskId = String(url.searchParams.get("taskId") || "");
+      if (!/^[0-9a-f-]{36}$/i.test(taskId)) {
+        return apiError(response, 400, "VALIDATION_ERROR", "taskId is required");
+      }
+      const afterSequence = Math.max(0, Number(url.searchParams.get("cursor") || 0) || 0);
+      const events = await listAgentTaskEvents(taskId, userId, { afterSequence, limit: 200 });
+      if (!events) return apiError(response, 404, "TASK_NOT_FOUND", "Agent task was not found");
+      const nextCursor = events.length
+        ? String(events.at(-1).sequence || afterSequence)
+        : String(afterSequence);
+      return sendJson(response, 200, {
+        schema_version: "agent.events.v1",
+        task_id: taskId,
+        events,
+        next_cursor: nextCursor,
+      }, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(response, error.status || 500, error.code || "EVENT_READ_FAILED", error.message || "Unable to read Agent events");
+    }
+  }
+
+  if (
+    process.env.AGENT_APPROVAL_API_ENABLED === "true"
+    && /^\/api\/v1\/agent\/approvals\/[0-9a-f-]{36}(?:\/(?:approve|reject))?$/i.test(path)
+  ) {
+    try {
+      const approvalSupabase = serverSupabase();
+      const session = approvalSupabase ? await loadSession(approvalSupabase, request) : null;
+      await handleAgentApprovalRoute({ request, response, session });
+      return;
+    } catch (error) {
+      return apiError(
+        response,
+        approvalErrorStatus(error),
+        error.code || "APPROVAL_REQUEST_FAILED",
+        error.message || "Unable to process approval",
+      );
+    }
+  }
+
+  if (
+    process.env.AGENT_MEMORY_API_ENABLED === "true"
+    && (
+      path === "/api/v1/agent/memories"
+      || path === "/api/v1/agent/memories/proposals"
+      || /^\/api\/v1\/agent\/memories\/[0-9a-f-]{36}\/(?:confirm|reject|forget)$/i.test(path)
+    )
+  ) {
+    try {
+      const memorySupabase = serverSupabase();
+      const session = memorySupabase ? await loadSession(memorySupabase, request) : null;
+      await handleAgentMemoryRoute({ request, response, session });
+      return;
+    } catch (error) {
+      return apiError(
+        response,
+        memoryErrorStatus(error),
+        error.code || "AGENT_MEMORY_REQUEST_FAILED",
+        error.message || "Unable to process Agent memory",
+      );
+    }
+  }
+
+  if (request.method === "POST" && /^\/api\/v1\/agent\/tasks\/[0-9a-f-]{36}\/cancel$/i.test(path)) {
+    try {
+      const taskSupabase = serverSupabase();
+      const session = taskSupabase ? await loadSession(taskSupabase, request) : null;
+      const userId = authenticatedUserId(session);
+      const taskId = path.split("/")[5];
+      const body = await readBody(request);
+      const task = await cancelAgentTask(taskId, userId, body.reason);
+      if (!task) return apiError(response, 404, "TASK_NOT_FOUND", "Agent task was not found");
+      return sendJson(response, 200, {
+        task_id: task.taskId,
+        status: task.status,
+        progress: task.progress,
+        updated_at: task.updatedAt,
+        ...(task.failure ? { failure: task.failure } : {}),
+      }, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(response, error.status || 500, error.code || "TASK_CANCEL_FAILED", error.message || "Unable to cancel Agent task");
+    }
+  }
+
   if (request.method === "POST" && /^\/api\/v1\/go\/launch-drafts\/[0-9a-f-]{36}\/submit$/i.test(path)) {
     try {
       const body = await readBody(request);
@@ -2024,11 +2763,33 @@ export default async function handler(request, response) {
       const session = launchSupabase ? await loadSession(launchSupabase, request) : null;
       const userId = authenticatedUserId(session);
       const draftId = path.split("/")[5];
+      const approvalDraft = await ownedLaunchDraft(launchSupabase, userId, draftId);
+      if (!approvalDraft) {
+        return apiError(response, 404, "LAUNCH_DRAFT_NOT_FOUND", "The launch draft was not found");
+      }
       const result = await submitDirectLaunchDraft({
         supabase: launchSupabase,
         userId,
         draftId,
         signedTransactionBase64: body.signedTransactionBase64 || body.signed_transaction_base64,
+      });
+      const expected = approvalDraft.metadata?.direct_execution || {};
+      await recordAgentApprovalShadow({
+        actorId: userId,
+        action: "launch.broadcast",
+        resourceType: "go_launch_draft",
+        resourceId: draftId,
+        parameters: {
+          message_hash: expected.message_hash || null,
+          mint_address: expected.mint_address || null,
+          cooking_wallet_group_id:
+            expected.cooking_wallet_group_id
+            || approvalDraft.metadata?.cooking_wallet_group_id
+            || null,
+        },
+        status: "consumed",
+        legacyConfirmationKind: "verified_wallet_signature",
+        legacyRequestId: request.headers["x-request-id"] || undefined,
       });
       return sendJson(response, 200, result, { "cache-control": "private, no-store" });
     } catch (error) {
@@ -2053,6 +2814,21 @@ export default async function handler(request, response) {
         walletGroupId: body.walletGroupId || body.wallet_group_id,
         signedTransactionBase64: body.signedTransactionBase64 || body.signed_transaction_base64,
         messageHash: body.messageHash || body.message_hash,
+      });
+      const encoded = String(body.signedTransactionBase64 || body.signed_transaction_base64 || "");
+      await recordAgentApprovalShadow({
+        actorId: userId,
+        action: "swap.broadcast",
+        resourceType: "asset_wallet_group",
+        resourceId: body.walletGroupId || body.wallet_group_id,
+        parameters: {
+          message_hash: body.messageHash || body.message_hash || null,
+          signed_transaction_digest: createHash("sha256").update(encoded).digest("hex"),
+          provider: "jupiter",
+        },
+        status: "consumed",
+        legacyConfirmationKind: "verified_wallet_signature",
+        legacyRequestId: request.headers["x-request-id"] || undefined,
       });
       return sendJson(response, 200, result, { "cache-control": "private, no-store" });
     } catch (error) {
@@ -2291,14 +3067,14 @@ export default async function handler(request, response) {
   } catch (error) {
     console.error("api_request_failed", {
       path,
-      code: error.code || "INTERNAL_ERROR",
-      message: error.message,
+      code: error?.code || "INTERNAL_ERROR",
+      status: error?.status || 500,
+      message: error?.message || String(error),
+      stack: error?.stack || null,
     });
-    return apiError(
-      response,
-      error.status || 500,
-      error.code || "INTERNAL_ERROR",
-      error.status ? error.message : "Unexpected API error",
-    );
+    const status = Number(error?.status) || 500;
+    const code = error?.code || "INTERNAL_ERROR";
+    const message = String(error?.message || error || "Unexpected API error");
+    return apiError(response, status, code, message);
   }
 }

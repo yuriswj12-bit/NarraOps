@@ -1,4 +1,8 @@
 // @ts-nocheck
+function unwrapCreatedTask(created) {
+  return created?.task || created;
+}
+
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { ApiError, errorPayload, statusCodeFor } from "./errors.ts";
@@ -127,7 +131,7 @@ async function waitForTaskCompletion(manager, taskId, timeoutMs = 8_000) {
   return task;
 }
 
-function startSse(req, res, manager, config, requestId, taskIdFilter) {
+async function startSse(req, res, manager, config, requestId, taskIdFilter) {
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-cache, no-transform",
@@ -149,7 +153,10 @@ function startSse(req, res, manager, config, requestId, taskIdFilter) {
   };
   manager.on("taskEvent", listener);
   if (taskIdFilter) {
-    for (const event of manager.eventsForTask(taskIdFilter)) listener(event);
+    const replay = manager.loadEventsForTask
+      ? await manager.loadEventsForTask(taskIdFilter)
+      : manager.eventsForTask(taskIdFilter);
+    for (const event of replay) listener(event);
   }
   const heartbeat = setInterval(() => res.write(`: heartbeat ${Date.now()}\n\n`), config.sseHeartbeatMs);
   const cleanup = () => {
@@ -285,7 +292,7 @@ export function createApplication({ config, logger, repository, conversationRepo
       }
 
       if (req.method === "GET" && url.pathname === "/api/v1/events") {
-        startSse(req, res, manager, config, requestId, url.searchParams.get("taskId"));
+        await startSse(req, res, manager, config, requestId, url.searchParams.get("taskId"));
         return;
       }
 
@@ -748,10 +755,10 @@ export function createApplication({ config, logger, repository, conversationRepo
             ...(message.command ? { command: message.command } : { input: message.message }),
             parameters: { context: message.context },
           });
-          task = await manager.create(parsed.type, parsed.input, requestId, {
+          task = unwrapCreatedTask(await manager.create(parsed.type, parsed.input, requestId, {
             ...parsed.metadata,
             conversation_id: conversation.conversationId,
-          });
+          }));
           if (message.wait) inlineWaitingTaskIds.add(task.taskId);
           await conversations.bindTask(conversation.conversationId, task.taskId);
           const resultTask = message.wait
@@ -798,19 +805,19 @@ export function createApplication({ config, logger, repository, conversationRepo
         }
 
         if (url.pathname === "/api/v1/narratives/scan") {
-          task = await manager.create("narrative.scan", validateNarrativeScan(body), requestId, policyForType("narrative.scan"));
+          task = unwrapCreatedTask(await manager.create("narrative.scan", validateNarrativeScan(body), requestId, policyForType("narrative.scan")));
         } else if (url.pathname === "/api/v1/narratives/generate") {
-          task = await manager.create("narrative.generate", validateNarrativeGenerate(body), requestId, policyForType("narrative.generate"));
+          task = unwrapCreatedTask(await manager.create("narrative.generate", validateNarrativeGenerate(body), requestId, policyForType("narrative.generate")));
         } else if (url.pathname === "/api/v1/launch/packages") {
-          task = await manager.create("launch.package", validateLaunchPackage(body), requestId, policyForType("launch.package"));
+          task = unwrapCreatedTask(await manager.create("launch.package", validateLaunchPackage(body), requestId, policyForType("launch.package")));
         } else if (url.pathname === "/api/v1/agent/tasks") {
           const command = validateAgentTask(body);
-          task = await manager.create(command.type, command.input, requestId, command.metadata);
+          task = unwrapCreatedTask(await manager.create(command.type, command.input, requestId, command.metadata));
           sendJson(res, 202, toGoTask(task), requestId);
           return;
         } else if (url.pathname === "/api/v1/market/dev-wallets/scan") {
           const command = validateAgentTask({ type: "dev.market.scan", input: body });
-          task = await manager.create(command.type, command.input, requestId, command.metadata);
+          task = unwrapCreatedTask(await manager.create(command.type, command.input, requestId, command.metadata));
           sendJson(res, 202, toGoTask(task), requestId);
           return;
         }

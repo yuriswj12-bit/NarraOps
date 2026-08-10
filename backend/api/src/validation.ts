@@ -29,6 +29,13 @@ const TASK_TYPES = new Set([
 ]);
 const CHAINS = new Set(["solana", "bsc", "robinhood"]);
 const PORTFOLIO_PERIODS = new Set(["1d", "3d", "7d", "30d", "90d", "all"]);
+const CONTEXT_REF_KINDS = new Set([
+  "pulse.narrative_snapshot",
+  "pulse.opportunity",
+  "assets.wallet_group",
+  "assets.wallet",
+  "agent.artifact",
+]);
 const MONEY_PATTERN = /^(?:0|[1-9]\d{0,17})(?:\.\d{1,18})?$/;
 
 function isObject(value) {
@@ -259,6 +266,32 @@ export function validateConversationCreate(body) {
   };
 }
 
+function validateContextRefs(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 20) {
+    throw new ApiError(400, "VALIDATION_ERROR", "contextRefs must be an array with at most 20 entries");
+  }
+  const seen = new Set();
+  return value.map((ref, index) => {
+    if (!isObject(ref)) throw new ApiError(400, "VALIDATION_ERROR", `contextRefs[${index}] must be an object`);
+    base(ref);
+    const kind = string(ref.kind, `contextRefs[${index}].kind`, { required: true, max: 64 });
+    if (!CONTEXT_REF_KINDS.has(kind)) {
+      throw new ApiError(400, "VALIDATION_ERROR", `Unsupported context ref kind: ${kind}`);
+    }
+    const id = string(ref.id, `contextRefs[${index}].id`, { required: true, max: 256 });
+    const key = `${kind}:${id}`;
+    if (seen.has(key)) throw new ApiError(400, "VALIDATION_ERROR", `Duplicate context ref: ${key}`);
+    seen.add(key);
+    return {
+      kind,
+      id,
+      version: string(ref.version, `contextRefs[${index}].version`, { max: 128 }),
+      digest: string(ref.digest, `contextRefs[${index}].digest`, { max: 256 }),
+    };
+  });
+}
+
 export function validateConversationMessage(body) {
   base(body);
   const message = string(body.message, "message", { required: true, max: 8_000 });
@@ -277,6 +310,7 @@ export function validateConversationMessage(body) {
       currentView: string(context.currentView, "context.currentView", { max: 50 }) || "go",
       projectId: string(context.projectId, "context.projectId", { max: 100 }),
       userId: string(context.userId || context.user_id, "context.userId", { max: 128 }),
+      contextRefs: validateContextRefs(context.contextRefs || context.context_refs),
     },
   };
 }

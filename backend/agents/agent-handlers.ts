@@ -9,7 +9,7 @@ function slug(value, fallback) {
   return result || fallback;
 }
 
-async function parseTradePlan(input, side, services, context) {
+async function parseTradePlan(input, side, services, context, readWalletGroups) {
   const prompt = String(input.prompt || input.agent_input?.raw_input || input.agent_input?.arguments || "").trim();
   const chain = /\b(bsc|bnb)\b/i.test(prompt) ? "bsc" : "solana";
   const tokenAddress = extractContractAddress(prompt);
@@ -18,9 +18,10 @@ async function parseTradePlan(input, side, services, context) {
   const namedGroupMatch = prompt.match(/([^\s,，]+)\s*(?:钱包组|组|wallet\s*group|group)/i);
   const groupMatch = prompt.match(/(?:wallet\s*group|钱包组|cooking\s*group|bundled\s*group)\s*[:：]?\s*([^\s,，]+)/i);
   const positionalGroup = /^\/(?:buy|sell|batch-buy|batch-sell)\b/i.test(prompt) ? prompt.split(/\s+/).at(-1) : null;
-  const groupRef = namedGroupMatch?.[1] || groupMatch?.[1] || positionalGroup || null;
+  const groupRef = groupMatch?.[1] || namedGroupMatch?.[1] || positionalGroup || null;
   const ownerUserId = context.userId || input.context?.userId || input.context?.user_id || null;
-  const groups = await Promise.resolve(services.walletGroupRepository?.listGroups?.(ownerUserId) || []);
+  const walletGroupRead = await readWalletGroups(ownerUserId, context);
+  const groups = walletGroupRead.groups;
   const group = groups.find((candidate) => candidate.groupId === groupRef)
     || groups.find((candidate) => candidate.name?.toLowerCase?.() === String(groupRef || "").toLowerCase())
     || groups.find((candidate) => groupRef && candidate.name?.toLowerCase?.().includes(String(groupRef).toLowerCase()));
@@ -48,6 +49,9 @@ async function parseTradePlan(input, side, services, context) {
     request_id: context.requestId,
     status: "requires_user_confirmation",
     execution_mode: "confirmation_required",
+    ...(walletGroupRead.tool
+      ? { wallet_context_tool: walletGroupRead.tool }
+      : {}),
     missing: [
       ...(!tokenAddress ? ["token_address"] : []),
       ...(!group ? ["wallet_group"] : []),
@@ -81,12 +85,77 @@ async function recoverPendingTradePlan(context, services) {
 
 export function createAgentHandlers(integrations, services = {}) {
   const pendingTradePlans = new Map();
+  const generateLaunchContent = (input, context) => (
+    services.modelContentGenerator
+      ? services.modelContentGenerator(input, context)
+      : generateStructuredLaunchContent(input)
+  );
+  const executeReadTool = async (name, version, input, context, permissions) => {
+    if (!services.toolRegistry) return null;
+    const controller = new AbortController();
+    return services.toolRegistry.execute(name, version, {
+      requestId: context.requestId,
+      traceId: context.requestId,
+      taskId: context.taskId,
+      actor: {
+        actorId: context.userId || "anonymous",
+        permissions,
+      },
+      policy: {
+        profile: "agent-task",
+        permissions,
+      },
+      idempotencyKey: `${context.requestId}:${name}:${version}`,
+      signal: controller.signal,
+      emit: async (event) => {
+        context.emitEvent(event.type, event.payload);
+      },
+    }, input);
+  };
+  const readPublicLink = async (url, timeoutMs, context) => {
+    const toolResult = await executeReadTool(
+      "research.public_link.read",
+      "1.0.0",
+      { url, timeoutMs },
+      context,
+      ["research:read"],
+    );
+    return {
+      data: toolResult?.status === "succeeded"
+        ? toolResult.data
+        : await fetchNarrativeLink(url, { timeoutMs }),
+      tool: toolResult
+        ? { name: "research.public_link.read", version: "1.0.0" }
+        : null,
+    };
+  };
+  const readWalletGroups = async (ownerUserId, context) => {
+    const toolResult = await executeReadTool(
+      "assets.wallet_groups.list",
+      "1.0.0",
+      {},
+      context,
+      ["assets:read"],
+    );
+    return {
+      groups: toolResult?.status === "succeeded"
+        ? toolResult.data.groups
+        : await Promise.resolve(
+            services.walletGroupRepository?.listGroups?.(ownerUserId) || [],
+          ),
+      tool: toolResult
+        ? { name: "assets.wallet_groups.list", version: "1.0.0" }
+        : null,
+    };
+  };
   return {
     async "agent.chat"(input, context) {
       const latestDraft = await latestConversationDraft(context, services);
+      const safeResolvedContext = input?.context?.resolved_context?.safeModelContext;
       return {
         mode: "assistant",
         request: String(input.prompt || input.agent_input?.arguments || "").slice(0, 8_000),
+        ...(safeResolvedContext ? { context: safeResolvedContext } : {}),
         ...(latestDraft
           ? {
               latest_launch_context: {
@@ -107,12 +176,15 @@ export function createAgentHandlers(integrations, services = {}) {
 
     async "narrative.scan"(input, context) {
       const sourceUrl = extractPublicUrl(input.prompt || input.query || input.source_url || "");
-      const narrative = sourceUrl
-        ? await fetchNarrativeLink(sourceUrl, { timeoutMs: Number(input.link_timeout_ms || 8_000) })
-        : { status: "data-gap", reason: "A public source URL is required for live narrative scanning" };
+      const linkRead = sourceUrl
+        ? await readPublicLink(sourceUrl, Number(input.link_timeout_ms || 8_000), context)
+        : null;
+      const narrative = linkRead?.data
+        || { status: "data-gap", reason: "A public source URL is required for live narrative scanning" };
       const result = {
         scanId: `scan_${context.taskId}`,
         mode: narrative.status === "live" ? "live" : "data-gap",
+        ...(linkRead?.tool ? { tool: linkRead.tool } : {}),
         signals: narrative.status === "live" ? [{
           signalId: `sig_${context.taskId}_1`,
           title: narrative.title || narrative.summary || "Live public source",
@@ -128,11 +200,11 @@ export function createAgentHandlers(integrations, services = {}) {
 
     async "narrative.generate"(input, context) {
       const base = input.brief || input.signalId || "agent narrative";
-      const generated = await generateStructuredLaunchContent({
+      const generated = await generateLaunchContent({
         prompt: String(base),
         sourceText: String(base),
         language: input?.context?.language === "zh" ? "zh" : "en",
-      });
+      }, context);
       const ticker = slug(generated.content.symbol || base, "narra").replaceAll("-", "").slice(0, 8).toUpperCase();
       const result = {
         narrativeId: `nar_${context.taskId}`,
@@ -164,12 +236,24 @@ export function createAgentHandlers(integrations, services = {}) {
 
     async "narrative.recommend"(input, context) {
       const topic = input.prompt || "social meme opportunities";
-      const candidates = services.narrativeRepository?.listActive
-        ? await services.narrativeRepository.listActive({ topic, limit: 12 })
-        : [];
+      const toolResult = await executeReadTool(
+        "pulse.narratives.list",
+        "1.0.0",
+        { topic, limit: 12 },
+        context,
+        ["pulse:read"],
+      );
+      const candidates = toolResult?.status === "succeeded"
+        ? toolResult.data.narratives
+        : services.narrativeRepository?.listActive
+          ? await services.narrativeRepository.listActive({ topic, limit: 12 })
+          : [];
       const result = {
         mode: candidates.length ? "live" : "data-gap",
         topic,
+        ...(toolResult
+          ? { tool: { name: "pulse.narratives.list", version: "1.0.0" } }
+          : {}),
         recommendations: candidates.map((candidate) => ({
           narrative_id: candidate.narrative_id,
           title: candidate.original_text,
@@ -189,11 +273,11 @@ export function createAgentHandlers(integrations, services = {}) {
 
     async "meme.create"(input, context) {
       const prompt = input.prompt || "agent-native meme";
-      const generated = await generateStructuredLaunchContent({
+      const generated = await generateLaunchContent({
         prompt: String(prompt),
         sourceText: String(prompt),
         language: input?.context?.language === "zh" ? "zh" : "en",
-      });
+      }, context);
       const ticker = slug(generated.content.symbol || prompt, "narra").replaceAll("-", "").slice(0, 8).toUpperCase();
       const result = {
         mode: generated.used_llm ? "live_llm" : "unavailable",
@@ -231,9 +315,12 @@ export function createAgentHandlers(integrations, services = {}) {
         return { ...result, card: { type: "launch_draft", data: result } };
       }
       const narrativeUrl = launchContext.narrativeUrl;
-      const narrative = await fetchNarrativeLink(narrativeUrl, {
-        timeoutMs: Number(input.link_timeout_ms || 6_000),
-      });
+      const linkRead = await readPublicLink(
+        narrativeUrl,
+        Number(input.link_timeout_ms || 6_000),
+        context,
+      );
+      const narrative = linkRead.data;
       const language = input?.context?.language === "zh" ? "zh" : "en";
       const sourceText = [
         narrative?.content,
@@ -245,11 +332,11 @@ export function createAgentHandlers(integrations, services = {}) {
       ].filter(Boolean).join("\n");
       const chain = normalizeLaunchChain(input.chain || sourceText || input.prompt);
       const platform = resolveLaunchPlatform({ chain, platform: input.platform });
-      const generated = await generateStructuredLaunchContent({
+      const generated = await generateLaunchContent({
         prompt: input.prompt || "",
         sourceText,
         language,
-      });
+      }, context);
       const token = buildDraftMetadata({
         narrative,
         token: {
@@ -284,6 +371,7 @@ export function createAgentHandlers(integrations, services = {}) {
         metadata: {
           content_provider: generated.provider,
           used_llm: Boolean(generated.used_llm),
+          ...(linkRead.tool ? { research_tool: linkRead.tool } : {}),
         },
       };
       const draft = services.launchDraftRepository?.create
@@ -337,7 +425,13 @@ export function createAgentHandlers(integrations, services = {}) {
     },
 
     async "trade.buy.batch"(input, context) {
-      const plan = await parseTradePlan(input, "buy", services, context);
+      const plan = await parseTradePlan(
+        input,
+        "buy",
+        services,
+        context,
+        readWalletGroups,
+      );
       pendingTradePlans.set(context.conversationId || context.taskId, plan);
       context.emitEvent("trade_confirmation_required", { confirmation_id: plan.confirmation_id, side: "buy", missing: plan.missing });
       return {
@@ -352,7 +446,13 @@ export function createAgentHandlers(integrations, services = {}) {
     },
 
     async "trade.sell.batch"(input, context) {
-      const plan = await parseTradePlan(input, "sell", services, context);
+      const plan = await parseTradePlan(
+        input,
+        "sell",
+        services,
+        context,
+        readWalletGroups,
+      );
       pendingTradePlans.set(context.conversationId || context.taskId, plan);
       context.emitEvent("trade_confirmation_required", { confirmation_id: plan.confirmation_id, side: "sell", missing: plan.missing });
       return {
@@ -441,7 +541,7 @@ export function createAgentHandlers(integrations, services = {}) {
 
     async "market.trending"(input, context) {
       const chain = normalizeMarketChain(input.chain || input.prompt);
-      const scan = await integrations.marketTrending({
+      const toolInput = {
         chain,
         interval: input.interval || "1h",
         limit: input.limit || 20,
@@ -449,9 +549,27 @@ export function createAgentHandlers(integrations, services = {}) {
         direction: input.direction || "desc",
         filters: input.filters || [],
         platforms: input.platforms || [],
-        requestId: context.requestId,
+      };
+      const toolResult = await executeReadTool(
+        "market.gmgn.trending",
+        "2.0.0",
+        toolInput,
+        context,
+        ["market:read"],
+      );
+      const scan = toolResult?.status === "succeeded"
+        ? toolResult.data
+        : await integrations.marketTrending({
+            ...toolInput,
+            requestId: context.requestId,
+          });
+      const result = marketReadOnlyResult(scan, {
+        requested_chain: chain,
+        interval: input.interval || "1h",
+        ...(toolResult
+          ? { tool: { name: "market.gmgn.trending", version: "2.0.0" } }
+          : {}),
       });
-      const result = marketReadOnlyResult(scan, { requested_chain: chain, interval: input.interval || "1h" });
       return { ...result, card: { type: "market_trending", data: result } };
     },
 

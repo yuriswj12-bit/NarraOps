@@ -22,7 +22,11 @@ import {
   validateConversationCreate,
   validateConversationMessage,
 } from "../api/src/validation.ts";
-import { generateAgentReply } from "./llm-provider.ts";
+import {
+  generateAgentReply,
+  generateStructuredLaunchContent,
+} from "./llm-provider.ts";
+import { createLegacyReadToolRegistry } from "../agent-runtime/tools/legacy-read-tools.ts";
 
 const SUPPORTED_CHANNELS = new Set(["web", "telegram", "api"]);
 export const AGENT_CAPABILITIES = Object.freeze([
@@ -105,6 +109,19 @@ function messageFromTask(task, language = "en") {
     suggestion: zh
       ? "可以继续修改参数，或要求生成/更新发射预案。"
       : "You can refine parameters or ask to create/update a launch draft.",
+  };
+}
+
+function publicRuntimeKnowledge(runtimeKnowledge) {
+  const agent = runtimeKnowledge?.manifest?.agent;
+  if (!agent) return null;
+  return {
+    agent_slug: agent.slug,
+    agent_version: agent.version,
+    agent_version_id: agent.agentVersionId,
+    memory_count: Array.isArray(runtimeKnowledge.memories)
+      ? runtimeKnowledge.memories.length
+      : 0,
   };
 }
 
@@ -207,10 +224,134 @@ export function normalizeLaunchDraftPatch(patch = {}) {
   return normalized;
 }
 
+
+function withTimeout(promise, timeoutMs, label = "operation") {
+  const ms = Math.max(250, Number(timeoutMs) || 8_000);
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(Object.assign(new Error(`${label} timed out after ${ms}ms`), {
+          status: 504,
+          code: "AGENT_TIMEOUT",
+        }));
+      }, ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+
 export function createAgentRuntime(options = {}) {
   const config = options.config || {};
   const integrations = options.integrations || createIntegrationRegistry(config);
   const supabase = options.supabase || null;
+  const contextResolver = options.contextResolver || null;
+  const runtimeKnowledgeResolver = options.runtimeKnowledgeResolver || null;
+  const modelPolicyRouter = options.modelPolicyRouter || null;
+
+  async function generateConfiguredAgentReply(input, runtimeKnowledge) {
+    const policy = runtimeKnowledge?.manifest?.agent?.modelPolicy;
+    if (!modelPolicyRouter || !policy) return generateAgentReply(input);
+    const response = await modelPolicyRouter.generate(policy, {
+      requestId: randomUUID(),
+      operation: "agent.reply",
+      input: {
+        message: input.message,
+        history: input.history || [],
+        task: input.task || null,
+        capabilities: input.capabilities || [],
+        runtimeInstructions: input.runtimeInstructions || "",
+        durableMemories: input.durableMemories || [],
+      },
+      responseSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["content", "suggestion"],
+        properties: {
+          content: { type: "string" },
+          suggestion: { type: "string" },
+        },
+      },
+      metadata: {
+        taskId: input.task?.task_id || input.task?.taskId || randomUUID(),
+        locale: input.language === "zh" ? "zh-CN" : "en",
+        policyProfile: "agent-version",
+      },
+    }, {
+      timeoutMs: 8_000,
+    });
+    const structured = response.structuredOutput || {};
+    return {
+      provider: response.provider,
+      model: response.model,
+      content: structured.content || response.content || "",
+      suggestion: structured.suggestion || "",
+      used_llm: response.finishReason === "stop",
+      configured: response.finishReason === "stop",
+      ...(response.finishReason !== "stop"
+        ? { fallback_reason: response.finishReason }
+        : {}),
+    };
+  }
+
+  async function generateConfiguredLaunchContent(input, context = {}) {
+    if (!modelPolicyRouter || !runtimeKnowledgeResolver) {
+      return generateStructuredLaunchContent(input);
+    }
+    const runtimeKnowledge = await runtimeKnowledgeResolver.resolve(
+      context.userId || undefined,
+    );
+    const policy = runtimeKnowledge?.manifest?.agent?.modelPolicy;
+    if (!policy) return generateStructuredLaunchContent(input);
+    const response = await modelPolicyRouter.generate(policy, {
+      requestId: context.requestId || randomUUID(),
+      operation: "launch.content",
+      input: {
+        prompt: String(input.prompt || ""),
+        sourceText: String(input.sourceText || input.source_text || ""),
+        runtimeInstructions: runtimeKnowledge?.manifest?.agent?.systemInstructions || "",
+        durableMemories: runtimeKnowledge?.memories || [],
+      },
+      responseSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "name",
+          "symbol",
+          "description",
+          "narrative_thesis",
+          "risk_notes",
+        ],
+        properties: {
+          name: { type: "string" },
+          symbol: { type: "string" },
+          description: { type: "string" },
+          narrative_thesis: { type: "string" },
+          risk_notes: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+      },
+      metadata: {
+        taskId: context.taskId || randomUUID(),
+        locale: input.language === "zh" ? "zh-CN" : "en",
+        policyProfile: "agent-version",
+      },
+    }, {
+      timeoutMs: 8_000,
+    });
+    return {
+      provider: response.provider,
+      model: response.model,
+      content: response.structuredOutput || {},
+      used_llm: response.finishReason === "stop",
+      ...(response.finishReason !== "stop"
+        ? { error: response.finishReason }
+        : {}),
+    };
+  }
 
   const conversations =
     options.conversationRepository ||
@@ -238,6 +379,11 @@ export function createAgentRuntime(options = {}) {
       return data || [];
     },
   } : undefined);
+  const toolRegistry = options.toolRegistry || createLegacyReadToolRegistry({
+    integrations,
+    walletGroupRepository: options.walletGroupRepository,
+    narrativeRepository,
+  });
 
   const manager =
     options.taskManager ||
@@ -249,11 +395,21 @@ export function createAgentRuntime(options = {}) {
         conversationRepository: conversations,
         walletGroupRepository: options.walletGroupRepository,
         narrativeRepository,
+        modelContentGenerator: generateConfiguredLaunchContent,
+        toolRegistry,
       }),
       stepDelayMs: options.stepDelayMs ?? config.taskStepDelayMs ?? 20,
     });
 
   const waitingTaskIds = new Set();
+  if (options.recoverOnStart && manager.recover) {
+    void manager.recover().catch((error) => {
+      options.logger?.error?.("agent_recovery_failed", {
+        code: error?.code || "AGENT_RECOVERY_FAILED",
+        message: error?.message || String(error),
+      });
+    });
+  }
   manager.on("taskEvent", (event) => {
     void (async () => {
       if (event.type !== "task.completed" && event.type !== "task.failed") return;
@@ -364,8 +520,169 @@ export function createAgentRuntime(options = {}) {
         language: context.language || conversation.context?.language || "en",
         currentView: context.currentView || conversation.context?.currentView || "go",
         projectId: context.projectId || conversation.context?.projectId,
+        contextRefs: context.contextRefs || context.context_refs || [],
       },
     });
+
+    let resolvedContext = null;
+    const actorId =
+      context.userId ||
+      context.user_id ||
+      conversation.userId ||
+      conversation.context?.user_id ||
+      null;
+    if (validated.context.contextRefs?.length) {
+      if (!contextResolver) {
+        throw Object.assign(new Error("Agent context resolution is unavailable"), {
+          status: 503,
+          code: "CONTEXT_RESOLVER_UNAVAILABLE",
+        });
+      }
+      if (!actorId) {
+        throw Object.assign(new Error("Sign in before using private Pulse or Assets context"), {
+          status: 401,
+          code: "CONTEXT_AUTHENTICATION_REQUIRED",
+        });
+      }
+      resolvedContext = await contextResolver.resolve({
+        actor: {
+          actorId,
+          permissions: ["pulse:read", "assets:read", "research:read", "market:read"],
+        },
+        client: validated.context.currentView || channel,
+        conversationId: conversation.conversationId,
+        refs: validated.context.contextRefs,
+        policyProfile: "authenticated-user",
+      });
+    }
+    const runtimeKnowledge = runtimeKnowledgeResolver
+      ? await runtimeKnowledgeResolver.resolve(actorId || undefined).catch((error) => {
+          options.logger?.warn?.("agent_runtime_knowledge_unavailable", {
+            code: error?.code || "AGENT_RUNTIME_KNOWLEDGE_UNAVAILABLE",
+            message: error?.message || String(error),
+          });
+          return null;
+        })
+      : null;
+
+    const parsedEarly = validateAgentTask({
+      ...(validated.command
+        ? { command: validated.command }
+        : { input: validated.message }),
+      parameters: {
+        context: {
+          ...validated.context,
+          channel,
+          conversation_id: conversation.conversationId,
+          ...(resolvedContext ? { resolved_context: resolvedContext } : {}),
+        },
+      },
+    });
+
+    const hasLaunchContext = Array.isArray(conversation.messages) && conversation.messages.some(
+      (entry) => Array.isArray(entry?.blocks) && entry.blocks.some((block) => block?.type === "launch_draft"),
+    );
+    // Plain chat may use the fast path only when no persisted structured
+    // context needs the normal handler/repository resolution.
+    if (wait && parsedEarly.type === "agent.chat" && !hasLaunchContext && !supabase) {
+      const capabilities = AGENT_CAPABILITIES
+        .filter((capability) => !/mock|review-only|disabled/i.test(String(capability)))
+        .concat([
+          "Direct Pump.fun launch signed by the selected Cooking wallet after explicit user confirmation",
+          "Direct Solana Swap through a selected one-wallet Assets group after token security and explicit user confirmation",
+        ]);
+      if (runtimeKnowledge?.manifest?.agent?.capabilityManifest?.length) {
+        capabilities.push(...runtimeKnowledge.manifest.agent.capabilityManifest);
+      }
+      const syntheticTask = {
+        taskId: randomUUID(),
+        type: "agent.chat",
+        status: "succeeded",
+        progress: 100,
+        requires_confirmation: false,
+        execution_mode: "assistant",
+        executionMode: "assistant",
+        result: {
+          mode: "assistant",
+          request: validated.message,
+          ...(resolvedContext ? { context: resolvedContext.safeModelContext } : {}),
+        },
+      };
+      const agentReply = await generateConfiguredAgentReply({
+        message: validated.message,
+        language: validated.context.language,
+        history: Array.isArray(conversation.messages) ? conversation.messages.slice(-6) : [],
+        task: syntheticTask,
+        capabilities,
+        runtimeInstructions: runtimeKnowledge?.manifest?.agent?.systemInstructions || "",
+        durableMemories: runtimeKnowledge?.memories || [],
+      }, runtimeKnowledge).catch(() => ({
+        provider: "fallback",
+        used_llm: false,
+        configured: false,
+        fallback_reason: "chat_error",
+        content: validated.context.language === "zh"
+          ? "在。我可以帮你解读叙事、根据链接生成发射参数，并在你确认后进入 Pump 发射或钱包买卖。"
+          : "Here. I can explain narratives, turn links into launch fields, and enter Pump launch or wallet trade flows after you confirm.",
+        suggestion: validated.context.language === "zh"
+          ? "直接发链接，或者说“分析这个 Solana Meme / 帮我发射 / 买入某个代币”。"
+          : "Send a link, or say “analyze this Solana meme / launch this / buy a token”.",
+      }));
+
+      // Preserve conversation ordering before returning. The bounded write
+      // keeps the fast path deterministic without allowing persistence to
+      // hold the response indefinitely.
+      await withTimeout(
+        (async () => {
+          await conversations.addMessage(conversation.conversationId, {
+            role: "user",
+            content: validated.message,
+            command: validated.command,
+            channel,
+          }).catch(() => null);
+          await conversations.addMessage(conversation.conversationId, {
+            role: "assistant",
+            content: agentReply.content,
+            taskId: syntheticTask.taskId,
+            status: "succeeded",
+            channel,
+            blocks: [],
+          }).catch(() => null);
+        })(),
+        4_000,
+        "agent.chat.persist",
+      ).catch(() => null);
+
+      return {
+        schema_version: "agent.runtime.v1",
+        channel,
+        conversation_id: conversation.conversationId,
+        conversationId: conversation.conversationId,
+        task_id: syntheticTask.taskId,
+        taskId: syntheticTask.taskId,
+        status: "succeeded",
+        wait,
+        task: syntheticTask,
+        message: {
+          role: "assistant",
+          content: agentReply.content,
+          suggestion: agentReply.suggestion,
+          provider: agentReply.provider || "fallback",
+          used_llm: Boolean(agentReply.used_llm),
+        },
+        cards: [],
+        agent: {
+          provider: agentReply.provider || "fallback",
+          used_llm: Boolean(agentReply.used_llm),
+          configured: Boolean(agentReply.configured),
+          ...(agentReply.fallback_reason ? { fallback_reason: agentReply.fallback_reason } : {}),
+          ...(runtimeKnowledge
+            ? { knowledge: publicRuntimeKnowledge(runtimeKnowledge) }
+            : {}),
+        },
+        persistence: supabase ? "supabase" : "memory",
+      };
+    }
 
     await conversations.addMessage(conversation.conversationId, {
       role: "user",
@@ -383,6 +700,7 @@ export function createAgentRuntime(options = {}) {
           ...validated.context,
           channel,
           conversation_id: conversation.conversationId,
+          ...(resolvedContext ? { resolved_context: resolvedContext } : {}),
           channel_user_id:
             context.channelUserId ||
             context.channel_user_id ||
@@ -400,17 +718,33 @@ export function createAgentRuntime(options = {}) {
     });
 
     const requestId = context.requestId || randomUUID();
-    const task = await manager.create(parsed.type, parsed.input, requestId, {
-      ...parsed.metadata,
-      conversation_id: conversation.conversationId,
-      channel,
-      user_id:
-        context.userId ||
-        context.user_id ||
-        conversation.userId ||
-        conversation.context?.user_id ||
-        null,
-    });
+    const capabilities = AGENT_CAPABILITIES
+      .filter((capability) => !/mock|review-only|disabled/i.test(String(capability)))
+      .concat([
+        "Direct Pump.fun launch signed by the selected Cooking wallet after explicit user confirmation",
+        "Direct Solana Swap through a selected one-wallet Assets group after token security and explicit user confirmation",
+      ]);
+    if (runtimeKnowledge?.manifest?.agent?.capabilityManifest?.length) {
+      capabilities.push(...runtimeKnowledge.manifest.agent.capabilityManifest);
+    }
+
+    const created = await withTimeout(
+      manager.create(parsed.type, parsed.input, requestId, {
+        ...parsed.metadata,
+        conversation_id: conversation.conversationId,
+        channel,
+        user_id:
+          context.userId ||
+          context.user_id ||
+          conversation.userId ||
+          conversation.context?.user_id ||
+          null,
+      }),
+      6_000,
+      "agent.task.create",
+    );
+    const task = created.task || created;
+    const runDone = created.done || Promise.resolve();
     await conversations.bindTask(conversation.conversationId, task.taskId);
     if (wait) waitingTaskIds.add(task.taskId);
 
@@ -418,22 +752,46 @@ export function createAgentRuntime(options = {}) {
     let assistantMessage = null;
     let agentReply = null;
     if (wait) {
-      const completed = await waitForTask(task.taskId, { timeoutMs });
+      const completed = await withTimeout(
+        (async () => {
+          await Promise.race([
+            runDone.catch(() => null),
+            new Promise((resolve) => setTimeout(resolve, Math.max(250, timeoutMs))),
+          ]);
+          return manager.get(task.taskId);
+        })(),
+        timeoutMs + 1_000,
+        "agent.task.wait",
+      ).catch(async () => manager.get(task.taskId));
       waitingTaskIds.delete(task.taskId);
-      finalTask = publicTask(completed);
-      const restoredConversation = await conversations.get(conversation.conversationId);
-      agentReply = await generateAgentReply({
-        message: validated.message,
-        language: validated.context.language,
-        history: restoredConversation?.messages || [],
-        task: finalTask,
-        capabilities: AGENT_CAPABILITIES
-          .filter((capability) => !/mock|review-only|disabled/i.test(String(capability)))
-          .concat([
-            "Direct Pump.fun launch signed by the selected Cooking wallet after explicit user confirmation",
-            "Direct Solana Swap through a selected one-wallet Assets group after token security and explicit user confirmation",
-          ]),
-      });
+      finalTask = publicTask(completed || task);
+      const restoredConversation = await withTimeout(
+        conversations.get(conversation.conversationId),
+        4_000,
+        "agent.conversation.reload",
+      ).catch(() => conversation);
+      agentReply = await withTimeout(
+        generateConfiguredAgentReply({
+          message: validated.message,
+          language: validated.context.language,
+          history: restoredConversation?.messages || [],
+          task: finalTask,
+          capabilities,
+          runtimeInstructions: runtimeKnowledge?.manifest?.agent?.systemInstructions || "",
+          durableMemories: runtimeKnowledge?.memories || [],
+        }, runtimeKnowledge),
+        6_000,
+        "agent.reply",
+      ).catch(() => ({
+        provider: "fallback",
+        used_llm: false,
+        configured: false,
+        fallback_reason: "reply_timeout",
+        content: validated.context.language === "zh"
+          ? "任务处理超时，已保留当前进度。请重试或换一种说法。"
+          : "The task timed out. Please retry or rephrase.",
+        suggestion: validated.context.language === "zh" ? "可以再说一次，或直接发送链接。" : "Try again, or send a public link.",
+      }));
       assistantMessage = {
         role: "assistant",
         content: agentReply.content,
@@ -442,14 +800,18 @@ export function createAgentRuntime(options = {}) {
         used_llm: Boolean(agentReply.used_llm),
         ...(agentReply.model ? { model: agentReply.model } : {}),
       };
-      await conversations.addMessage(conversation.conversationId, {
-        role: "assistant",
-        content: agentReply.content,
-        taskId: completed?.taskId || task.taskId,
-        status: completed?.status || task.status,
-        channel,
-        blocks: assistantBlocksFromTask(completed),
-      });
+      await withTimeout(
+        conversations.addMessage(conversation.conversationId, {
+          role: "assistant",
+          content: agentReply.content,
+          taskId: completed?.taskId || task.taskId,
+          status: completed?.status || task.status,
+          channel,
+          blocks: assistantBlocksFromTask(completed || task),
+        }),
+        4_000,
+        "agent.assistant.persist",
+      ).catch(() => null);
     }
 
     return {
@@ -457,7 +819,7 @@ export function createAgentRuntime(options = {}) {
       channel,
       conversation_id: conversation.conversationId,
       task_id: task.taskId,
-      status: finalTask?.status || task.status,
+      status: finalTask?.status || task.status || "succeeded",
       wait,
       task: finalTask,
       message: assistantMessage,
@@ -473,6 +835,9 @@ export function createAgentRuntime(options = {}) {
             configured: Boolean(agentReply.configured),
             ...(agentReply.model ? { model: agentReply.model } : {}),
             ...(agentReply.fallback_reason ? { fallback_reason: agentReply.fallback_reason } : {}),
+            ...(runtimeKnowledge
+              ? { knowledge: publicRuntimeKnowledge(runtimeKnowledge) }
+              : {}),
           }
         : null,
       persistence: supabase ? "supabase" : "memory",
@@ -489,6 +854,10 @@ export function createAgentRuntime(options = {}) {
     updateLaunchDraft,
     waitForTask,
     getTask: (taskId) => manager.get(taskId),
+    getTaskForActor: (taskId, actorId) => manager.getForActor(taskId, actorId),
+    listTaskEvents: (taskId, actorId, options = {}) => manager.eventsForActor(taskId, actorId, options),
+    cancelTask: (taskId, actorId, reason) => manager.cancel(taskId, actorId, reason),
+    recoverTasks: (options = {}) => manager.recover(options),
     publicTask,
   };
 }

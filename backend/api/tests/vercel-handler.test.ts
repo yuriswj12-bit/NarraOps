@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import handlerModule, {
+  buildDirectPumpExecutionResponse,
+  handleAgentApprovalRoute,
+  handleAgentMemoryRoute,
   handleAssetsRoute,
 } from "../../../api/v1/[...path].ts";
 import goPlanHandlerModule from "../../../api/v1/go/plan.ts";
@@ -17,6 +20,38 @@ const goPlanHandler =
   typeof goPlanHandlerModule === "function"
     ? goPlanHandlerModule
     : (goPlanHandlerModule as { default: typeof goPlanHandlerModule }).default;
+
+test("Pump runtime metadata is additive to the legacy Go execution response", () => {
+  const input = {
+    status: "confirmed",
+    txHash: "pump-signature",
+    tokenAddress: "pump-mint",
+    cookingWalletGroupId: "cooking-group",
+    bundledWalletGroupId: "bundled-group",
+  };
+  const legacy = buildDirectPumpExecutionResponse(input);
+  const protectedResponse = buildDirectPumpExecutionResponse({
+    ...input,
+    runtimeExecutionId: "runtime-execution",
+  });
+  const { runtime_execution_id: runtimeExecutionId, ...legacyProjection } =
+    protectedResponse;
+
+  assert.equal(runtimeExecutionId, "runtime-execution");
+  assert.deepEqual(legacyProjection, legacy);
+  assert.deepEqual(Object.keys(legacy), [
+    "schema_version",
+    "status",
+    "provider",
+    "execution_mode",
+    "launchpad",
+    "tx_hash",
+    "token_address",
+    "cooking_wallet_group_id",
+    "bundled_wallet_group_id",
+    "bundled_wallet_count",
+  ]);
+});
 
 test("private narrative snapshot plan preserves source evidence without inventing analysis", () => {
   const response = buildNarrativeSnapshotPlanResponse({
@@ -565,6 +600,199 @@ test("Vercel Assets rejects anonymous and cross-user wallet-group access", async
       session: { user: { userId: userA, identities: [] } },
     }),
     ({ code }: { code: string }) => code === "WALLET_GROUP_NOT_FOUND",
+  );
+});
+
+test("Agent approval API is actor-scoped, same-origin, versioned, and uses server session auth time", async () => {
+  const actorId = "11111111-1111-4111-8111-111111111111";
+  const approvalId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const authenticatedAt = new Date().toISOString();
+  const approval = {
+    schemaVersion: "agent.approval.v1",
+    approvalId,
+    actorId,
+    status: "requested",
+    stateVersion: 1,
+  };
+  let decisionInput;
+  const readRecorder = responseRecorder();
+  await handleAgentApprovalRoute({
+    request: {
+      method: "GET",
+      url: `/api/v1/agent/approvals/${approvalId}`,
+      headers: {},
+    },
+    response: readRecorder.response,
+    session: { authenticatedAt, user: { userId: actorId } },
+    readApproval: async (observedApprovalId, observedActorId) => {
+      assert.equal(observedApprovalId, approvalId);
+      assert.equal(observedActorId, actorId);
+      return approval;
+    },
+  });
+  assert.equal(readRecorder.result().status, 200);
+  assert.equal(readRecorder.result().body.approvalId, approvalId);
+  assert.equal(readRecorder.result().headers.get("cache-control"), "private, no-store");
+
+  await assert.rejects(
+    handleAgentApprovalRoute({
+      request: {
+        method: "POST",
+        url: `/api/v1/agent/approvals/${approvalId}/approve`,
+        headers: { origin: "https://attacker.example" },
+        body: { expectedStateVersion: 1 },
+      },
+      response: responseRecorder().response,
+      session: { authenticatedAt, user: { userId: actorId } },
+      decideApproval: async () => approval,
+    }),
+    ({ code }: { code: string }) => code === "UNTRUSTED_REQUEST_ORIGIN",
+  );
+
+  const decisionRecorder = responseRecorder();
+  await handleAgentApprovalRoute({
+    request: {
+      method: "POST",
+      url: `/api/v1/agent/approvals/${approvalId}/approve`,
+      headers: { origin: "https://www.narraops.xyz" },
+      body: {
+        expectedStateVersion: 1,
+        recentAuthAt: "2099-01-01T00:00:00.000Z",
+      },
+    },
+    response: decisionRecorder.response,
+    session: { authenticatedAt, user: { userId: actorId } },
+    decideApproval: async (input) => {
+      decisionInput = input;
+      return { ...approval, status: "approved", stateVersion: 2 };
+    },
+  });
+  assert.equal(decisionRecorder.result().status, 200);
+  assert.equal(decisionInput.actorId, actorId);
+  assert.equal(decisionInput.decision, "approved");
+  assert.equal(decisionInput.expectedStateVersion, 1);
+  assert.equal(decisionInput.recentAuthAt, authenticatedAt);
+});
+
+test("Agent Memory API is actor-scoped, same-origin, proposal-first, and explicitly confirmed", async () => {
+  const actorId = "11111111-1111-4111-8111-111111111111";
+  const memoryId = "77777777-7777-4777-8777-777777777777";
+  const session = { user: { userId: actorId } };
+  let proposalInput;
+  const proposalRecorder = responseRecorder();
+  await handleAgentMemoryRoute({
+    request: {
+      method: "POST",
+      url: "/api/v1/agent/memories/proposals",
+      headers: {
+        origin: "https://www.narraops.xyz",
+        "idempotency-key": "memory:user-language:1",
+      },
+      body: {
+        kind: "user_preference",
+        content: "Prefer Chinese responses.",
+      },
+    },
+    response: proposalRecorder.response,
+    session,
+    proposeMemory: async (observedActorId, input) => {
+      assert.equal(observedActorId, actorId);
+      proposalInput = input;
+      return {
+        item: {
+          schemaVersion: "agent.memory_item.v1",
+          memoryId,
+          actorId,
+          status: "proposed",
+          stateVersion: 1,
+        },
+        idempotentReplay: false,
+      };
+    },
+  });
+  assert.equal(proposalRecorder.result().status, 201);
+  assert.equal(proposalInput.scope, "user");
+  assert.equal(proposalInput.source.type, "user_message");
+  assert.equal(proposalInput.idempotencyKey, "memory:user-language:1");
+
+  let decisionInput;
+  const confirmRecorder = responseRecorder();
+  await handleAgentMemoryRoute({
+    request: {
+      method: "POST",
+      url: `/api/v1/agent/memories/${memoryId}/confirm`,
+      headers: { origin: "https://www.narraops.xyz" },
+      body: { expectedStateVersion: 1 },
+    },
+    response: confirmRecorder.response,
+    session,
+    decideMemory: async (observedActorId, input) => {
+      assert.equal(observedActorId, actorId);
+      decisionInput = input;
+      return {
+        schemaVersion: "agent.memory_item.v1",
+        memoryId,
+        actorId,
+        status: "active",
+        stateVersion: 2,
+      };
+    },
+  });
+  assert.equal(confirmRecorder.result().status, 200);
+  assert.equal(decisionInput.confirmation, "user_explicit");
+  assert.equal(decisionInput.expectedStateVersion, 1);
+
+  const listRecorder = responseRecorder();
+  await handleAgentMemoryRoute({
+    request: {
+      method: "GET",
+      url: "/api/v1/agent/memories?limit=10",
+      headers: {},
+    },
+    response: listRecorder.response,
+    session,
+    listMemories: async (observedActorId, input) => {
+      assert.equal(observedActorId, actorId);
+      assert.deepEqual(input.scopes, ["user"]);
+      return [{ memoryId, actorId, status: "active" }];
+    },
+  });
+  assert.equal(listRecorder.result().body.memories.length, 1);
+  assert.equal(listRecorder.result().headers.get("cache-control"), "private, no-store");
+
+  const reviewRecorder = responseRecorder();
+  await handleAgentMemoryRoute({
+    request: {
+      method: "GET",
+      url: "/api/v1/agent/memories?review=true&limit=20",
+      headers: {},
+    },
+    response: reviewRecorder.response,
+    session,
+    listMemories: async (observedActorId, input) => {
+      assert.equal(observedActorId, actorId);
+      assert.deepEqual(input.statuses, ["proposed", "active"]);
+      return [
+        { memoryId, actorId, status: "proposed" },
+        { memoryId: "88888888-8888-4888-8888-888888888888", actorId, status: "active" },
+      ];
+    },
+  });
+  assert.equal(reviewRecorder.result().body.memories.length, 2);
+
+  await assert.rejects(
+    handleAgentMemoryRoute({
+      request: {
+        method: "POST",
+        url: `/api/v1/agent/memories/${memoryId}/forget`,
+        headers: { origin: "https://attacker.example" },
+        body: { expectedStateVersion: 2 },
+      },
+      response: responseRecorder().response,
+      session,
+      forgetMemory: async () => null,
+    }),
+    ({ code }: { code: string }) => code === "UNTRUSTED_REQUEST_ORIGIN",
   );
 });
 

@@ -86,6 +86,10 @@ const state = {
     seenCards: new Set(),
     swapPlans: new Map(),
     reconnects: 0,
+    memories: [],
+    memoryLoading: false,
+    memoryBusyIds: new Set(),
+    memoryError: null,
   },
   auth: { loading: true, session: null, busy: false },
   pulse: {
@@ -718,8 +722,8 @@ function getInitialConversation() {
     {
       role: "agent",
       timestamp: getMessageTime(),
-      contentZh: "Go 工作台已就绪。发送链接、文本或命令后，NarraOps 会返回结构化任务卡片和实时事件流。",
-      contentEn: "Go is ready. Send a link or describe a task. I’ll show an editable launch form only when a launch is needed.",
+      contentZh: "发送链接或描述任务。需要发射时，我会直接给出可编辑的参数表单。",
+      contentEn: "Send a link or describe a task. When a launch is needed, I will show an editable form directly.",
     },
   ];
 }
@@ -734,6 +738,9 @@ function launchDraftId(data = {}) {
 }
 
 function walletGroupOptions(groups, selected, { purpose = null, exclude = null } = {}) {
+  if (!state.auth.session) {
+    return `<option value="">${t("请先连接钱包", "Connect wallet first")}</option>`;
+  }
   const compatible = groups.filter((group) => {
     if (exclude && group.groupId === exclude) return false;
     if (!purpose) return true;
@@ -751,8 +758,6 @@ function renderLaunchDraftCard(card) {
   const data = card.data && typeof card.data === "object" ? card.data : {};
   const parameters = data.launch_parameters || {};
   const token = launchDraftToken(data);
-  const chain = parameters.chain || data.chain || "solana";
-  const platform = parameters.platform || data.platform?.id || data.platform || "pump";
   const draftId = launchDraftId(data);
   const groups = state.assets.groups.filter((group) => group.network === "solana" || group.network === "multi" || !group.network);
   const cooking = parameters.cooking_wallet_group_id || data.cooking_wallet_group_id || "";
@@ -763,33 +768,31 @@ function renderLaunchDraftCard(card) {
     <article class="go-launch-card" data-card-type="launch_draft" data-draft-id="${escapeHtml(draftId || "")}">
       <form class="go-launch-form" data-launch-draft-form>
         <div class="go-launch-grid">
-          <label class="go-field"><span>${t("代币名称", "Token name")}</span><input name="name" maxlength="32" value="${escapeHtml(token.name || "")}" placeholder="${t("填写代币名称", "Enter token name")}" required /></label>
-          <label class="go-field"><span>${t("代币符号", "Token symbol")}</span><input name="symbol" maxlength="13" value="${escapeHtml(token.symbol || "")}" placeholder="PEPE" required /></label>
+          <label class="go-field"><span>${t("名称 name", "Name name")}</span><input name="name" maxlength="32" value="${escapeHtml(token.name || "")}" placeholder="My Token" required /></label>
+          <label class="go-field"><span>${t("符号 symbol", "Symbol symbol")}</span><input name="symbol" maxlength="13" value="${escapeHtml(token.symbol || "")}" placeholder="MYTKN" required /></label>
         </div>
-        <label class="go-field"><span>${t("简介", "Description")}</span><textarea name="description" rows="3" maxlength="2000" placeholder="${t("一句话描述这个叙事", "Describe the narrative in one sentence")}" required>${escapeHtml(token.description || "")}</textarea></label>
-        <div class="go-launch-media-row">
-          <label class="go-launch-image-field go-field"><span>${t("代币图片 URL", "Token image URL")}</span><input name="image_url" type="url" value="${escapeHtml(token.image_url || "")}" placeholder="https://.../logo.png" required /><small>${token.image_url ? t("已从链接识别", "Detected from source") : t("需要补充图片", "Image required")}</small></label>
-          <label class="go-field"><span>X</span><input name="x_url" type="url" value="${escapeHtml(token.x_url || "")}" placeholder="https://x.com/..." /></label>
-          <label class="go-field"><span>${t("官网", "Website")}</span><input name="website_url" type="url" value="${escapeHtml(token.website_url || "")}" placeholder="https://..." /></label>
+        <label class="go-field go-field-full"><span>${t("简介 description", "Description description")}</span><textarea name="description" rows="3" maxlength="2000" placeholder="one-liner" required>${escapeHtml(token.description || "")}</textarea></label>
+        <div class="go-launch-grid">
+          <label class="go-field"><span>${t("代币图片 URL", "Token image URL")}</span><input name="image_url" type="url" value="${escapeHtml(token.image_url || "")}" placeholder="https://.../logo.png" required /></label>
+          <label class="go-field"><span>${t("首买 SOL", "Initial buy SOL")}</span><input name="initial_buy" inputmode="decimal" value="${escapeHtml(token.initial_buy || "0.05")}" placeholder="0.05" /></label>
         </div>
-        <div class="go-launch-grid go-launch-meta-row">
-          <label class="go-field"><span>${t("首买 SOL", "Initial buy SOL")}</span><input name="initial_buy" inputmode="decimal" value="${escapeHtml(token.initial_buy || "0")}" placeholder="0" /></label>
-          <label class="go-field"><span>${t("捆绑买入 / 钱包", "Bundled buy / wallet")}</span><input name="bundle_buy_per_wallet" inputmode="decimal" value="${escapeHtml(token.bundle_buy_per_wallet || "")}" placeholder="${t("可选", "Optional")}" /><small>${t("留空则不执行捆绑买入", "Leave blank to skip bundled buys")}</small></label>
+        <div class="go-launch-grid">
+          <label class="go-field"><span>X / Twitter</span><input name="x_url" type="url" value="${escapeHtml(token.x_url || "")}" placeholder="https://x.com/..." /></label>
+          <label class="go-field"><span>${t("官网 / Website", "Website")}</span><input name="website_url" type="url" value="${escapeHtml(token.website_url || "")}" placeholder="https://..." /></label>
         </div>
-        <div class="go-launch-readonly"><span>${t("网络 / 发射平台", "Network / launchpad")}</span><strong>${escapeHtml(String(chain))} · ${escapeHtml(String(platform))}</strong></div>
-        <div class="go-wallet-selection">
-          <div class="go-wallet-heading"><div><span>${t("资产", "Assets")}</span><strong>${t("选择钱包组", "Select wallet groups")}</strong></div><button type="button" class="go-assets-link" data-view-trigger="assets">${t("打开 Assets", "Open Assets")}</button></div>
-          <div class="go-launch-grid">
-            <label class="go-field"><span>${t("Cooking 钱包组", "Cooking wallet group")}</span><select name="cooking_wallet_group_id" required>${walletGroupOptions(groups, cooking, { purpose: "cooking" })}</select></label>
-            <label class="go-field"><span>${t("捆绑钱包组", "Bundled wallet group")}</span><select name="bundled_wallet_group_id" required>${walletGroupOptions(groups, bundled, { purpose: "general", exclude: cooking })}</select></label>
-          </div>
-          ${groups.length ? "" : `<p class="go-wallet-hint">${t("请先在 Assets 创建 Solana 钱包组，再回来选择。", "Create Solana wallet groups in Assets before launching.")}</p>`}
+        <div class="go-launch-grid">
+          <label class="go-field"><span>${t("Cooking 钱包组", "Cooking wallet group")}</span><select name="cooking_wallet_group_id" required>${walletGroupOptions(groups, cooking, { purpose: "cooking" })}</select></label>
+          <label class="go-field"><span>${t("捆绑钱包组", "Bundled wallet group")}</span><select name="bundled_wallet_group_id" required>${walletGroupOptions(groups, bundled, { purpose: "general", exclude: cooking })}</select></label>
         </div>
-        <div class="go-launch-actions"><span>${t("点击发射前会保存你修改的参数，并再次检查钱包组和执行配置。", "Your edits are saved before launch and execution configuration is checked again.")}</span><button type="submit" data-launch-action="launch" ${draftId ? "" : "disabled"}>${t("发射到 Pump", "Launch to Pump")}</button></div>
+        <input type="hidden" name="bundle_buy_per_wallet" value="${escapeHtml(token.bundle_buy_per_wallet || "")}" />
+        <div class="go-launch-actions">
+          <button type="submit" data-launch-action="launch" ${draftId ? "" : "disabled"}>${t("发射到 Pump", "Launch to Pump")}</button>
+        </div>
       </form>
     </article>
   `;
 }
+
 
 function renderStructuredCard(card) {
   if (!card) return "";
@@ -883,12 +886,8 @@ function renderMessageContent(message) {
   }
 
   const content = message.contentZh ? t(message.contentZh, message.contentEn) : message.content;
-  const suggestion = message.suggestionZh ? `
-    <div class="go-suggestion">
-      <span>${t("建议下一步", "Suggested next step")}</span>
-      <p>${t(message.suggestionZh, message.suggestionEn)}</p>
-    </div>
-  ` : "";
+  const suggestionText = message.suggestionZh ? t(message.suggestionZh, message.suggestionEn) : (message.suggestion || "");
+  const suggestion = suggestionText ? `<p class="go-soft-note">${escapeHtml(suggestionText)}</p>` : "";
 
   const error = message.lifecycle === "failed" ? `
     <div class="go-agent-error"><strong>${t("任务失败", "Task failed")}</strong><span>${escapeHtml(message.error || t("Agent 服务当前不可用。", "The Agent service is currently unavailable."))}</span><button type="button" data-agent-retry>${t("重试", "Retry")}</button></div>
@@ -907,78 +906,45 @@ function renderConversation() {
     if (message.role === "user") {
       return `
         <article class="go-message-row user">
-          <div class="go-message-content">
-            <div class="go-message-meta"><span>${message.timestamp || getMessageTime()}</span><strong>${t("你", "You")}</strong></div>
-            <div class="go-user-bubble">${escapeHtml(message.content)}</div>
-          </div>
-          <span class="go-user-avatar" aria-hidden="true"><i class="fa-solid fa-user"></i></span>
+          <div class="go-user-bubble">${escapeHtml(message.content)}</div>
         </article>
       `;
     }
-
     return `
       <article class="go-message-row agent">
-        <span class="go-agent-avatar" aria-hidden="true">N</span>
-        <div class="go-message-content">
-          <div class="go-message-meta"><strong>NarraOps Agent</strong><span>${message.timestamp || getMessageTime()}</span></div>
-          <div class="go-agent-response">${renderMessageContent(message)}</div>
-        </div>
+        <div class="go-agent-response">${renderMessageContent(message)}</div>
       </article>
     `;
   }).join("");
   container.scrollTop = container.scrollHeight;
 }
 
+
 function renderGo() {
   if (!state.conversation.length) {
     state.conversation = getInitialConversation();
     void restoreGoConversation().then((id) => { if (id) renderConversation(); });
   }
-  const quickActions = [
-    ["/narrative-trends", "fa-solid fa-arrow-trend-up", "叙事趋势", "Narrative Trends", "查看正在加速的互联网叙事和证据来源。", "Review accelerating internet narratives and public evidence."],
-    ["/analyze-meme", "fa-solid fa-magnifying-glass-chart", "分析叙事", "Analyze Narrative", "输入链接或合约，提取故事、来源、风险和重复度。", "Submit a link or contract to extract story, sources, risks, and crowding."],
-    ["/launch", "fa-solid fa-file-signature", "生成预案", "Create Plan", "把选中的叙事转成可审阅的 Launch-ready Plan。", "Turn a selected narrative into a reviewable launch-ready plan."],
-    ["/dev-market", "fa-solid fa-chart-line", "市场环境", "Market Context", "查看链上活跃度和同类 Meme 的历史样本。", "Review chain activity and historical comparable meme samples."],
-    ["/recent-summary", "fa-solid fa-clock-rotate-left", "研究总结", "Research Summary", "总结近期查看、保存和待复核的叙事。", "Summarize recently viewed, saved, and pending narrative reviews."],
-  ].map(([command, icon, zh, en, descriptionZh, descriptionEn]) => `
-    <button type="button" data-command="${command}" title="${t(descriptionZh, descriptionEn)}" aria-label="${t(`${zh}：${descriptionZh}`, `${en}: ${descriptionEn}`)}"><i class="${icon}" aria-hidden="true"></i><span>${t(zh, en)}</span></button>
-  `).join("");
 
   viewRoot.innerHTML = `
     <div class="go-workspace">
-      <section class="go-terminal" aria-label="NarraOps Agent">
-        <header class="go-agent-bar">
-          <div class="go-agent-identity">
-            <span class="go-agent-avatar" aria-hidden="true">N</span>
-            <strong>NarraOps Agent</strong>
-            <span class="go-online"><i class="fa-solid fa-circle" aria-hidden="true"></i>${t("在线", "Online")}</span>
-          </div>
-          <div class="go-agent-tools">
-            <button type="button" data-go-action="history" aria-label="${t("历史记录", "History")}" title="${t("历史记录", "History")}"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i></button>
-            <button type="button" data-go-action="share" aria-label="${t("分享会话", "Share conversation")}" title="${t("分享会话", "Share conversation")}"><i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i></button>
-            <span class="go-tool-divider" aria-hidden="true"></span>
-            <button type="button" data-go-action="close" aria-label="${t("关闭 Go", "Close Go")}" title="${t("关闭 Go", "Close Go")}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
-          </div>
-        </header>
-
+      <section class="go-terminal" aria-label="Go">
+        <div class="go-runtime-actions">
+          <button type="button" data-action="open-agent-memory" aria-label="${t("管理 Agent 记忆", "Manage Agent memory")}">
+            <i class="fa-solid fa-brain" aria-hidden="true"></i>
+            <span>${t("记忆", "Memory")}</span>
+          </button>
+        </div>
         <div class="go-conversation" id="conversation" aria-live="polite"></div>
-
         <form class="go-composer" id="agentForm">
-          <textarea class="go-command-input" id="agentInput" rows="1" autocomplete="off" placeholder="${t("描述任务，或输入 / 使用命令", "Describe a task, or type / for commands")}" aria-label="${t("Agent 命令", "Agent command")}"></textarea>
-          <div class="go-composer-footer">
-            <div class="go-composer-tools">
-              <button type="button" data-go-action="plus" aria-label="${t("添加上下文", "Add context")}" title="${t("添加上下文", "Add context")}"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
-            </div>
-          </div>
+          <textarea class="go-command-input" id="agentInput" rows="1" autocomplete="off" placeholder="${t("描述任务，或输入 / 使用命令", "Describe a task, or type / for commands")}" aria-label="${t("任务输入", "Task input")}"></textarea>
+          <button type="submit" class="go-composer-send" aria-label="${t("发送", "Send")}"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
         </form>
       </section>
-
-      <nav class="go-quick-actions" aria-label="${t("Agent 快捷任务", "Agent quick tasks")}">${quickActions}</nav>
     </div>
   `;
   renderConversation();
 }
-
 
 function settingsToggle(key, label, description) {
   return `<div class="settings-row"><div><strong>${label}</strong><span>${description}</span></div><button class="toggle ${state.settings[key] ? "active" : ""}" type="button" data-setting="${key}" aria-pressed="${state.settings[key]}"></button></div>`;
@@ -997,76 +963,113 @@ function shortAddress(value) {
   return address.length > 18 ? `${address.slice(0, 9)}…${address.slice(-6)}` : address;
 }
 
-let assetsLoadPromise = null;
+async function clearOwnedAssetState() {
+  state.assets.portfolio = null;
+  state.assets.groups = [];
+  state.assets.wallets = [];
+  state.assets.loginWallets = [];
+  state.assets.selectedGroupId = null;
+  state.assets.error = null;
+  state.assets.mode = null;
+  state.go.launchWalletGroups = [];
+  state.go.launchWalletGroupsLoaded = false;
+  state.go.launchWalletGroupsError = null;
+}
+
+const assetsIdleResolvers = [];
 
 async function loadAssets({ keepGroup = true, reloadAfterCurrent = false } = {}) {
-  if (assetsLoadPromise) {
-    await assetsLoadPromise;
+  if (state.assets.loading) {
     if (!reloadAfterCurrent) return;
+    await new Promise((resolve) => assetsIdleResolvers.push(resolve));
   }
-
-  assetsLoadPromise = (async () => {
-    state.assets.loading = true;
-    state.assets.error = null;
-    renderAssets();
+  if (!state.auth.session) {
+    clearOwnedAssetState();
+    if (state.view === "assets") renderAssets();
+    else if (state.view === "go") renderConversation();
+    return;
+  }
+  state.assets.loading = true;
+  state.assets.error = null;
+  if (state.view === "assets") renderAssets();
+  try {
+    // Wallet groups are the source of truth for Assets. Do not let portfolio /
+    // login-wallet endpoints wipe groups when one of them fails.
+    let groupsPayload = { groups: [] };
     try {
-      // Wallet groups are the source of truth for this screen. Portfolio and
-      // login-wallet balance failures must not discard a successful group list.
-      let groupsPayload = await apiRequest("/api/v1/wallet-groups");
+      groupsPayload = await apiRequest("/api/v1/wallet-groups");
       const legacyGroups = (groupsPayload.groups || []).filter(
         (group) => Number(group.walletCount || 0) > Number(group.activeWalletCount || 0),
       );
       if (legacyGroups.length) {
-        await Promise.allSettled(
+        await Promise.all(
           legacyGroups.map((group) =>
             apiRequest(`/api/v1/wallet-groups/${group.groupId}/provision`, {
               method: "POST",
               body: "{}",
               timeoutMs: 20_000,
-            }),
+            }).catch(() => null),
           ),
         );
         groupsPayload = await apiRequest("/api/v1/wallet-groups");
       }
-
       state.assets.mode = groupsPayload.mode || "live";
       state.assets.groups = Array.isArray(groupsPayload.groups) ? groupsPayload.groups : [];
       if (!keepGroup || !state.assets.groups.some((group) => group.groupId === state.assets.selectedGroupId)) {
         state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const unauthorized = /sign in|authentication|401|unauthor/i.test(message)
+        || Number(error?.status) === 401
+        || error?.code === "AUTHENTICATION_REQUIRED";
+      if (unauthorized) throw error;
+      state.assets.error = message;
+      state.assets.groups = state.assets.groups || [];
+    }
 
-      const [portfolioResult, loginWalletResult] = await Promise.allSettled([
-        apiRequest(`/api/v1/account/portfolio?period=${state.assets.period}`),
-        state.auth.session ? apiRequest("/api/v1/account/login-wallet-assets") : Promise.resolve({ wallets: [] }),
-      ]);
-      if (portfolioResult.status === "fulfilled") {
-        state.assets.portfolio = portfolioResult.value;
-      } else {
-        state.assets.error = portfolioResult.reason?.message || String(portfolioResult.reason);
-      }
-      state.assets.loginWallets = loginWalletResult.status === "fulfilled"
-        ? loginWalletResult.value.wallets || []
-        : [];
+    try {
+      state.assets.portfolio = await apiRequest(`/api/v1/account/portfolio?period=${state.assets.period}`);
+    } catch (error) {
+      if (!state.assets.error) state.assets.error = error instanceof Error ? error.message : String(error);
+      state.assets.portfolio = state.assets.portfolio || { balances: [] };
+    }
 
-      if (state.assets.selectedGroupId) {
+    try {
+      const loginWalletResult = await apiRequest("/api/v1/account/login-wallet-assets");
+      state.assets.loginWallets = loginWalletResult.wallets || [];
+    } catch {
+      state.assets.loginWallets = [];
+    }
+
+    if (state.assets.selectedGroupId) {
+      try {
         const detail = await apiRequest(`/api/v1/wallet-groups/${state.assets.selectedGroupId}/wallets`);
         state.assets.wallets = detail.wallets || [];
         state.assets.walletsByGroup[state.assets.selectedGroupId] = state.assets.wallets;
-      } else {
+      } catch {
         state.assets.wallets = [];
       }
-    } catch (error) {
-      state.assets.error = error.message;
-    } finally {
-      state.assets.loading = false;
-      renderAssets();
+    } else {
+      state.assets.wallets = [];
     }
-  })();
-
-  try {
-    await assetsLoadPromise;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const unauthorized = /sign in|authentication|401|unauthor/i.test(message)
+      || Number(error?.status) === 401
+      || error?.code === "AUTHENTICATION_REQUIRED";
+    if (unauthorized) {
+      state.auth.session = null;
+      clearOwnedAssetState();
+      updateAuthButtons();
+    } else {
+      state.assets.error = message;
+    }
   } finally {
-    assetsLoadPromise = null;
+    state.assets.loading = false;
+    for (const resolve of assetsIdleResolvers.splice(0)) resolve();
+    if (state.view === "assets") renderAssets();
+    else if (state.view === "go") renderConversation();
   }
 }
 
@@ -1478,17 +1481,33 @@ function renderPnlAnalysis(network, unit) {
 }
 
 function renderAssets() {
+  if (!state.auth.session) {
+    viewRoot.innerHTML = `<div class="compact-assets-page assets-v3 assets-locked">
+      <div class="assets-auth-gate">
+        <strong>${t("连接钱包后查看你的资产", "Connect a wallet to view your assets")}</strong>
+        <p>${t("钱包组、余额和导出只属于当前登录钱包，不会展示其他用户数据。", "Wallet groups, balances, and exports belong only to the signed-in wallet.")}</p>
+        <button class="primary-button" type="button" data-auth="web3"><i class="fa-solid fa-wallet"></i>${t("连接钱包", "Connect wallet")}</button>
+      </div>
+    </div>`;
+    return;
+  }
   const network = state.assets.networkFilter === "bsc" ? "bsc" : "solana";
   const unit = network === "solana" ? "SOL" : "BNB";
   const total = sumAssetBalance(unit);
-  const visibleGroups = state.assets.groups.filter((group) => network === "solana" ? group.network === "solana" : group.network === "evm");
+  const visibleGroups = state.assets.groups.filter((group) => {
+    const groupNetwork = String(group.network || "solana").toLowerCase();
+    if (network === "solana") return groupNetwork === "solana" || groupNetwork === "multi" || !group.network;
+    return groupNetwork === "evm" || groupNetwork === "bsc" || groupNetwork === "multi";
+  });
   const groupRows = visibleGroups.map((group) => {
     const pending = group.pendingCreation === true;
     return `<tr><td><div class="group-name-button"><i class="fa-solid ${pending ? "fa-spinner fa-spin" : group.purpose === "cooking" ? "fa-fire-burner" : "fa-layer-group"}"></i><span><strong>${escapeHtml(group.name)}</strong><small>${pending ? t("正在安全生成钱包…", "Securely generating wallets…") : group.purpose === "cooking" ? "Cooking" : t("捆绑钱包组", "Bundled")}</small></span></div></td><td><span class="network-badge">${network === "solana" ? "SOL" : "EVM"}</span></td><td>${pending ? `0 / ${group.walletCount}` : group.walletCount}</td><td>${pending ? "—" : `${escapeHtml(group.balances?.[unit] || "—")} ${group.balances?.[unit] ? unit : ""}`}</td><td>${pending ? `<span>${t("创建中", "Creating")}</span>` : `<button class="table-action" type="button" data-manage-wallet-group="${group.groupId}">${t("管理", "Manage")}</button>`}</td></tr>`;
   }).join("");
   const nativeImage = nativeAssetImages[unit];
   const assetRows = total > 0 ? `<tr><td><span class="compact-token">${nativeImage ? `<img src="${nativeImage}" alt="${unit}" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" />` : ""}<strong>${unit}</strong></span></td><td>${total.toLocaleString(undefined,{maximumFractionDigits:9})}</td><td>≈ ${total.toLocaleString(undefined,{maximumFractionDigits:9})} ${unit}</td><td><span class="asset-share-bar"><i style="width:100%"></i></span>100%</td></tr>` : "";
+  const assetsErrorBanner = state.assets.error ? `<div class="assets-error-banner">${escapeHtml(state.assets.error)}</div>` : "";
   viewRoot.innerHTML = `<div class="compact-assets-page assets-v3">
+  ${assetsErrorBanner}
   <div class="assets-topbar">
     <nav class="asset-primary-tabs" aria-label="${t("资产分区", "Assets sections")}"><button class="${state.assets.section === "pnl" ? "active" : ""}" type="button" data-assets-section="pnl">${t("盈亏分析", "P&L analysis")}</button><button class="${state.assets.section === "portfolio" ? "active" : ""}" type="button" data-assets-section="portfolio">${t("资产组合", "Portfolio")}</button><button class="${state.assets.section === "groups" ? "active" : ""}" type="button" data-assets-section="groups">${t("钱包组", "Wallet groups")}</button></nav>
     <button class="secondary-button assets-refresh-button" type="button" data-action="refresh-assets"><i class="fa-solid fa-arrows-rotate"></i>${t("刷新", "Refresh")}</button>
@@ -2074,9 +2093,10 @@ async function openAuth(mode) {
   if (mode === "logout") {
     await apiRequest("/api/v1/auth/logout", { method: "POST", body: "{}" });
     state.auth.session = null;
-    state.assets.loginWallets = [];
+    clearOwnedAssetState();
     updateAuthButtons();
-    if (state.view === "assets") await loadAssets();
+    if (state.view === "assets") renderAssets();
+    else if (state.view === "go") renderConversation();
     showToast(t("已退出登录", "Signed out"));
     return;
   }
@@ -2097,10 +2117,11 @@ function walletAddressForGroup(wallet, group) {
 
 function updateAuthButtons() {
   const primary = document.querySelector("[data-auth]");
+  if (!primary) return;
   const identity = state.auth.session?.user?.identities?.[0];
-  if (identity) {
+  if (state.auth.session?.user) {
     primary.dataset.auth = "logout";
-    primary.innerHTML = `<i class="fa-solid fa-wallet"></i>${shortAddress(identity.address)}`;
+    primary.innerHTML = `<i class="fa-solid fa-wallet"></i>${identity?.address ? shortAddress(identity.address) : t("已连接", "Connected")}`;
   } else {
     primary.dataset.auth = "web3";
     primary.innerHTML = `<i class="fa-solid fa-wallet"></i>${t("连接", "Connect")}`;
@@ -2112,9 +2133,17 @@ async function loadAuthSession() {
   catch { state.auth.session = null; }
   finally {
     state.auth.loading = false;
+    if (!state.auth.session) clearOwnedAssetState();
     updateAuthButtons();
-    if (state.auth.session) void ensureLaunchWalletGroups({ force: true });
-    if (state.auth.session && !state.auth.session.user.onboardingCompleted) window.setTimeout(openOnboarding, 250);
+    if (state.auth.session) {
+      void ensureLaunchWalletGroups({ force: true });
+      if (state.view === "assets") void loadAssets({ keepGroup: true });
+      if (!state.auth.session.user.onboardingCompleted) window.setTimeout(openOnboarding, 250);
+    } else if (state.view === "assets") {
+      renderAssets();
+    } else if (state.view === "go") {
+      renderConversation();
+    }
   }
 }
 
@@ -2181,7 +2210,7 @@ async function web3Login(walletId) {
     closeModal();
     updateAuthButtons();
     await ensureLaunchWalletGroups({ force: true });
-    if (state.view === "assets") await loadAssets();
+    await loadAssets({ keepGroup: false });
     showToast(t("钱包登录成功", "Wallet sign-in successful"));
     if (!state.auth.session.user.onboardingCompleted) window.setTimeout(openOnboarding, 180);
   } catch (error) { showToast(error.message); }
@@ -2218,6 +2247,96 @@ function openExportDialog() {
   const groups = state.assets.groups.filter((group) => group.executionMode === "encrypted_vault" || group.executionMode === "live_ready");
   if (!groups.length) return showToast(t("没有可导出的真实钱包组", "No live wallet group is available for export"));
   openModal({ kicker: t("私钥导出", "Private-key export"), title: t("导出钱包组", "Export wallet group"), content: `<form class="form-stack" id="walletExportForm"><label class="field-label">${t("选择钱包组", "Wallet group")}<select class="field-select" name="groupId">${groups.map((group) => `<option value="${group.groupId}">${escapeHtml(group.name)} · ${group.walletCount}</option>`).join("")}</select></label><div class="export-danger"><i class="fa-solid fa-triangle-exclamation"></i><span>${t("文件包含可直接控制资产的私钥。下载后请离线保存，NarraOps 无法撤销已导出的密钥。", "This file contains keys that directly control funds. Store it offline; exported keys cannot be revoked by NarraOps.")}</span></div><label class="field-label">${t("输入“确认导出私钥”", "Type EXPORT PRIVATE KEYS")}<input class="field-input" name="confirmation" autocomplete="off" required /></label><div class="modal-actions"><button class="secondary-button" type="button" data-modal-action="close">${t("取消", "Cancel")}</button><button class="danger-button" type="submit"><i class="fa-solid fa-file-arrow-down"></i>${t("导出文本文件", "Export text file")}</button></div></form>` });
+}
+
+function memoryKindLabel(kind) {
+  return kind === "user_fact"
+    ? t("用户事实", "User fact")
+    : t("偏好", "Preference");
+}
+
+function memoryManagerMarkup() {
+  const memories = state.agent.memories || [];
+  const proposed = memories.filter((item) => item.status === "proposed");
+  const active = memories.filter((item) => item.status === "active");
+  const itemMarkup = (item) => {
+    const busy = state.agent.memoryBusyIds.has(item.memoryId);
+    const actions = item.status === "proposed"
+      ? `<button class="secondary-button compact" type="button" data-memory-decision="reject" data-memory-id="${escapeHtml(item.memoryId)}" data-memory-version="${Number(item.stateVersion)}" ${busy ? "disabled" : ""}>${t("拒绝", "Reject")}</button>
+         <button class="primary-button compact" type="button" data-memory-decision="confirm" data-memory-id="${escapeHtml(item.memoryId)}" data-memory-version="${Number(item.stateVersion)}" ${busy ? "disabled" : ""}>${t("确认保存", "Confirm")}</button>`
+      : `<button class="danger-button compact" type="button" data-memory-decision="forget" data-memory-id="${escapeHtml(item.memoryId)}" data-memory-version="${Number(item.stateVersion)}" ${busy ? "disabled" : ""}>${t("忘记", "Forget")}</button>`;
+    return `<article class="agent-memory-item ${item.status}">
+      <div class="agent-memory-meta">
+        <span>${memoryKindLabel(item.kind)}</span>
+        <small>${item.status === "proposed" ? t("等待你的确认", "Awaiting your confirmation") : t("已用于 Agent 上下文", "Available to Agent context")}</small>
+      </div>
+      <p>${escapeHtml(item.content)}</p>
+      <div class="agent-memory-actions">${actions}</div>
+    </article>`;
+  };
+  return `
+    <div class="agent-memory-intro">
+      <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+      <p>${t("模型只能提出记忆建议。只有你明确确认后，偏好或事实才会进入长期记忆；删除后内容会被脱敏保留为审计记录。", "A model may only propose memory. A preference or fact becomes durable only after your explicit confirmation; forgetting redacts its content while preserving audit evidence.")}</p>
+    </div>
+    <form class="agent-memory-proposal-form" id="agentMemoryProposalForm">
+      <label class="field-label">${t("新增一条记忆", "Propose a memory")}
+        <textarea class="field-input" name="content" maxlength="8192" rows="3" required placeholder="${t("例如：我偏好中文回答。", "For example: I prefer responses in Chinese.")}"></textarea>
+      </label>
+      <div class="agent-memory-form-row">
+        <label class="field-label">${t("类型", "Type")}
+          <select class="field-select" name="kind">
+            <option value="user_preference">${t("偏好", "Preference")}</option>
+            <option value="user_fact">${t("用户事实", "User fact")}</option>
+          </select>
+        </label>
+        <button class="secondary-button" type="submit" ${state.agent.memoryLoading ? "disabled" : ""}>${t("提出并审阅", "Propose for review")}</button>
+      </div>
+    </form>
+    ${state.agent.memoryError ? `<div class="agent-memory-error">${escapeHtml(state.agent.memoryError)}</div>` : ""}
+    <section class="agent-memory-section">
+      <header><div><span>${t("待确认", "Pending")}</span><strong>${proposed.length}</strong></div></header>
+      <div class="agent-memory-list">${proposed.length ? proposed.map(itemMarkup).join("") : `<p class="agent-memory-empty">${t("没有待确认的记忆建议。", "No pending memory proposals.")}</p>`}</div>
+    </section>
+    <section class="agent-memory-section">
+      <header><div><span>${t("已保存", "Saved")}</span><strong>${active.length}</strong></div></header>
+      <div class="agent-memory-list">${active.length ? active.map(itemMarkup).join("") : `<p class="agent-memory-empty">${t("尚未保存长期记忆。", "No durable memory is saved yet.")}</p>`}</div>
+    </section>`;
+}
+
+function refreshMemoryModal() {
+  if (modal.classList.contains("hidden") || !modalBody.querySelector(".agent-memory-intro")) return;
+  modalBody.innerHTML = memoryManagerMarkup();
+}
+
+async function loadAgentMemories() {
+  state.agent.memoryLoading = true;
+  state.agent.memoryError = null;
+  refreshMemoryModal();
+  try {
+    const payload = await apiRequest("/api/v1/agent/memories?review=true&limit=50", {
+      timeoutMs: 15_000,
+    });
+    state.agent.memories = Array.isArray(payload.memories) ? payload.memories : [];
+  } catch (error) {
+    state.agent.memoryError = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.agent.memoryLoading = false;
+    refreshMemoryModal();
+  }
+}
+
+async function openAgentMemoryManager() {
+  if (!state.auth.session) {
+    await openAuth("web3");
+    return;
+  }
+  openModal({
+    kicker: t("NarraOps Agent 控制面", "NarraOps Agent control plane"),
+    title: t("记忆管理", "Memory management"),
+    content: memoryManagerMarkup(),
+  });
+  await loadAgentMemories();
 }
 
 function walletManagerMarkup(group, wallets, { loading = false, error = null } = {}) {
@@ -2484,6 +2603,7 @@ function getAgentResponse(command) {
 
 
 
+*/
 async function restoreGoConversation() {
   const savedId = window.localStorage.getItem("narraops.go.conversationId");
   if (!savedId) return null;
@@ -2673,15 +2793,121 @@ async function submitPulsePlan(command, pendingId) {
   }
 }
 
-*/
 async function loadGoWalletGroups() {
+  if (!state.auth.session) {
+    state.assets.groups = [];
+    if (state.view === "go") renderConversation();
+    return;
+  }
   try {
     const result = await apiRequest("/api/v1/wallet-groups");
     state.assets.groups = result.groups || [];
-    renderConversation();
+    if (state.view === "go") renderConversation();
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/sign in|authentication|401|unauthor/i.test(message) || Number(error?.status) === 401) {
+      state.auth.session = null;
+      clearOwnedAssetState();
+      updateAuthButtons();
+    }
     console.warn("[NarraOps] wallet groups unavailable for launch draft", error);
+    if (state.view === "go") renderConversation();
   }
+}
+
+
+
+function extractPublicUrl(command) {
+  const match = String(command || "").match(/https?:\/\/[^\s]+/i);
+  return match ? match[0].replace(/[),.;]+$/g, "") : null;
+}
+
+function isWalletStatusQuestion(command) {
+  const value = String(command || "").trim();
+  return /(钱包组|wallet groups?|有几个钱包|几个钱包|我的钱包)/i.test(value)
+    && !/(创建|新建|generate|create)/i.test(value);
+}
+
+function isLaunchIntent(command) {
+  const value = String(command || "").trim();
+  if (!value) return false;
+  if (extractPublicUrl(value)) return true;
+  if (/^\/launch\b/i.test(value)) return true;
+  return /(发射|发射模板|launch\s*draft|生成发射|帮我发射|发射参数)/i.test(value);
+}
+
+function localWalletGroupsReply() {
+  const zh = state.language === "zh";
+  const groups = Array.isArray(state.assets.groups) ? state.assets.groups : [];
+  if (!groups.length) {
+    return {
+      role: "agent",
+      timestamp: getMessageTime(),
+      lifecycle: "completed",
+      pending: false,
+      content: zh
+        ? "当前还没有钱包组。请先到 Assets 创建 Cooking 钱包组和捆绑钱包组，再回来选进发射卡片。"
+        : "You do not have wallet groups yet. Create a Cooking group and a bundled group in Assets, then select them on the launch card.",
+      suggestion: zh ? "打开 Assets 创建钱包组。" : "Open Assets to create wallet groups.",
+    };
+  }
+  const lines = groups.map((group, index) => {
+    const purpose = group.purpose === "cooking" ? "Cooking" : (zh ? "捆绑" : "Bundled");
+    const count = Number(group.walletCount || 0);
+    return `${index + 1}. ${group.name} · ${purpose} · ${count}${zh ? " 个钱包" : " wallets"}`;
+  });
+  return {
+    role: "agent",
+    timestamp: getMessageTime(),
+    lifecycle: "completed",
+    pending: false,
+    content: zh
+      ? `你现在有 ${groups.length} 个钱包组：\n${lines.join("\n")}`
+      : `You currently have ${groups.length} wallet group(s):\n${lines.join("\n")}`,
+    suggestion: zh
+      ? "生成发射卡片后，在卡片里选择 Cooking 组和捆绑组即可。"
+      : "After a launch card appears, pick Cooking and bundled groups on the card.",
+  };
+}
+
+function isTrivialAgentChat(command) {
+  const value = String(command || "").trim();
+  if (!value) return false;
+  if (/^https?:\/\//i.test(value) || value.startsWith("/")) return false;
+  if (/(发射|买入|卖出|分析|launch|buy|sell|swap|analy[sz]e|meme|钱包|转账)/i.test(value)) return false;
+  if (/(你可以做什么|你能做什么|能做什么|有什么功能|哪些技能|调用哪些|介绍自己|自我介绍|你是谁|help|what can you do|who are you|capabilit|skills?)/i.test(value)) return true;
+  return value.length <= 24;
+}
+
+function localAgentChatReply(command) {
+  const zh = state.language === "zh";
+  const value = String(command || "").trim();
+  if (/(你可以做什么|你能做什么|能做什么|有什么功能|哪些技能|调用哪些|介绍自己|自我介绍|你是谁|help|what can you do|who are you|capabilit|skills?)/i.test(value)) {
+    return {
+      role: "agent",
+      timestamp: getMessageTime(),
+      lifecycle: "completed",
+      pending: false,
+      content: zh
+        ? "我是 NarraOps Agent，围绕叙事发现、叙事分析、Meme 发射和发射后的钱包操作工作。可以读取 GMGN 行情，根据公开链接生成发射参数，并在你确认后进入 Pump 发射或钱包买卖。"
+        : "I’m the NarraOps Agent for narrative discovery, analysis, meme launch prep, and post-launch wallet ops. I can read GMGN market data, turn public links into launch fields, and enter Pump launch or wallet trades only after you confirm.",
+      suggestion: zh
+        ? "直接发一个公开链接，或者说“分析这个 Solana Meme / 帮我发射 / 买入某个代币”。"
+        : "Send a public link, or say “analyze this Solana meme / launch this / buy a token”.",
+    };
+  }
+  return {
+    role: "agent",
+    timestamp: getMessageTime(),
+    lifecycle: "completed",
+    pending: false,
+    content: zh
+      ? "在。我可以帮你解读叙事、根据链接生成发射参数，并在你确认后进入 Pump 发射或钱包买卖。"
+      : "Here. I can explain narratives, turn links into launch fields, and enter Pump launch or wallet trade flows after you confirm.",
+    suggestion: zh
+      ? "直接发链接，或者说“分析这个 Solana Meme / 帮我发射 / 买入某个代币”。"
+      : "Send a link, or say “analyze this Solana meme / launch this / buy a token”.",
+  };
 }
 
 async function ensureGoAgentConversation() {
@@ -2692,8 +2918,13 @@ async function ensureGoAgentConversation() {
     timeoutMs: 8_000,
     body: JSON.stringify({ context: { language: state.language, currentView: "go" } }),
   }).then((conversation) => {
-    state.agent.conversationId = conversation.conversationId;
-    return state.agent.conversationId;
+    const conversationId = conversation.conversationId || conversation.conversation_id;
+    if (!conversationId) {
+      throw new Error(t("无法创建 Agent 会话", "Unable to create an Agent conversation"));
+    }
+    state.agent.conversationId = conversationId;
+    try { window.localStorage.setItem("narraops.go.conversationId", conversationId); } catch {}
+    return conversationId;
   }).finally(() => {
     state.agent.conversationPromise = null;
   });
@@ -2722,6 +2953,8 @@ function agentMessageFromPayload(payload) {
   return {
     role: "agent",
     timestamp: getMessageTime(),
+    lifecycle: "completed",
+    pending: false,
     content: message.content || (hasLaunch
       ? t("已根据链接生成发射参数，请检查并选择钱包组。", "The launch fields are ready. Review them and select wallet groups.")
       : hasSwap ? t("Swap 路由已准备，请核对并签名。", "The swap route is ready. Review and sign it.")
@@ -2735,7 +2968,8 @@ function agentMessageFromPayload(payload) {
 function updatePendingLifecycle(pendingId, lifecycle) {
   const message = state.conversation.find((item) => item.pendingId === pendingId);
   if (!message) return;
-  message.pending = false;
+  // Keep pendingId so later replace/fail can still find this bubble.
+  message.pending = true;
   message.lifecycle = lifecycle;
   renderConversation();
 }
@@ -2763,38 +2997,105 @@ async function submitAgentConversation(command, pendingId) {
   state.go.busy = true;
   state.agent.submitting = true;
   state.agent.retryCommand = command;
-  try {
-    const conversationId = await ensureGoAgentConversation();
-    const payload = await apiRequest(`/api/v1/agent/conversations/${conversationId}/messages`, {
-      method: "POST",
-      timeoutMs: 22_000,
-      body: JSON.stringify({
-        message: command,
-        wait: true,
-        timeout_ms: 12_000,
-        context: { language: state.language, currentView: "go" },
-      }),
-    });
-    if (payload.conversationId || payload.conversation_id) {
-      state.agent.conversationId = payload.conversationId || payload.conversation_id;
-    }
-    const taskId = taskIdFromPayload(payload);
-    const completed = taskId && !taskIsTerminal(payload)
-      ? await waitForAgentTask(taskId, pendingId)
-      : payload;
-    replacePendingMessage(pendingId, agentMessageFromPayload(completed));
-  } catch (error) {
-    replacePendingMessage(pendingId, {
+  let settled = false;
+  const finish = (message) => {
+    if (settled) return;
+    settled = true;
+    replacePendingMessage(pendingId, message);
+  };
+  const fail = (error) => {
+    finish({
       role: "agent",
       timestamp: getMessageTime(),
       lifecycle: "failed",
-      error: error instanceof Error ? error.message : String(error),
+      pending: false,
+      error: error instanceof Error ? error.message : String(error || t("Agent 响应超时，请重试。", "The Agent timed out. Please retry.")),
     });
+  };
+
+  // 1) Wallet-group questions read Assets directly. No Agent round-trip.
+  if (isWalletStatusQuestion(command)) {
+    try {
+      if (!state.assets.groups.length) await loadGoWalletGroups();
+      finish(localWalletGroupsReply());
+    } catch (error) {
+      fail(error);
+    } finally {
+      state.go.busy = false;
+      state.agent.submitting = false;
+    }
+    return;
+  }
+
+  // 2) Simple chat stays local.
+  if (isTrivialAgentChat(command)) {
+    window.setTimeout(() => {
+      finish(localAgentChatReply(command));
+      state.go.busy = false;
+      state.agent.submitting = false;
+    }, 20);
+    return;
+  }
+
+  const launchIntent = isLaunchIntent(command);
+  const hardMs = launchIntent ? 35_000 : 12_000;
+  const requestMs = launchIntent ? 30_000 : 8_000;
+  const waitMs = launchIntent ? 25_000 : 6_000;
+  const hardTimer = window.setTimeout(() => {
+    fail(new Error(t("Agent 响应超时，请重试。", "The Agent timed out. Please retry.")));
+    state.go.busy = false;
+    state.agent.submitting = false;
+  }, hardMs);
+
+  try {
+    updatePendingLifecycle(pendingId, launchIntent ? "running" : "connecting");
+    if (launchIntent) void loadGoWalletGroups();
+    const conversationId = await Promise.race([
+      ensureGoAgentConversation(),
+      new Promise((_, reject) => window.setTimeout(() => reject(new Error(t("创建会话超时，请重试。", "Conversation create timed out. Please retry."))), 8_000)),
+    ]);
+    if (settled) return;
+    updatePendingLifecycle(pendingId, "running");
+
+    // Launch path: normalize to /launch <url|text> so backend always hits launch.meme.
+    let outbound = command;
+    const url = extractPublicUrl(command);
+    if (launchIntent && url && !/^\/launch\b/i.test(command)) {
+      outbound = `/launch ${url}`;
+    } else if (launchIntent && !url && !/^\/launch\b/i.test(command)) {
+      outbound = `/launch ${command}`;
+    }
+
+    const payload = await apiRequest(`/api/v1/agent/conversations/${conversationId}/messages`, {
+      method: "POST",
+      timeoutMs: requestMs,
+      body: JSON.stringify({
+        message: outbound,
+        wait: true,
+        timeout_ms: waitMs,
+        context: { language: state.language, currentView: "go" },
+      }),
+    });
+    if (settled) return;
+    if (payload.conversationId || payload.conversation_id) {
+      state.agent.conversationId = payload.conversationId || payload.conversation_id;
+    }
+    const msg = agentMessageFromPayload(payload);
+    msg.lifecycle = "completed";
+    msg.pending = false;
+    if ((msg.cards || []).some((card) => card?.type === "launch_draft")) {
+      void loadGoWalletGroups();
+    }
+    finish(msg);
+  } catch (error) {
+    fail(error);
   } finally {
+    window.clearTimeout(hardTimer);
     state.go.busy = false;
     state.agent.submitting = false;
   }
 }
+
 
 function submitAgentCommand(value) {
   const command = value.trim();
@@ -2814,11 +3115,25 @@ function submitAgentCommand(value) {
 
 function switchView(view) {
   if (!allowedViews.has(view)) return;
-  state.view = view;
-  window.location.hash = view;
-  renderCurrentView();
+  if (state.view === view) {
+    // Force correct panel even if a stale async render overwrote the DOM.
+    renderCurrentView();
+  } else {
+    state.view = view;
+    if (window.location.hash.replace("#", "") !== view) {
+      window.location.hash = view;
+    }
+    renderCurrentView();
+  }
   if (view === "pulse" && !state.pulse.loading) void loadPulse();
-  if (view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
+  if (view === "assets") {
+    if (state.auth.session) {
+      if (!state.assets.portfolio && !state.assets.loading) void loadAssets();
+    } else {
+      clearOwnedAssetState();
+      renderAssets();
+    }
+  }
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -2838,6 +3153,16 @@ accountAssetsButton.addEventListener("click", async () => {
 
 document.querySelectorAll("[data-auth]").forEach((button) => {
   button.addEventListener("click", () => openAuth(button.dataset.auth));
+});
+
+// Dynamically rendered Connect buttons (e.g. Assets lock screen).
+document.addEventListener("click", (event) => {
+  const authButton = event.target.closest("[data-auth]");
+  if (!authButton || authButton === document.querySelector("header [data-auth]")) return;
+  // header button already bound above; ignore it here to avoid double-open
+  if (authButton.closest(".global-header, header, .app-header")) return;
+  event.preventDefault();
+  openAuth(authButton.dataset.auth || "web3");
 });
 
 notificationButton.addEventListener("click", (event) => {
@@ -3042,7 +3367,9 @@ viewRoot.addEventListener("click", async (event) => {
   }
 
   const action = event.target.closest("[data-action]")?.dataset.action;
-  if (action === "confirm-direct-swap") {
+  if (action === "open-agent-memory") {
+    await openAgentMemoryManager();
+  } else if (action === "confirm-direct-swap") {
     const button = event.target.closest("[data-swap-plan]");
     const plan = state.agent.swapPlans.get(button?.dataset.swapPlan);
     if (!plan || button?.disabled) return;
@@ -3126,38 +3453,85 @@ async function saveLaunchDraftForm(form, action) {
   const draftId = card?.dataset.draftId;
   if (!draftId) throw new Error(t("发射预案没有可保存的 ID。", "This launch draft has no saveable ID."));
   const formData = new FormData(form);
+  const cookingWalletGroupId = String(formData.get("cooking_wallet_group_id") || "").trim() || null;
+  const bundledWalletGroupId = String(formData.get("bundled_wallet_group_id") || "").trim() || null;
+  if (action === "launch" && (!cookingWalletGroupId || !bundledWalletGroupId)) {
+    throw new Error(t("请先选择 Cooking 钱包组和捆绑钱包组。", "Select both Cooking and bundled wallet groups first."));
+  }
   const token = Object.fromEntries(["name", "symbol", "description", "image_url", "x_url", "telegram_url", "website_url", "initial_buy", "bundle_buy_per_wallet"]
     .map((field) => [field, String(formData.get(field) || "").trim()]));
+  if (action === "launch" && (!token.name || !token.symbol || !token.description || !token.image_url)) {
+    throw new Error(t("请先补全名称、符号、简介和图片链接。", "Complete name, symbol, description, and image URL first."));
+  }
   const payload = await apiRequest(`/api/v1/go/launch-drafts/${draftId}`, {
     method: "PATCH",
+    timeoutMs: 20_000,
     body: JSON.stringify({
       token,
-      cooking_wallet_group_id: String(formData.get("cooking_wallet_group_id") || "").trim() || null,
-      bundled_wallet_group_id: String(formData.get("bundled_wallet_group_id") || "").trim() || null,
+      cooking_wallet_group_id: cookingWalletGroupId,
+      bundled_wallet_group_id: bundledWalletGroupId,
     }),
   });
   if (payload.card) updateLaunchCardInConversation(draftId, payload.card);
   if (action === "launch") {
-    const launched = await apiRequest(`/api/v1/go/launch-drafts/${draftId}/execute`, {
+    let launched = await apiRequest(`/api/v1/go/launch-drafts/${draftId}/execute`, {
       method: "POST",
+      timeoutMs: 45_000,
       body: JSON.stringify({ confirm: true }),
     });
-    const tokenAddress = launched.token_address || launched.execution?.tokenAddress || launched.execution?.mintAddress || "";
+    if (launched.status === "requires_user_signature" && launched.plan) {
+      showToast(t("请在钱包中确认签名…", "Confirm the signature in your wallet…"));
+      launched = await signAndSubmitDirectPumpLaunch({
+        draftId,
+        plan: launched.plan,
+        cookingWalletGroupId,
+      });
+    }
+    const tokenAddress = launched.token_address
+      || launched.execution?.tokenAddress
+      || launched.execution?.mintAddress
+      || launched.plan?.mintAddress
+      || "";
+    const txHash = launched.tx_hash || launched.execution?.txHash || "";
+    const launchStatus = String(launched.status || launched.execution?.status || "");
+    const launchConfirmed = launchStatus === "confirmed";
+    const launchUnknown = launchStatus === "reconciliation_required"
+      || launchStatus === "submitted"
+      || launchStatus === "submission_pending";
+    const launchFailed = launchStatus === "failed";
     state.conversation.push({
       role: "agent",
       timestamp: getMessageTime(),
-      content: tokenAddress
-        ? t(`已发射成功，代币地址：${tokenAddress}`, `Launch confirmed. Token address: ${tokenAddress}`)
-        : t("发射请求已提交，正在等待链上确认。", "Launch submitted; waiting for on-chain confirmation."),
-      suggestion: t("你可以继续告诉我用哪个钱包组买入或卖出。", "You can now tell me which wallet group should buy or sell."),
+      lifecycle: launchFailed ? "failed" : "completed",
+      pending: false,
+      content: launchConfirmed && tokenAddress
+        ? t(`已发射到 Pump。代币地址：${tokenAddress}${txHash ? `；交易：${txHash}` : ""}`, `Launched to Pump. Token: ${tokenAddress}${txHash ? `; tx: ${txHash}` : ""}`)
+        : launchUnknown
+          ? t(
+              `交易已提交，但链上结果暂时未知。请不要重复签名或发射。${txHash ? ` 交易：${txHash}` : ""}`,
+              `The transaction was submitted, but its on-chain result is not known yet. Do not sign or launch again.${txHash ? ` Transaction: ${txHash}` : ""}`,
+            )
+          : launchFailed
+            ? t("Pump 发射失败，未确认链上成功。", "Pump launch failed and was not confirmed on-chain.")
+            : t("发射请求已提交，正在等待链上确认。", "Launch submitted; waiting for on-chain confirmation."),
+      suggestion: t("接下来可以直接说：用某个钱包组买入/卖出。", "Next you can say: buy or sell with a wallet group."),
     });
     renderConversation();
-    showToast(t("已发射到 Pump。", "Launched to Pump."));
+    showToast(
+      launchConfirmed
+        ? t("已发射到 Pump。", "Launched to Pump.")
+        : launchUnknown
+          ? t("正在对账链上结果，请勿重复提交。", "Reconciling the on-chain result. Do not submit again.")
+          : launchFailed
+            ? t("Pump 发射失败。", "Pump launch failed.")
+            : t("发射请求已提交。", "Launch submitted."),
+    );
   } else {
     showToast(t("发射预案已保存。", "Launch draft saved."));
   }
   return payload.card;
 }
+
 
 viewRoot.addEventListener("submit", async (event) => {
   if (event.target.matches("[data-launch-draft-form]")) {
@@ -3202,6 +3576,35 @@ viewRoot.addEventListener("reset", (event) => {
 });
 
 modal.addEventListener("submit", async (event) => {
+  if (event.target.id === "agentMemoryProposalForm") {
+    event.preventDefault();
+    const submitButton = event.submitter;
+    if (submitButton?.disabled) return;
+    if (submitButton) submitButton.disabled = true;
+    const form = new FormData(event.target);
+    const content = String(form.get("content") || "").trim();
+    const kind = String(form.get("kind") || "user_preference");
+    try {
+      const result = await apiRequest("/api/v1/agent/memories/proposals", {
+        method: "POST",
+        headers: { "Idempotency-Key": `memory:ui:${crypto.randomUUID()}` },
+        body: JSON.stringify({ kind, content, sensitivity: "private" }),
+        timeoutMs: 15_000,
+      });
+      if (result.item) {
+        state.agent.memories = [
+          result.item,
+          ...state.agent.memories.filter((item) => item.memoryId !== result.item.memoryId),
+        ];
+      }
+      refreshMemoryModal();
+      showToast(t("记忆建议已创建，请确认后保存。", "Memory proposed. Confirm it before it is saved."));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error));
+      if (submitButton) submitButton.disabled = false;
+    }
+    return;
+  }
   if (event.target.id === "walletGroupManagerAddForm") {
     event.preventDefault();
     const groupId = event.target.dataset.groupId;
@@ -3272,65 +3675,71 @@ modal.addEventListener("submit", async (event) => {
       showToast(t("私钥文件已导出", "Private-key file exported"));
     } catch (error) { showToast(error.message); }
     return;
-    }
-    if (event.target.id === "createWalletGroupForm") {
-      event.preventDefault();
-      if (event.target.dataset.submitting === "true") return;
-      event.target.dataset.submitting = "true";
-      const submitButton = event.target.querySelector('button[type="submit"]');
-      if (submitButton) submitButton.disabled = true;
-      const form = new FormData(event.target);
-      const purpose = String(form.get("purpose") || "general");
-      const walletCount = purpose === "cooking" ? 1 : Number(form.get("walletCount"));
-      const optimisticGroupId = `pending-${globalThis.crypto?.randomUUID?.() || Date.now()}`;
-      const optimisticGroup = {
-        groupId: optimisticGroupId,
-        name: String(form.get("name") || "").trim(),
-        network: String(form.get("network") || "solana"),
-        purpose,
-        walletCount,
-        activeWalletCount: 0,
-        balances: {},
-        executionMode: "provisioning",
-        pendingCreation: true,
-      };
-      state.assets.groups = [optimisticGroup, ...state.assets.groups];
-      state.assets.selectedGroupId = optimisticGroupId;
-      closeModal();
-      renderAssets();
-      showToast(t(
-        `正在安全生成 ${walletCount} 个钱包…`,
-        `Securely generating ${walletCount} wallets…`,
-      ));
-      try {
-        const group = await apiRequest("/api/v1/wallet-groups", {
-          method: "POST",
-          timeoutMs: 45_000,
-          body: JSON.stringify({ name: form.get("name"), network: form.get("network"), purpose, walletCount }),
-        });
-        const createdGroupId = group.groupId || group.group_id;
-        state.assets.groups = state.assets.groups.filter((item) => item.groupId !== optimisticGroupId);
-        state.assets.selectedGroupId = createdGroupId;
-        await loadAssets({ keepGroup: true, reloadAfterCurrent: true });
-        if (!state.assets.groups.some((item) => item.groupId === createdGroupId)) {
-          throw new Error(t(
-            "钱包组已写入，但列表重新读取失败。请刷新页面，切勿重复创建。",
-            "The wallet group was saved but could not be reloaded. Refresh the page and do not create it again.",
-          ));
-        }
-        showToast(t("钱包组已创建", "Wallet group created"));
-      } catch (error) {
-        state.assets.groups = state.assets.groups.filter((item) => item.groupId !== optimisticGroupId);
-        if (state.assets.selectedGroupId === optimisticGroupId) {
-          state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
-        }
-        renderAssets();
-        showToast(error.message);
-      } finally {
-        event.target.dataset.submitting = "false";
-        if (submitButton) submitButton.disabled = false;
+  }
+  if (event.target.id === "createWalletGroupForm") {
+    event.preventDefault();
+    if (event.target.dataset.submitting === "true") return;
+    event.target.dataset.submitting = "true";
+    const submitButton = event.target.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
+    const form = new FormData(event.target);
+    const purpose = String(form.get("purpose") || "general");
+    const walletCount = purpose === "cooking" ? 1 : Number(form.get("walletCount"));
+    const optimisticGroupId = `pending-${globalThis.crypto?.randomUUID?.() || Date.now()}`;
+    const optimisticGroup = {
+      groupId: optimisticGroupId,
+      name: String(form.get("name") || "").trim(),
+      network: String(form.get("network") || "solana"),
+      purpose,
+      walletCount,
+      activeWalletCount: 0,
+      balances: {},
+      executionMode: "provisioning",
+      pendingCreation: true,
+    };
+    state.assets.groups = [optimisticGroup, ...state.assets.groups];
+    state.assets.selectedGroupId = optimisticGroupId;
+    closeModal();
+    renderAssets();
+    showToast(t(
+      `正在安全生成 ${walletCount} 个钱包…`,
+      `Securely generating ${walletCount} wallets…`,
+    ));
+    try {
+      const group = await apiRequest("/api/v1/wallet-groups", {
+        method: "POST",
+        timeoutMs: 45_000,
+        body: JSON.stringify({
+          name: form.get("name"),
+          network: form.get("network"),
+          purpose,
+          walletCount,
+        }),
+      });
+      const createdGroupId = group.groupId || group.group_id || null;
+      state.assets.groups = state.assets.groups.filter((item) => item.groupId !== optimisticGroupId);
+      state.assets.selectedGroupId = createdGroupId;
+      await loadAssets({ keepGroup: true, reloadAfterCurrent: true });
+      if (!state.assets.groups.some((item) => item.groupId === createdGroupId)) {
+        throw new Error(t(
+          "钱包组已写入，但列表重新读取失败。请刷新页面，切勿重复创建。",
+          "The wallet group was saved but could not be reloaded. Refresh the page and do not create it again.",
+        ));
       }
+      showToast(t("钱包组已创建", "Wallet group created"));
+    } catch (error) {
+      state.assets.groups = state.assets.groups.filter((item) => item.groupId !== optimisticGroupId);
+      if (state.assets.selectedGroupId === optimisticGroupId) {
+        state.assets.selectedGroupId = state.assets.groups[0]?.groupId || null;
+      }
+      renderAssets();
+      const code = error?.code ? ` [${error.code}]` : "";
+      showToast(`${error instanceof Error ? error.message : String(error)}${code}`);
+    } finally {
+      event.target.dataset.submitting = "false";
+      if (submitButton) submitButton.disabled = false;
     }
+  }
   if (event.target.id === "addWalletsForm") {
     event.preventDefault();
     const form = new FormData(event.target);
@@ -3480,6 +3889,43 @@ viewRoot.addEventListener("change", (event) => {
 });
 
 modal.addEventListener("click", async (event) => {
+  const memoryDecision = event.target.closest("[data-memory-decision]");
+  if (memoryDecision) {
+    const memoryId = memoryDecision.dataset.memoryId;
+    const expectedStateVersion = Number(memoryDecision.dataset.memoryVersion);
+    const decision = memoryDecision.dataset.memoryDecision;
+    if (!memoryId || !Number.isInteger(expectedStateVersion)) return;
+    state.agent.memoryBusyIds.add(memoryId);
+    refreshMemoryModal();
+    try {
+      const updated = await apiRequest(
+        `/api/v1/agent/memories/${memoryId}/${decision}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ expectedStateVersion }),
+          timeoutMs: 15_000,
+        },
+      );
+      if (updated.status === "active") {
+        state.agent.memories = state.agent.memories.map((item) =>
+          item.memoryId === memoryId ? updated : item);
+      } else {
+        state.agent.memories = state.agent.memories.filter((item) => item.memoryId !== memoryId);
+      }
+      showToast(decision === "confirm"
+        ? t("记忆已确认保存。", "Memory confirmed and saved.")
+        : decision === "forget"
+          ? t("记忆已忘记并脱敏。", "Memory forgotten and redacted.")
+          : t("记忆建议已拒绝。", "Memory proposal rejected."));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error));
+      await loadAgentMemories();
+    } finally {
+      state.agent.memoryBusyIds.delete(memoryId);
+      refreshMemoryModal();
+    }
+    return;
+  }
   const refreshWalletManager = event.target.closest("[data-refresh-wallet-manager]")?.dataset.refreshWalletManager;
   if (refreshWalletManager) {
     await openWalletGroupManager(refreshWalletManager);
@@ -3649,10 +4095,18 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("hashchange", () => {
-  state.view = getViewFromHash();
+  const next = getViewFromHash();
+  state.view = next;
   renderCurrentView();
-  if (state.view === "pulse") loadPulse();
-  if (state.view === "assets" && !state.assets.portfolio && !state.assets.loading) loadAssets();
+  if (next === "pulse") loadPulse();
+  if (next === "assets") {
+    if (state.auth.session) {
+      if (!state.assets.portfolio && !state.assets.loading) loadAssets();
+    } else {
+      clearOwnedAssetState();
+      renderAssets();
+    }
+  }
 });
 
 // Refresh changes what the browser reads from NarraOps, not how often external
@@ -3683,6 +4137,5 @@ window.addEventListener("resize", () => {
 
 updateTheme();
 renderCurrentView();
-loadAuthSession();
+void loadAuthSession();
 if (state.view === "pulse") loadPulse();
-if (state.view === "assets") loadAssets();

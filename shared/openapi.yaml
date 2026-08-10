@@ -242,6 +242,75 @@ paths:
       responses:
         '202': { description: Failed launch-bound-buy entries retried }
         '409': { $ref: '#/components/responses/Error' }
+  /agent/capabilities:
+    get:
+      operationId: getAgentCapabilities
+      summary: Discover the current published NarraOps Agent and its safe client-facing capabilities
+      description: >-
+        Returns a public projection of the current immutable Agent/Skill
+        manifest. System instructions, checksums, database identifiers, binding
+        configuration, Memory content, and execution credentials are never
+        exposed.
+      responses:
+        '200':
+          description: Current published Agent capabilities
+          content:
+            application/json:
+              schema: { $ref: './schemas/agent/capabilities.v1.schema.json' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /agent/conversations:
+    post:
+      operationId: createAgentConversation
+      summary: Create a channel-neutral NarraOps Agent conversation
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel: { enum: [web, telegram, api] }
+                context:
+                  type: object
+                  properties:
+                    language: { enum: [zh, en] }
+                    currentView: { type: string, maxLength: 50 }
+      responses:
+        '201':
+          description: Agent conversation created
+        '400': { $ref: '#/components/responses/Error' }
+  /agent/conversations/{conversationId}:
+    get:
+      operationId: getAgentConversation
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Actor-scoped Agent conversation }
+        '404': { $ref: '#/components/responses/Error' }
+  /agent/conversations/{conversationId}/messages:
+    post:
+      operationId: postAgentConversationMessage
+      summary: Submit a message with optional actor-scoped Pulse or Assets context references
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/agent/message-request.v2.schema.json' }
+      responses:
+        '200': { description: Completed synchronous Agent response }
+        '202': { description: Agent task accepted }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /agent/tasks:
     post:
       operationId: createAgentTask
@@ -261,6 +330,7 @@ paths:
   /agent/tasks/{taskId}:
     get:
       operationId: getAgentTask
+      summary: Read an actor-owned Agent task
       parameters:
         - name: taskId
           in: path
@@ -272,7 +342,255 @@ paths:
           content:
             application/json:
               schema: { $ref: './schemas/agent-task.schema.json' }
+        '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /agent/tasks/{taskId}/cancel:
+    post:
+      operationId: cancelAgentTask
+      summary: Cancel an actor-owned Agent task before a terminal state
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason: { type: string, maxLength: 500 }
+      responses:
+        '200': { description: Task cancelled or existing terminal state returned }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /agent/events:
+    get:
+      operationId: listAgentEvents
+      summary: Replay actor-owned Agent task events using a durable cursor
+      parameters:
+        - name: taskId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string, pattern: '^[0-9]+$' }
+      responses:
+        '200':
+          description: Ordered event page
+          content:
+            application/json:
+              schema: { $ref: './schemas/agent/event-page.v1.schema.json' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /agent/approvals/{approvalId}:
+    get:
+      operationId: getAgentApproval
+      summary: Read an actor-owned exact execution approval
+      parameters:
+        - name: approvalId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Approval and exact execution intent
+          content:
+            application/json:
+              schema: { $ref: './schemas/agent/approval.v1.schema.json' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /agent/approvals/{approvalId}/approve:
+    post:
+      operationId: approveAgentApproval
+      summary: Approve an actor-owned exact execution intent
+      parameters:
+        - name: approvalId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expectedStateVersion]
+              properties:
+                expectedStateVersion: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: Approval decision persisted; no execution is triggered
+          content:
+            application/json:
+              schema: { $ref: './schemas/agent/approval.v1.schema.json' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /agent/approvals/{approvalId}/reject:
+    post:
+      operationId: rejectAgentApproval
+      summary: Reject an actor-owned exact execution intent
+      parameters:
+        - name: approvalId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expectedStateVersion]
+              properties:
+                expectedStateVersion: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: Rejection persisted; no execution is triggered
+          content:
+            application/json:
+              schema: { $ref: './schemas/agent/approval.v1.schema.json' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /agent/memories:
+    get:
+      operationId: listAgentMemories
+      summary: List actor-owned user Memory
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+        - name: review
+          in: query
+          required: false
+          description: Include proposed Memory for explicit user review
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Active confirmed Memory, plus proposed Memory when review=true
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schema_version, memories]
+                properties:
+                  schema_version: { const: agent.memory_list.v1 }
+                  memories:
+                    type: array
+                    maxItems: 50
+                    items: { $ref: './schemas/agent/memory-item.v1.schema.json' }
+        '401': { $ref: '#/components/responses/Error' }
+  /agent/memories/proposals:
+    post:
+      operationId: proposeAgentMemory
+      summary: Propose user Memory without activating it
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 255 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/agent/memory-proposal-request.v1.schema.json' }
+      responses:
+        '201':
+          description: Memory proposal persisted; it is not available to models
+          content:
+            application/json:
+              schema: { $ref: './schemas/agent/memory-proposal-result.v1.schema.json' }
+        '200':
+          description: Existing idempotent proposal returned
+          content:
+            application/json:
+              schema: { $ref: './schemas/agent/memory-proposal-result.v1.schema.json' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /agent/memories/{memoryId}/confirm:
+    post:
+      operationId: confirmAgentMemory
+      summary: Explicitly activate an actor-owned Memory proposal
+      parameters:
+        - name: memoryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/agent/memory-decision-request.v1.schema.json' }
+      responses:
+        '200':
+          description: Confirmed active Memory
+          content:
+            application/json:
+              schema: { $ref: './schemas/agent/memory-item.v1.schema.json' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /agent/memories/{memoryId}/reject:
+    post:
+      operationId: rejectAgentMemory
+      summary: Reject an actor-owned Memory proposal
+      parameters:
+        - name: memoryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/agent/memory-decision-request.v1.schema.json' }
+      responses:
+        '200': { description: Rejected Memory }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /agent/memories/{memoryId}/forget:
+    post:
+      operationId: forgetAgentMemory
+      summary: Redact and delete an actor-owned Memory
+      parameters:
+        - name: memoryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/agent/memory-decision-request.v1.schema.json' }
+      responses:
+        '200': { description: Deleted and redacted Memory tombstone }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
   /executions:
     post:
       operationId: createExecution

@@ -17,7 +17,8 @@
     "check": "npm run build:frontend && npm run build:api && node --check app.js && node --check server.js",
     "test:solana-runtime": "node --no-experimental-require-module scripts/test-solana-runtime.cjs",
     "test:api": "npm run build:agent-runtime && npm --prefix backend/api test",
-    "test:execution": "node --import tsx --test backend/execution/test/*.test.ts"
+    "test:execution": "node --import tsx --test backend/execution/test/*.test.ts",
+    "agent:bootstrap": "node --import tsx scripts/agent/bootstrap-catalog.ts"
   },
   "engines": {
     "node": "24.x"
