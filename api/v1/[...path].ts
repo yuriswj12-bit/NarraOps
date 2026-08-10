@@ -30,6 +30,9 @@ import {
   transitionPumpLaunchRuntimeExecution,
   reconcilePumpLaunchRuntimeExecution,
   submitPumpBroadcastViaGateway,
+  recordSolanaSwapSemanticShadow,
+  prepareSolanaSwapRuntimeExecution,
+  submitSolanaSwapViaGateway,
   getAgentApproval,
   decideAgentApproval,
   proposeAgentMemory,
@@ -1364,6 +1367,79 @@ async function submitDirectSwap({
   const planner = await directLaunchPlanner();
   const connection = planner.pump.connection;
   let txHash;
+  const currentBlockHeight = await connection.getBlockHeight("confirmed");
+  const latestBlockhash = await connection.getLatestBlockhash("confirmed");
+  const signedTxSignature = bs58.encode(payerSignature);
+  const swapShadow = await recordSolanaSwapSemanticShadow({
+    actorId: userId,
+    walletGroupId,
+    signer: expectedPayer,
+    signedTransactionBase64: encoded,
+    slippageBps: 300,
+    estimatedFeeAtomic: "0",
+    maxFeeLamports: "0",
+    valueAtomic: "0",
+    currentBlockHeight,
+    lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+  });
+  let swapRuntimeExecution = {
+    enforced: false,
+    reason: "swap_enforcement_disabled",
+  };
+  if (process.env.AGENT_SWAP_ENFORCEMENT_ENABLED === "true" && swapShadow.recorded) {
+    swapRuntimeExecution = await prepareSolanaSwapRuntimeExecution({
+      actorId: userId,
+      walletGroupId,
+      shadowId: swapShadow.shadowId,
+      executionId: swapShadow.executionId,
+      intentDigest: swapShadow.intentDigest,
+      approvalDualRun: swapShadow.approvalDualRun,
+      messageHash: actualMessageHash,
+      txSignature: signedTxSignature,
+      signer: expectedPayer,
+      currentBlockHeight,
+    });
+  }
+  if (
+    process.env.AGENT_SWAP_GATEWAY_AUTHORITY_ENABLED === "true"
+    && swapRuntimeExecution.enforced
+    && swapRuntimeExecution.executionId
+  ) {
+    const gatewayResult = await submitSolanaSwapViaGateway({
+      executionId: swapRuntimeExecution.executionId,
+      approvalId: swapShadow.approvalDualRun?.approvalId,
+      expectedStateVersion: swapRuntimeExecution.stateVersion,
+      envelopeDigest: swapShadow.envelopeDigest,
+      intentDigest: swapShadow.intentDigest,
+      txHash: signedTxSignature,
+      signedTransactionBase64: encoded,
+      actorId: userId,
+      broadcast: async () => {
+        const sentHash = await connection.sendRawTransaction(Buffer.from(encoded, "base64"), {
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+          maxRetries: 3,
+        });
+        if (sentHash !== signedTxSignature) {
+          throw new Error("Solana RPC returned a signature that differs from the signed payload");
+        }
+        const confirmation = await connection.confirmTransaction(sentHash, "confirmed");
+        if (confirmation?.value?.err) throw new Error("Swap transaction failed on-chain");
+        return { status: "submitted", providerAccepted: true };
+      },
+    });
+    if (gatewayResult.enabled) {
+      return {
+        schema_version: "go.swap_execution.v1",
+        status: gatewayResult.status === "confirmed" ? "confirmed" : "submitted",
+        provider: "jupiter",
+        execution_mode: "client_signed",
+        tx_hash: gatewayResult.txHash,
+        wallet_group_id: walletGroupId,
+        wallet_address: expectedPayer,
+      };
+    }
+  }
   try {
     txHash = await connection.sendRawTransaction(Buffer.from(encoded, "base64"), {
       skipPreflight: false,

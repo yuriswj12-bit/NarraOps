@@ -68,7 +68,7 @@ import {
 import { createAgentRuntime } from "../../agents/agent-runtime.ts";
 import { createAgentHandlers } from "../../agents/agent-handlers.ts";
 import { TaskManager } from "../../agents/task-manager.ts";
-import { projectAgentCapabilities, submitPumpBroadcastViaGateway } from "../../../api/v1/agent/runtime.ts";
+import { projectAgentCapabilities, submitPumpBroadcastViaGateway, submitSolanaSwapViaGateway } from "../../../api/v1/agent/runtime.ts";
 import { validateConversationMessage } from "../src/validation.ts";
 import { InMemoryTaskRepository } from "../src/repositories/in-memory-task-repository.ts";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory-conversation-repository.ts";
@@ -3001,5 +3001,69 @@ test("submitPumpBroadcastViaGateway gates on the authority flag and routes throu
     delete process.env.AGENT_PUMP_GATEWAY_AUTHORITY_ENABLED;
   } else {
     process.env.AGENT_PUMP_GATEWAY_AUTHORITY_ENABLED = previous;
+  }
+});
+
+test("submitSolanaSwapViaGateway gates on the authority flag and routes through the Tool", async () => {
+  const previous = process.env.AGENT_SWAP_GATEWAY_AUTHORITY_ENABLED;
+  delete process.env.AGENT_SWAP_GATEWAY_AUTHORITY_ENABLED;
+  const disabled = await submitSolanaSwapViaGateway({
+    executionId: randomUUID(),
+    approvalId: randomUUID(),
+    expectedStateVersion: 1,
+    envelopeDigest: "a".repeat(64),
+    intentDigest: "b".repeat(64),
+    txHash: bs58.encode(new Uint8Array(64).fill(1)),
+    signedTransactionBase64: "AAAA",
+    actorId: "user-1",
+    broadcast: async () => ({ status: "submitted", providerAccepted: true }),
+  });
+  assert.equal(disabled.enabled, false);
+  assert.equal(disabled.reason, "swap_gateway_authority_disabled");
+
+  process.env.AGENT_SWAP_GATEWAY_AUTHORITY_ENABLED = "true";
+  let broadcastCalls = 0;
+  const executionId = randomUUID();
+  const approvalId = randomUUID();
+  const txHash = bs58.encode(new Uint8Array(64).fill(2));
+  const result = await submitSolanaSwapViaGateway({
+    executionId,
+    approvalId,
+    expectedStateVersion: 3,
+    envelopeDigest: "c".repeat(64),
+    intentDigest: "d".repeat(64),
+    txHash,
+    signedTransactionBase64: "AAEC",
+    actorId: "user-1",
+    broadcast: async ({ signedTransactionBase64 }) => {
+      broadcastCalls += 1;
+      assert.equal(signedTransactionBase64, "AAEC");
+      return { status: "submitted", providerAccepted: true };
+    },
+  });
+  assert.equal(result.enabled, true);
+  assert.equal(result.status, "submitted");
+  assert.equal(result.providerAccepted, true);
+  assert.equal(broadcastCalls, 1);
+
+  await assert.rejects(
+    submitSolanaSwapViaGateway({
+      executionId,
+      approvalId,
+      expectedStateVersion: 3,
+      envelopeDigest: "c".repeat(64),
+      intentDigest: "d".repeat(64),
+      txHash,
+      signedTransactionBase64: "AAEC",
+      actorId: "user-1",
+      broadcast: async () => ({ status: "submitted", providerAccepted: false }),
+    }),
+    (error: any) => error.code === "FINANCIAL_ADAPTER_ACCEPTANCE_MISMATCH",
+  );
+
+  if (previous === undefined) {
+    delete process.env.AGENT_SWAP_GATEWAY_AUTHORITY_ENABLED;
+  } else {
+    process.env.AGENT_SWAP_GATEWAY_AUTHORITY_ENABLED = previous;
   }
 });
