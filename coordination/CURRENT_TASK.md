@@ -38,6 +38,15 @@ the design or replace the already-working Pump Launch product path.
   135/135. Deployed to `narra-7bxi9075b-hek.vercel.app`; production has
   `AGENT_SWAP_SEMANTIC_SHADOW_ENABLED=true` (shadow observing) and the
   enforcement/gateway flags off.
+- Added live Solana transfer endpoints to the Vercel API:
+  `POST /api/v1/transfers/preview` and `POST /api/v1/transfers`, with
+  actor-owned wallet-group source, external/group destination, encrypted-vault
+  Solana signing (`unsealAssetWalletSecret` + `broadcastSolanaTransfer`), and
+  migration 045 (`asset_transfer_previews`/`asset_transfers`, service-role
+  only). Migrations through `20260810075000` are applied remotely. API now
+  136/136. Deployed to `narra-2jimje6hu-hek.vercel.app`; the transfer endpoints
+  return 401 when unauthenticated (previously 404).
+
 
 
 
