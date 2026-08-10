@@ -44,8 +44,21 @@ the design or replace the already-working Pump Launch product path.
   Solana signing (`unsealAssetWalletSecret` + `broadcastSolanaTransfer`), and
   migration 045 (`asset_transfer_previews`/`asset_transfers`, service-role
   only). Migrations through `20260810075000` are applied remotely. API now
-  136/136. Deployed to `narra-2jimje6hu-hek.vercel.app`; the transfer endpoints
+  136/136. Deployed to `narra-2jimje6hu-hek.vercel.app`; the   transfer endpoints
   return 401 when unauthenticated (previously 404).
+- Added the Transfer Runtime execution chain mirroring Swap/Pump:
+  `recordAssetTransferSemanticShadow`, `prepareAssetTransferRuntimeExecution`,
+  and `submitAssetTransferViaGateway` in `api/v1/agent/runtime.ts`, wired into
+  `transferCreate` behind `AGENT_TRANSFER_SEMANTIC_SHADOW_ENABLED`,
+  `AGENT_TRANSFER_ENFORCEMENT_ENABLED`, and
+  `AGENT_TRANSFER_GATEWAY_AUTHORITY_ENABLED`. Transfer now records a real
+  semantic shadow, envelope, approval dual-run, reserve, and
+  `submission_pending` before the Tool gateway (broadcast identity routed
+  through the Tool after custody signing). API now 137/137. Deployed to
+  `narra-51f3ejy6m-hek.vercel.app`; production has
+  `AGENT_TRANSFER_SEMANTIC_SHADOW_ENABLED=true` (shadow observing) and the
+  enforcement/gateway flags off.
+
 
 
 
