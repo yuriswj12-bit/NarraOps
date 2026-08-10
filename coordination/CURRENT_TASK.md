@@ -28,6 +28,17 @@ the design or replace the already-working Pump Launch product path.
   `www.narraops.xyz`). Health and capabilities verified. Production env now
   has `AGENT_PUMP_GATEWAY_AUTHORITY_ENABLED=false`; enforcement stays off, so
   the direct path remains authority and the gateway branch is unreachable.
+- Built the Swap Runtime execution chain mirroring Pump:
+  `recordSolanaSwapSemanticShadow`, `prepareSolanaSwapRuntimeExecution`, and
+  `submitSolanaSwapViaGateway` in `api/v1/agent/runtime.ts`, wired into
+  `submitDirectSwap` behind `AGENT_SWAP_SEMANTIC_SHADOW_ENABLED`,
+  `AGENT_SWAP_ENFORCEMENT_ENABLED`, and `AGENT_SWAP_GATEWAY_AUTHORITY_ENABLED`.
+  Swap now records a real semantic shadow, envelope, approval dual-run,
+  reserve, and `submission_pending` before the Tool gateway. API/Runtime now
+  135/135. Deployed to `narra-7bxi9075b-hek.vercel.app`; production has
+  `AGENT_SWAP_SEMANTIC_SHADOW_ENABLED=true` (shadow observing) and the
+  enforcement/gateway flags off.
+
 
 
 - OpenCode verified the Codex Agent control-plane handoff against the dirty
