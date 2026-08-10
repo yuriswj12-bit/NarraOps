@@ -1,37 +1,41 @@
-# Task board
+# Current task board
 
-| Owner | Task | Status |
+This board contains only work that is still useful after checking current code.
+`coordination/CURRENT_TASK.md` is the source for the active local work.
+
+| Area | Task | Status |
 |---|---|---|
-| Execution | Shared execution contracts | Done |
-| Execution | Planning-only execution core and tests | Done |
-| Execution | Nginx/Docker skeleton | Done |
-| Backend | Versioned Agent API and mock integrations | Done |
-| Backend | API validation, secret rejection, and SSE tests | Done |
-| Integration | Merge backend and execution foundations | Done |
-| Integration | Create role rules and worktree map | Done |
-| Frontend | Restore website/workbench into frontend worktree | Done |
-| Frontend | Consume `/api/v1` Agent contract and SSE | Pending |
-| Backend | Mount `/api/v1/executions` and durable persistence | Pending |
-| Backend | Authentication and authorization | Pending |
-| Execution | KMS/HSM signer and policy service | Blocked by provider/design choice |
-| Execution | Chain adapters and confirmation reconciler | Pending; real funds disabled |
-| Frontend | Render distinct execution states | Pending |
-| Integration | Live native SOL/BNB balances, deposits, withdrawals, and wallet-group transfers | Done locally; production auth/audit hardening pending |
-| Frontend | Unified wallet-group transfer modal and live amount preview | Done |
-| Backend | Configured Solana blockhash endpoint for browser-wallet transactions | Done |
-| Execution | Encrypted wallet export with explicit safeguards | Done |
-| QA | Browser-wallet SOL transfer small-value mainnet acceptance | Pending user-side wallet confirmation only |
-| Execution | BSC login-wallet 1-to-many distributor contract | Pending |
-| Assets | SPL/BEP-20 token discovery, token images, pricing, and P&L ledger | Pending |
-| Product | Consolidate 2026-07-19 Go + Pulse pivot into shared facts | Done locally; review pending |
-| Research | Define historical Meme ATH cohorts and narrative schema | Done locally; sample collection pending |
-| Research | Collect 500 Solana Token samples across L0-L4 cohorts | In progress; 456 unique candidates collected across five intervals |
-| Research | Validate raw ATH with sustained K-line market cap | L4 raw cohort complete: 12/12 reviewed, only 5 remain L4 |
-| Research | Manually verify at least 200 original narratives | Pending |
-| Research | Produce $1M / $10M / $100M narrative difference report | Pending |
-| Backend | Implement Pulse candidate ingestion, clustering, origin and saturation pipeline | Pending research baseline |
-| Frontend | Keep first-level product surfaces to Go / Pulse / Assets and rebuild Pulse around narrative briefs and evidence | In progress |
-| Go | Accept Pulse opportunity payloads and maintain fixed launch-plan schema | Pending contract definition |
-| Launch | Preserve Pump/Four.Meme/Pons adapters as backend tools; no first-level UI expansion | Feature-gated pending product integration |
-| Product | Remove Invite from the current product surface and move growth/waitlist work later | In progress |
-| Engineering | Adopt TS / Python / SQL / OpenAPI language split for future core work | In progress |
+| Product | Keep first-level product surfaces to Go / Pulse / Assets | Done |
+| Frontend | Consume relative `/api/v1` Go, Pulse, Assets, auth, launch, and Swap APIs | Done |
+| Agent | Use live LLM/read providers and expose provider gaps instead of production mocks | Done |
+| Agent | Persist actor-scoped tasks/events and support status polling, cancellation, replay, and recovery | Done |
+| Auth/Assets | Web3 sessions, actor-owned wallet groups, encrypted provisioning/export, and transfer flows | Done |
+| Launch | Direct Pump prepare, browser sign, validation, submit, confirmation, and reconciliation path | Done |
+| Swap | Jupiter transaction preparation plus Assets wallet/browser signature and direct submission | Done |
+| Deployment | Preserve Vercel `/api/v1/*` catch-all and generated Runtime/launch-planner bundles | Done |
+| Agent v2 | Preserve and finish the uncommitted Runtime/contracts/migrations 023–043 integration | In progress |
+| Agent v2 | Observe production Pump semantic shadow and approval dual-run with enforcement off | In progress |
+| Frontend | Finish and verify current uncommitted Go/Assets reliability and simplified UI changes | In progress |
+| Coordination | Keep OpenCode `/resume`, `/handoff`, and compact current-state documents accurate | Done |
+| Agent v2 | Test signed Pump enforcement through an injected no-broadcast provider harness | Done |
+| Agent control plane | Persist versioned Agent/Skill catalog and actor-bound Memory behind service-role-only RPCs | Done |
+| Agent control plane | Deploy self-cleaning Supabase canaries for catalog, confirmation, forget, enum parity, and global memory | Done |
+| Agent control plane | Publish reviewed `narraops-agent@1` catalog and canary-enable optional Runtime knowledge | Done |
+| Agent control plane | Add feature-flagged authenticated Memory propose/confirm/list/forget APIs | Done |
+| Agent control plane | Route conversation and structured launch content through Agent-version Model Policy | Done |
+| Agent control plane | Route Pulse narrative reads through `pulse.narratives.list@1.0.0` Tool Registry contract | Done |
+| Agent control plane | Publish Agent/market Skill v2 and route filtered GMGN reads through immutable Tool v2 | Done |
+| Agent control plane | Route public narrative/launch-source reads through `research.public_link.read@1.0.0` | Done |
+| Agent control plane | Route actor-owned trade-plan wallet selection through `assets.wallet_groups.list@1.0.0` | Done |
+| Agent control plane | Add Go settings/UI for reviewing and deleting Memory | Done |
+| Frontend | Restore real Go conversation helpers excluded by legacy fixture comment | Done |
+| Agent v2 | Prove wallet-signed reservation concurrency/idempotency against Supabase with zero broadcasts | Done |
+| Agent v2 | Preserve legacy Pump response fields and display unknown chain outcomes without false success | Done |
+| Agent v2 | Define fixed-schema `launch.pump.broadcast@1.0.0` with consumed-approval/recent-auth gate and no signed bytes | Done (local/shadow only) |
+| Agent v2 | Define fixed-schema `swap.solana.broadcast@1.0.0` with consumed-approval/recent-auth gate and no signed bytes | Done (local only, unpublished) |
+| Agent v2 | Define fixed-schema `assets.transfer.broadcast@1.0.0` with consumed-approval/recent-auth gate and no signed bytes | Done (local only, unpublished) |
+| Agent control plane | Expose safe public Agent/Skill capability discovery without instructions, internal IDs, Memory, or execution credentials | Done |
+| Agent v2 | Enable Pump enforcement only after harness, canary, rollback, and parity gates pass | Blocked by explicit authorized rollout; enforcement remains off |
+| Execution | Move launch/Swap/Transfer authority into the provider-neutral Tool/Execution Gateway | Blocked by explicit authorized rollout; contracts are local and unpublished |
+| Pulse | Improve real source coverage and history while preserving sampled/partial labels | Pending |
+| QA | Full dirty-tree verification: API 133/133, execution 35/35, typecheck, 28 schemas, Vercel build, migration parity and 13-check production canary | Done |

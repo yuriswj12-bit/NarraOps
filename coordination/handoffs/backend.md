@@ -1,5 +1,362 @@
 # Backend handoff
 
+## 2026-08-09 Agent approval Phase 4 shadow foundation
+
+- Added provider-neutral `ExecutionIntent` and `ApprovalShadowRecord`
+  contracts plus JSON Schemas. A canonical SHA-256 digest binds the
+  authenticated actor, action, resource, and exact safe parameters.
+- Added a service-role-only shadow repository and migration 024 for
+  `agent_execution_intents`, `agent_approvals`, and
+  `agent_approval_audit`. Every record is database-constrained to
+  `shadow_mode=true`; the RPC cannot authorize or execute an action.
+- Instrumented existing Launch prepare, Launch broadcast, and Swap broadcast
+  confirmation boundaries behind `AGENT_APPROVAL_SHADOW_ENABLED`. Shadow
+  writes time out and fail non-blockingly, so this phase does not alter the
+  current financial execution authority or response behavior.
+- Signed transaction payloads, cookies, authorization headers, keys, seeds,
+  tokens, and other secret-shaped parameters are rejected. Swap shadow records
+  retain only a message hash and SHA-256 fingerprint of the submitted signed
+  transaction.
+- Applied migration `20260809194500_agent_approval_shadow.sql` to the linked
+  production Supabase project. Remote verification confirmed all three
+  tables, RLS, and `agent_record_approval_shadow_v1`.
+
+Verification before application rollout:
+
+- Backend API tests: 104/104.
+- Execution tests: 35/35.
+- Runtime v2 isolated TypeScript check: pass.
+- Agent runtime/Vercel bundle: pass.
+- `git diff --check`: pass.
+
+The application flag remains off until a shadow-disabled production deployment
+and existing task/event canary pass. Do not enforce these records or use them
+as execution authorization in Phase 4.
+
+Production rollout:
+
+- Deployed once with `AGENT_APPROVAL_SHADOW_ENABLED=false`. Health and durable
+  task/event canary passed with Supabase persistence, a succeeded task, seven
+  ordered events, and empty replay after the returned cursor.
+- Enabled `AGENT_APPROVAL_SHADOW_ENABLED=true` and redeployed to
+  `https://www.narraops.xyz`.
+- Ran a no-funds shadow canary with an ephemeral authenticated wallet. The
+  canary created a launch draft without wallet-group selections, submitted
+  `confirm=true`, recorded the exact `launch.prepare` intent, then stopped at
+  `WALLET_GROUP_SELECTION_REQUIRED`.
+- Remote verification found a 64-character digest, `shadow_mode=true` on both
+  records, `explicit_boolean` confirmation evidence, only the expected safe
+  parameter keys, and the matching `approval.shadow_recorded` audit event.
+  No signing request, signature, serialized transaction, or broadcast occurred.
+- A post-enable ordinary Agent canary again succeeded with seven events and
+  empty cursor replay. Anonymous task reads still return
+  `AUTHENTICATION_REQUIRED`.
+
+Enforcement is not approved by this rollout. Before enforcement, the Runtime
+must own validation-before-approval, approval expiry and atomic consumption,
+task/tool-call state transitions, idempotent execution/reconciliation, and
+provider-specific signing/broadcast adapters. Shadow observations must first
+cover real user flows without secret payloads or legacy-path regressions.
+
+Readiness follow-up:
+
+- Corrected the Runtime v2 Tool Registry order to validate permissions and
+  fixed input schema before checking approval. Invalid financial-tool input
+  now fails schema validation instead of entering an approval flow.
+- Added a regression test; the focused Runtime suite passes 15/15, both Runtime
+  bundles build, all eight Agent JSON Schemas parse, and `git diff --check`
+  passes.
+- Added an enforcement-readiness matrix to the architecture report. Durable
+  atomic approval consumption, approval APIs, task/tool/execution linkage,
+  broadcast idempotency, unknown-outcome reconciliation, and complete
+  transaction-semantic verification remain blockers.
+
+Approval lifecycle foundation:
+
+- Added `agent.approval.v1`, actor-scoped request idempotency, optimistic state
+  versions, explicit/recent-auth decisions, exact-digest consumption, and a
+  Supabase repository adapter. This code has no Tool, signer, or broadcast
+  dependency.
+- Concurrent consume tests prove exactly one caller receives a consumed
+  approval. Tests also cover actor mismatch, expiry, stale recent auth,
+  parameter drift, idempotent request replay, and same-key/different-intent
+  conflict.
+- Applied migration `20260809203000_agent_approval_lifecycle.sql`. It creates
+  three service-role-only authorization tables, separate from Phase 4 shadow
+  data, plus atomic request/decide/consume RPCs. All three tables have RLS.
+- A production database canary ran entirely inside a transaction that ended in
+  `ROLLBACK`. It verified request, idempotent replay, approve, consume, blocked
+  second consume, and ordered requested/approved/consumed audit events. Remote
+  verification reports three tables, three RPCs, and RLS on all tables.
+- At the lifecycle-foundation checkpoint no public approval endpoint existed,
+  and no execution path read these records. The following rollout adds only
+  actor decision endpoints; enforcement remains disabled.
+
+Approval decision API rollout:
+
+- Added actor-scoped GET/approve/reject routes and OpenAPI contracts. Mutation
+  requests require the current state version and exact same-origin `Origin`.
+- Recent auth is derived only from `web3_sessions.created_at`. A client body
+  timestamp cannot satisfy or extend the five-minute recent-auth policy.
+- Deployed first with `AGENT_APPROVAL_API_ENABLED=false`; health returned 200
+  and the disabled route returned 404. Then enabled the isolated API and
+  redeployed to `https://www.narraops.xyz`.
+- Production canary used an ephemeral Web3 session and a test-only
+  `explicit_and_recent_auth` record: actor GET returned requested, an attacker
+  Origin returned `UNTRUSTED_REQUEST_ORIGIN`, and same-origin approve changed
+  state version 1 to 2. Database verification confirmed server-derived recent
+  auth and requested/approved audit events.
+- The exact canary intent was deleted after verification; remote count confirms
+  zero canary authorization records remain.
+- Post-enable durable Agent canary again succeeded with seven events and empty
+  replay. Anonymous approval reads return `AUTHENTICATION_REQUIRED`.
+
+Final verification for this unit:
+
+- Backend API tests: 106/106.
+- Execution tests: 35/35.
+- Vercel build: pass.
+- Nine Agent JSON Schemas parse.
+- `git diff --check`: pass.
+
+The approval API still cannot create intents or consume approvals, and no Tool,
+signer, transaction planner, or broadcast path reads it. It is not financial
+execution authorization.
+
+Execution reservation foundation:
+
+- Added `agent.execution.v1` plus a Runtime service/repository boundary for
+  actor-scoped idempotent reservations.
+- Durable approvals now require task and tool-call identity. Approval creation
+  succeeds only while both owned records are in `waiting_approval`.
+- Applied migration `20260809213000_agent_execution_reservations.sql`. It adds
+  RLS-protected execution/audit tables and an atomic reserve RPC.
+- The RPC validates actor, task, tool call, exact digest, resource identity,
+  expiry, approval version, and task version; then consumes the approval,
+  reserves one execution, links the tool call, transitions the task to
+  `executing`, appends a durable task event, and writes authorization/execution
+  audit events in one transaction.
+- Revoked service-role access to unbound approval request v1 and standalone
+  approval consume. Only task-bound request v2 and atomic execution reservation
+  remain callable.
+- A production database canary ran inside a final `ROLLBACK` and proved exact
+  replay, second-key blocking, one execution per approval, task/tool state
+  transition, approval version 2 to 3, and ordered audit events.
+- No HTTP route, model call, Tool adapter, signer, planner, or broadcaster calls
+  the reservation RPC. This is still an execution-disconnected foundation.
+- Deployed the schema-aligned application after API 107/107, execution 35/35,
+  Vercel build, ten Agent schemas, and diff checks passed. Production health,
+  Supabase persistence, ordinary succeeded task, seven-event replay, empty
+  cursor replay, and anonymous approval protection all passed again.
+
+Execution transition and reconciliation foundation:
+
+- Added a provider-neutral execution state machine:
+  `reserved -> submitted -> reconciliation_required -> confirmed|failed`,
+  with direct safe terminal branches from `reserved` and `submitted`.
+- `submitted` requires a pre-derived transaction hash/signature. The identity
+  is immutable after persistence. Confirmed, failed, and cancelled records are
+  terminal and cannot be rewritten.
+- Added optimistic actor-scoped transition service/repository contracts and
+  `agent_transition_execution_v1`. The RPC is service-role-only and does not
+  plan, sign, broadcast, retry, or call a chain provider.
+- Applied migration `20260809223000_agent_execution_transitions.sql`.
+  Unknown outcomes atomically move an executing task to
+  `reconciliation_required`; all execution transitions append immutable
+  execution audit and durable task events.
+- A production transaction canary proved missing-hash rejection, hash
+  immutability, submitted/reconciliation/confirmed progression, stale-version
+  rejection, terminal protection, tool completion, audit/event counts, and
+  ended in `ROLLBACK`. Exact canary task and execution counts are zero.
+- Remote privilege verification: service role can execute the RPC;
+  `anon` and `authenticated` cannot.
+- No public API, model call, Tool adapter, signer, planner, or broadcaster
+  calls reservation or transition. Financial execution remains disconnected.
+- Final verification: backend API 109/109, execution 35/35, Vercel build,
+  ten Agent JSON Schemas, and `git diff --check` all pass.
+- Deployed production version `dpl_C4Ku4gdY3ca3f9WCF2PrJ5M72HEX` and aliased
+  `https://www.narraops.xyz`. Health reported Supabase persistence; an ordinary
+  read-only Agent task succeeded with eight durable events and empty cursor
+  replay; anonymous approval read returned 401. Exact temporary canary tasks
+  and Web3 users were removed and verified at zero.
+
+Approved semantic-envelope foundation:
+
+- Added fixed `agent.execution_envelope.v1` and
+  `agent.transaction_inspection.v1` contracts and JSON Schemas.
+- The provider-neutral verifier binds execution/actor/intent/action and
+  fail-closes on chain, signer, message, destination, calldata, nonce, native
+  value, program/contract set, recipient/asset/atomic amount, slippage, fee,
+  block-height lifetime, or time lifetime drift.
+- Added durable one-time envelope binding to reserved executions. Binding
+  increments the optimistic version, appends execution audit and task outbox
+  events, and cannot be replaced.
+- Applied migration `20260809233000_agent_execution_semantic_envelopes.sql`.
+  Database constraints reject submitted, reconciliation, or confirmed
+  executions without a bound semantic envelope.
+- Updated rollback canary proved bind-before-submit plus the complete
+  transition lifecycle. Remote verification again found zero canary records;
+  only service role can call the bind RPC.
+- This is not yet a production semantic decoder. Existing Launch, Swap,
+  signer, and broadcaster paths do not emit trusted inspections and do not
+  call bind/reserve/transition.
+- Final verification: backend API 111/111, execution 35/35, Vercel build,
+  twelve Agent JSON Schemas, and `git diff --check` pass.
+- Deployed the schema-aligned build to
+  `https://narra-rnhb4zh75-hek.vercel.app` and aliased
+  `https://www.narraops.xyz`. Production health reported Supabase; an ordinary
+  read-only Agent task succeeded with eight durable events and empty cursor
+  replay; anonymous approval read returned 401. The exact canary task/user
+  were removed and verified at zero.
+
+## 2026-08-09 Phase 3 production rollout complete
+
+- Deployed the Phase 3 application to Vercel production and aliased
+  `https://www.narraops.xyz`.
+- The first production canary exposed a legacy plain-chat synthetic task ID
+  that was not persisted. Changed production/Supabase mode so all chat tasks
+  use the durable manager; only database-free local compatibility mode retains
+  the synthetic fast path. Added a regression test and redeployed.
+- Production canary then passed: task creation/completion, actor-scoped task
+  GET, seven ordered outbox events, and empty replay after the returned cursor.
+- Enabled `AGENT_RECOVERY_ENABLED=true` after querying recoverable state. The
+  only historical candidate was a protected `running launch.meme` task from
+  2026-08-05. Recovery moved it to `reconciliation_required` with
+  `AGENT_RECOVERY_RECONCILIATION_REQUIRED`; it was not rerun or executed.
+- A post-enable canary again completed successfully and replayed seven durable
+  events. Anonymous task and event reads return
+  `AUTHENTICATION_REQUIRED`.
+
+## 2026-08-09 Phase 3 migration rollout
+
+- Applied Supabase migration `20260809190000_agent_runtime_durability.sql` to
+  the linked production project. Dry-run confirmed it was the only pending
+  migration; remote migration history now matches local history.
+- Verified remotely through the Supabase Management API:
+  `agent_event_outbox`, `agent_tool_calls`, and `agent_artifacts` exist;
+  all seven task durability columns exist; both Runtime v2 RPCs exist; and
+  outbox RLS is enabled.
+- Invoked both RPCs with a nonexistent task ID as a no-write smoke test. Both
+  returned null safely and raised no database error.
+- Existing production health endpoint remained reachable after the migration.
+- Supabase CLI reported that Docker was unavailable for its optional local
+  pg-delta catalog cache. The remote migration itself completed successfully,
+  and remote schema queries confirmed the applied objects.
+- `AGENT_RECOVERY_ENABLED` remains disabled. Do not enable it until the Phase 3
+  application code is deployed and actor-scoped event polling is verified
+  against the deployed Runtime.
+
+## 2026-08-09 NarraOps Agent Runtime v2 Phase 3
+
+- Replaced unconstrained task status updates with a fixed Runtime v2 state
+  machine and optimistic `stateVersion` transitions.
+- Added migration 023 plus its Supabase deployment mirror. It adds task actor,
+  capability, context, idempotency, lease, attempt, and expiry fields;
+  `agent_event_outbox`; and durable `agent_tool_calls` / `agent_artifacts`
+  boundaries. Two service-role RPCs atomically transition a task and append an
+  ordered event, or append a standalone task event.
+- Added repository-compatible durable event replay. Existing SSE now loads
+  repository history before continuing with live events; Vercel exposes
+  actor-scoped cursor polling at `GET /api/v1/agent/events`.
+- Added bounded recovery with worker leases. Queued work can resume after a
+  restart. Interrupted protected work enters `reconciliation_required` instead
+  of rerunning. Exhausted attempts fail closed.
+- Added actor-scoped hosted task reads and task cancellation. A cancelled task
+  cannot be overwritten by a late handler completion.
+- Recovery is feature-gated by `AGENT_RECOVERY_ENABLED=true`. Keep it disabled
+  until migration 023 is applied and its RPCs are verified. The Supabase
+  adapter falls back to the existing task path when the migration is absent.
+
+Verification:
+
+- Backend API tests: 102/102.
+- Execution tests: 35/35.
+- Runtime v2 isolated TypeScript check: pass.
+- Six Agent JSON Schemas parse successfully.
+- Agent runtime/Vercel bundle: pass.
+- `git diff --check`: pass.
+- Full backend TypeScript check remains blocked by the pre-existing errors in
+  the current uncommitted `backend/api/src/app.ts`.
+
+No migration was applied, recovery was not enabled, and no financial execution
+or approval behavior was changed or invoked.
+
+## 2026-08-09 NarraOps Agent Runtime v2 Phase 2
+
+- Added an actor-scoped `ContextResolver` with a fixed `ContextRef` vocabulary,
+  deterministic SHA-256 context digest, size/reference limits, and fail-closed
+  checks for duplicates, provider mismatch, digest drift, and secret-shaped
+  model context.
+- Added Pulse narrative snapshot and Assets wallet-group Context Providers.
+  Both repositories scope lookup by the server-authenticated actor. Their
+  projections expose only source evidence, public wallet addresses, and safe
+  metadata; model/client input cannot select another owner.
+- Added the opt-in context path to the existing Agent message contract.
+  Requests without `contextRefs` preserve current behavior. Requests with
+  private refs require authentication and inject only `safeModelContext` into
+  the legacy handler.
+- Added `agent.message-request.v2` JSON Schema plus OpenAPI conversation/message
+  routes. Context kinds are fixed and message validation accepts at most 20
+  unique refs.
+- Hosted conversation GET and POST-message routes now authenticate first and
+  verify conversation ownership. Cross-user and ownerless records fail as
+  `CONVERSATION_NOT_FOUND`, preventing resource enumeration.
+
+Verification:
+
+- Backend API tests: 98/98.
+- Execution tests: 35/35.
+- Runtime v2 isolated TypeScript check: pass.
+- Agent runtime bundle and JavaScript syntax check: pass.
+- Five Agent JSON Schemas parse successfully.
+- `git diff --check`: pass.
+- Full backend TypeScript check remains blocked by pre-existing errors in the
+  current uncommitted `backend/api/src/app.ts`; Phase 2 files pass the isolated
+  check.
+
+No database migration was applied, the legacy Agent remains the production
+orchestrator, requests without `contextRefs` retain their existing dispatch
+behavior, and no financial execution path was enabled or invoked.
+
+## 2026-08-09 NarraOps Agent Runtime v2 Phase 0-1
+
+- Added a provider-neutral and client-neutral `backend/agent-runtime/` boundary
+  without switching any production route or breaking the existing Go cards.
+- Defined Runtime, context, task, model, tool, actor, policy, and approval
+  contracts. Added matching v2 JSON Schemas under `shared/schemas/agent/`.
+- Added a versioned Tool Registry that validates fixed input/output schemas,
+  permissions, timeouts, and approval policy before invoking a handler.
+  Financial tools cannot register without approval and require an unexpired,
+  actor-bound, atomically consumed approval whose digest matches the exact
+  execution intent.
+- Added a provider-neutral Model Gateway and a compatibility adapter around the
+  current OpenAI-compatible helper. Tests demonstrate that GLM/GPT-style
+  providers can be swapped without changing the request contract.
+- Wrapped current read-only Pulse, Assets, GMGN, and public-link capabilities as
+  Runtime v2 tools. Assets ownership is derived from the authenticated actor,
+  never from model/client input.
+- Added a fail-closed legacy Runtime facade. Durable cancellation, task recovery,
+  event outbox, and approval persistence remain later migration phases and are
+  not simulated by the facade.
+- Fixed four existing plain-chat regressions in the current Runtime: preserved
+  `execution_mode`, retained launch context for follow-up questions, used the
+  configured model for capability questions, and bounded conversation
+  persistence before returning.
+
+Verification:
+
+- Runtime v1 + v2 focused tests: 13/13.
+- Backend API tests: 94/94.
+- Execution tests: 35/35.
+- Runtime v2 isolated TypeScript check: pass.
+- Four new Agent JSON Schemas parse successfully.
+- Full backend TypeScript check remains blocked by pre-existing errors in the
+  current uncommitted `backend/api/src/app.ts`; the new Runtime v2 files pass an
+  isolated TypeScript check.
+
+No production API route was switched, no database migration was applied, and no
+financial execution path was enabled or invoked.
+
 ## 2026-08-04 Agent timeout and product wallet provisioning
 
 - Reduced the bounded OpenAI-compatible reply call to seven seconds and set the
@@ -648,6 +1005,110 @@ GitHub sync:
   `SUPABASE_SECRET_KEY`.
 - Verification: Python 13/13, backend API 59/59, TypeScript typecheck,
   frontend/backend builds, and `git diff --check` pass.
+
+## 2026-08-10 NarraOps Agent Pump Launch semantic shadow
+
+- The existing Pump Launch prepare/sign/submit product path remains available;
+  no signing or broadcast behavior was moved or replaced.
+- Added a Runtime-owned Pump transaction inspector using the official Pump IDL.
+  It verifies exact create fields, optional developer-buy semantics, program
+  layout, fee payer, mint signature, message hash, fee ceiling and lifetime.
+- Added provider-neutral `pump.launch` operation semantics to
+  `agent.execution_envelope.v1` and `agent.transaction_inspection.v1`.
+- Migration `029_agent_semantic_shadow.sql` adds isolated, RLS-protected,
+  service-role-only semantic shadow persistence and immutable audit.
+- Pump prepare records the inspection/envelope only when
+  `AGENT_PUMP_SEMANTIC_SHADOW_ENABLED=true`. The write is non-blocking and
+  cannot approve, sign, submit, broadcast or alter the legacy response.
+- Production migration and rollback canary passed; the canary left no rows.
+- Local verification: backend API 112/112, execution suite 35/35, 13 Agent
+  schemas parse, Vercel production build and diff checks pass.
+- Next safe unit: deploy with the flag absent/off, re-run ordinary task/event
+  canaries, then enable shadow recording and verify a no-broadcast shadow
+  sample. Full enforcement remains gated on atomic task/tool/approval creation,
+  execution reservation, envelope binding, submitted-before-broadcast ordering,
+  and unknown-result reconciliation.
+
+## 2026-08-10 Atomic financial tool start
+
+- Added `agent.financial_tool_start.v1` and the service-role-only
+  `agent_begin_financial_tool_v1` RPC.
+- One transaction creates the actor-owned `waiting_approval` task, fixed-schema
+  financial tool call, exact intent, requested approval, link, and first durable
+  event. It has no decision, consumption, reservation, signer, provider, submit,
+  or broadcast capability.
+- Exact actor/idempotency replay returns the original identities; input digest
+  or tool drift fails closed.
+- Production migrations `030` and `031` are applied. The transaction canary
+  rolled back cleanly and left zero canary tasks.
+- The final function privilege matrix is service role `true`, anon `false`,
+  authenticated `false`. Migration `031` was required because explicit
+  Supabase routine grants remained after revoking `PUBLIC`.
+- Pump approval dual-run is wired behind
+  `AGENT_PUMP_APPROVAL_DUAL_RUN_ENABLED` and remains off. If enabled later, it
+  is bounded/non-blocking and uses the same intent digest as the trusted Pump
+  semantic envelope, but still cannot authorize legacy broadcast.
+- Verification: Runtime 23/23, backend API 113/113, execution 35/35, 14 Agent
+  schemas, Agent bundle, Vercel build and diff checks pass.
+
+## 2026-08-10 Pump pre-broadcast enforcement foundation
+
+- Pump submit now separates signed-transaction validation from provider
+  broadcast and derives the canonical Solana signature locally.
+- Added `agent.wallet_signature_confirmation.v1` and the service-role-only
+  `agent_reserve_wallet_signed_execution_v1` RPC.
+- Verified wallet-signature evidence atomically approves, consumes and reserves
+  the exact task/tool/intent. The RPC does not sign, submit or broadcast.
+- Runtime enforcement ordering is now:
+  `verify wallet signature -> approve+reserve -> verify/bind envelope ->
+  persist submitted+tx signature -> provider broadcast -> confirm/reconcile`.
+- Unknown provider outcomes become `reconciliation_required`; no blind retry.
+- Migration `032` was applied. Its first rollback canary caught a SQL
+  precedence bug with no retained data; migration `033` fixed it. The repeated
+  canary passed replay/evidence-drift/state/audit assertions and left zero
+  rows. Privileges are service role `true`, anon/authenticated `false`.
+- `AGENT_PUMP_ENFORCEMENT_ENABLED` remains off. Production still uses the
+  existing Launch path while semantic shadow observes.
+- Verification: Runtime 24/24, backend API 114/114, execution 35/35, 15 Agent
+  schemas, Vercel build and diff checks pass.
+
+## 2026-08-10 Pump semantic shadow and approval dual-run production gate
+
+- Fixed a misplaced Pump approval dual-run block that caused the semantic
+  shadow prepare path to return a `ReferenceError`. Runtime 24/24 and backend
+  API 114/114 passed before rollout.
+- Production unsigned Pump prepare now records the trusted semantic shadow and
+  requested approval, returns `requires_user_signature`, and performs no
+  signature or broadcast. Exact ephemeral users/tasks/shadows are deleted by
+  the canary; the residual audit query returns zero rows.
+- `AGENT_PUMP_SEMANTIC_SHADOW_ENABLED=true` and
+  `AGENT_PUMP_APPROVAL_DUAL_RUN_ENABLED=true` are enabled in production.
+  `AGENT_PUMP_ENFORCEMENT_ENABLED` remains absent/off.
+- Added `submission_pending` so the Runtime can claim one exact signed
+  transaction before an external call without falsely calling it submitted.
+  `submitted` is recorded only after the provider returns the same signature.
+- Migration `034` is applied. Its rollback canary passed the new state sequence
+  and privilege checks (service role true, anon/authenticated false).
+- Added a provider-neutral, read-only execution reconciler. Replayed or
+  uncertain Pump submissions query by the persisted signature and never
+  rebroadcast. Unknown outcomes remain `reconciliation_required`.
+- Latest ordinary production Agent canary succeeded with eight events and
+  empty cursor replay. Latest local verification: Runtime 24/24, API 114/114,
+  execution 35/35, 15 Agent schemas, Vercel build, and diff checks.
+
+Remaining gate: do not enable Pump enforcement until the signed path is tested
+against an injected/no-broadcast provider harness. Automated or production
+tests must not submit a real transaction.
+
+OpenCode takeover checkpoint:
+
+- Latest production deployment:
+  `https://narra-kc27guibk-hek.vercel.app`, aliased to
+  `https://www.narraops.xyz`.
+- The next implementation unit is the injected/no-broadcast signed Pump
+  harness after the current TypeScript errors are fixed.
+- Resume from `coordination/CURRENT_TASK.md`; do not infer current work from
+  older sections of this append-only handoff.
 
 Deployment update:
 
