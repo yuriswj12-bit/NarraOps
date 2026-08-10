@@ -1,3 +1,6 @@
+-- Local canonical sequence was renumbered from 021 to 035 to remove the
+-- duplicate migration number with 021_go_agent_core.sql. Production Supabase
+-- history remains 20260804141000_asset_wallet_encrypted_vault.sql.
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS public.asset_wallet_secrets (
