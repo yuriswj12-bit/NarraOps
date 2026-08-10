@@ -8,6 +8,16 @@ the design or replace the already-working Pump Launch product path.
 
 ## Completed
 
+- OpenCode closed out the dirty tree: secret scan clean, 74 changes grouped
+  into 5 scoped commits (Runtime v2 core, control plane, migrations 023-035,
+  product-route wiring, docs) and pushed to `yuriswj12-bit/NarraOps` main.
+  Working tree clean, typecheck green, no untracked leftovers.
+- Added `docs/engineering/financial-gateway-rollout.md`: per-operation
+  Shadow -> Canary -> Full -> Rollback rollout plan for
+  `assets.transfer.broadcast`, `swap.solana.broadcast`,
+  `launch.pump.broadcast` with independent flags, observation metrics,
+  rollback triggers, and red lines. No production authority is switched.
+
 - OpenCode verified the Codex Agent control-plane handoff against the dirty
   tree: catalog/memory contracts, services, migrations 035-044 and Supabase
   mirrors, Memory API routes, and bootstrap script all present. Independent
@@ -156,10 +166,10 @@ the shared coordination/OpenCode command files. Preserve unrelated UI changes.
 
 1. Keep enforcement off until the authorized rollout. Harness,
    concurrency/idempotency, reconciliation, rollback, and legacy-response
-   compatibility now have no-broadcast evidence.
-2. Move Launch/Swap/Transfer production authority behind their
-   provider-neutral Tools and Execution Gateway only as explicit, independently
-   reversible rollouts with rollback observation.
+   compatibility now have no-broadcast evidence. The rollout design lives in
+   `docs/engineering/financial-gateway-rollout.md`.
+2. Execute the financial-gateway rollouts (transfer -> swap -> pump) as
+   explicit, independently reversible steps with rollback observation.
 3. Review the dirty-tree diff, exclude secrets/generated noise, then prepare a
    scoped commit/PR only when publication is explicitly authorized.
 

@@ -36,6 +36,6 @@ This board contains only work that is still useful after checking current code.
 | Agent v2 | Define fixed-schema `assets.transfer.broadcast@1.0.0` with consumed-approval/recent-auth gate and no signed bytes | Done (local only, unpublished) |
 | Agent control plane | Expose safe public Agent/Skill capability discovery without instructions, internal IDs, Memory, or execution credentials | Done |
 | Agent v2 | Enable Pump enforcement only after harness, canary, rollback, and parity gates pass | Blocked by explicit authorized rollout; enforcement remains off |
-| Execution | Move launch/Swap/Transfer authority into the provider-neutral Tool/Execution Gateway | Blocked by explicit authorized rollout; contracts are local and unpublished |
+| Execution | Move launch/Swap/Transfer authority into the provider-neutral Tool/Execution Gateway | Blocked by explicit authorized rollout; rollout plan drafted in `docs/engineering/financial-gateway-rollout.md`, contracts local and unpublished |
 | Pulse | Improve real source coverage and history while preserving sampled/partial labels | Pending |
 | QA | Full dirty-tree verification: API 133/133, execution 35/35, typecheck, 28 schemas, Vercel build, migration parity and 13-check production canary | Done |
