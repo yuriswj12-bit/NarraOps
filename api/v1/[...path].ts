@@ -33,6 +33,9 @@ import {
   recordSolanaSwapSemanticShadow,
   prepareSolanaSwapRuntimeExecution,
   submitSolanaSwapViaGateway,
+  recordAssetTransferSemanticShadow,
+  prepareAssetTransferRuntimeExecution,
+  submitAssetTransferViaGateway,
   getAgentApproval,
   decideAgentApproval,
   proposeAgentMemory,
@@ -2021,6 +2024,152 @@ async function transferCreate({ supabase, userId, body, headerIdempotencyKey }) 
     amountLamports: BigInt(String(allocation.amountLamports || "0")),
   }));
   const transactions = [];
+  const currentBlockHeight = await connection.getBlockHeight("confirmed");
+  const latestBlockhash = await connection.getLatestBlockhash("confirmed");
+  const placeholderTxHash = bs58.encode(
+    new Uint8Array(64).fill(Number(existing.preview_token.replace(/-/g, "").slice(0, 2), 16) || 1),
+  );
+  const transferShadow = await recordAssetTransferSemanticShadow({
+    actorId: userId,
+    walletGroupId: existing.source?.id,
+    signer: allocations[0]?.from,
+    to: allocations[0]?.to,
+    amountLamports: allocations[0]?.amountLamports || 0n,
+    estimatedFeeAtomic: "5000",
+    maxFeeLamports: "5000",
+    currentBlockHeight,
+    lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+  });
+  let transferRuntimeExecution = {
+    enforced: false,
+    reason: "transfer_enforcement_disabled",
+  };
+  if (
+    process.env.AGENT_TRANSFER_ENFORCEMENT_ENABLED === "true"
+    && transferShadow.recorded
+  ) {
+    transferRuntimeExecution = await prepareAssetTransferRuntimeExecution({
+      actorId: userId,
+      walletGroupId: existing.source?.id,
+      shadowId: transferShadow.shadowId,
+      executionId: transferShadow.executionId,
+      intentDigest: transferShadow.intentDigest,
+      approvalDualRun: transferShadow.approvalDualRun,
+      messageHash: transferShadow.messageHash,
+      signer: allocations[0]?.from,
+      placeholderTxHash,
+      currentBlockHeight,
+    });
+  }
+  if (
+    process.env.AGENT_TRANSFER_GATEWAY_AUTHORITY_ENABLED === "true"
+    && transferRuntimeExecution.enforced
+    && transferRuntimeExecution.executionId
+  ) {
+    const gatewayResult = await submitAssetTransferViaGateway({
+      executionId: transferRuntimeExecution.executionId,
+      approvalId: transferShadow.approvalDualRun?.approvalId,
+      expectedStateVersion: transferRuntimeExecution.stateVersion,
+      envelopeDigest: transferShadow.envelopeDigest,
+      intentDigest: transferShadow.intentDigest,
+      actorId: userId,
+      broadcast: async () => {
+        const results = [];
+        let firstTxHash = null;
+        for (const allocation of allocations) {
+          const secretEnvelope = await requireAssetsResult(
+            supabase
+              .from("asset_wallet_secrets")
+              .select("encrypted_envelope")
+              .eq("wallet_id", allocation.sourceWalletId)
+              .eq("user_id", userId)
+              .single(),
+            "Unable to read the sender wallet secret",
+          );
+          let privateKey = await unsealAssetWalletSecret({
+            envelope: secretEnvelope.encrypted_envelope,
+            password,
+          });
+          try {
+            const result = await broadcastSolanaTransfer({
+              connection,
+              from: allocation.from,
+              to: allocation.to,
+              lamports: allocation.amountLamports,
+              privateKey,
+            });
+            firstTxHash = firstTxHash || result.txHash;
+            results.push({
+              sourceWalletId: allocation.sourceWalletId,
+              destinationWalletId: allocation.destinationWalletId,
+              from: allocation.from,
+              to: allocation.to,
+              amount: allocation.amount,
+              ...result,
+            });
+          } catch (error) {
+            results.push({
+              sourceWalletId: allocation.sourceWalletId,
+              destinationWalletId: allocation.destinationWalletId,
+              from: allocation.from,
+              to: allocation.to,
+              amount: allocation.amount,
+              status: "failed",
+              error: { code: error.code || "TRANSFER_ALLOCATION_FAILED", message: error.message },
+            });
+          } finally {
+            privateKey = "";
+          }
+        }
+        transactions.push(...results);
+        return {
+          status: results.some(({ status }) => status === "confirmed") ? "submitted" : "failed",
+          txHash: firstTxHash || placeholderTxHash,
+          providerAccepted: Boolean(firstTxHash),
+        };
+      },
+    });
+    if (gatewayResult.enabled) {
+      const succeeded = transactions.filter(({ status }) => status !== "failed");
+      const failed = transactions.filter(({ status }) => status === "failed");
+      const confirmed = succeeded.length > 0
+        && succeeded.every(({ status }) => status === "confirmed")
+        && failed.length === 0;
+      const transfer = {
+        transferId: randomUUID(),
+        previewToken,
+        status: failed.length === 0 ? (confirmed ? "confirmed" : "submitted") : succeeded.length > 0 ? "partially_failed" : "failed",
+        executionMode: "live",
+        submitted: succeeded.length > 0,
+        confirmed,
+        transactions,
+        txHash: succeeded.length === 1 && transactions.length === 1 ? succeeded[0].txHash : null,
+        ...(failed.length > 0
+          ? { error: { code: "TRANSFER_ALLOCATIONS_FAILED", message: `${failed.length} transfer allocation(s) failed` } }
+          : {}),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await requireAssetsResult(
+        supabase.from("asset_transfers").insert({
+          transfer_id: transfer.transferId,
+          user_id: userId,
+          idempotency_key: parsed.idempotencyKey,
+          preview_token: previewToken,
+          status: transfer.status,
+          submitted: transfer.submitted,
+          confirmed: transfer.confirmed,
+          transactions,
+          tx_hash: transfer.txHash || null,
+          error: transfer.error || null,
+          created_at: transfer.createdAt,
+          updated_at: transfer.updatedAt,
+        }),
+        "Unable to persist the transfer",
+      );
+      return transfer;
+    }
+  }
   for (const allocation of allocations) {
     const secretEnvelope = await requireAssetsResult(
       supabase
