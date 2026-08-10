@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/agent/tool-definition.v1.schema.json",
+  "title": "NarraOps Agent Tool Definition v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "version",
+    "description",
+    "inputSchema",
+    "outputSchema",
+    "risk",
+    "sideEffect",
+    "requiredPermissions",
+    "approvalPolicy",
+    "timeoutMs",
+    "retryPolicy"
+  ],
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,100}$" },
+    "version": { "type": "string", "pattern": "^[1-9][0-9]*\\.[0-9]+\\.[0-9]+$" },
+    "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "inputSchema": { "type": "object" },
+    "outputSchema": { "type": "object" },
+    "risk": { "enum": ["read", "write_reversible", "financial_irreversible"] },
+    "sideEffect": { "enum": ["none", "internal_write", "external_write", "funds"] },
+    "requiredPermissions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+      "uniqueItems": true
+    },
+    "approvalPolicy": { "enum": ["none", "explicit", "explicit_and_recent_auth"] },
+    "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 120000 },
+    "retryPolicy": { "enum": ["none", "safe_read", "idempotent_write"] }
+  }
+}

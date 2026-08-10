@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/agent/event-page.v1.schema.json",
+  "title": "NarraOps Agent Event Page v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_id", "events", "next_cursor"],
+  "properties": {
+    "schema_version": { "const": "agent.events.v1" },
+    "task_id": { "type": "string", "format": "uuid" },
+    "next_cursor": { "type": "string", "pattern": "^[0-9]+$" },
+    "events": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": ["eventId", "type"],
+        "properties": {
+          "eventId": { "type": "string", "format": "uuid" },
+          "sequence": { "type": "integer", "minimum": 1 },
+          "type": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "taskId": { "type": "string", "format": "uuid" },
+          "aggregateType": { "enum": ["conversation", "task", "approval", "execution"] },
+          "aggregateId": { "type": "string", "format": "uuid" },
+          "traceId": { "type": "string", "maxLength": 128 },
+          "data": {},
+          "task": {},
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/agent/approval.v1.schema.json",
+  "title": "NarraOps Agent Approval v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "approvalId",
+    "intent",
+    "actorId",
+    "taskId",
+    "toolCallId",
+    "status",
+    "policy",
+    "idempotencyKey",
+    "stateVersion",
+    "requestedAt",
+    "expiresAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent.approval.v1" },
+    "approvalId": { "type": "string", "format": "uuid" },
+    "intent": { "$ref": "execution-intent.v1.schema.json" },
+    "actorId": { "type": "string", "format": "uuid" },
+    "taskId": { "type": "string", "format": "uuid" },
+    "toolCallId": { "type": "string", "format": "uuid" },
+    "status": {
+      "enum": ["requested", "approved", "rejected", "consumed", "expired"]
+    },
+    "policy": {
+      "enum": ["explicit", "explicit_and_recent_auth"]
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{8,255}$"
+    },
+    "stateVersion": { "type": "integer", "minimum": 1 },
+    "requestedAt": { "type": "string", "format": "date-time" },
+    "decidedAt": { "type": "string", "format": "date-time" },
+    "consumedAt": { "type": "string", "format": "date-time" },
+    "recentAuthAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" }
+  }
+}

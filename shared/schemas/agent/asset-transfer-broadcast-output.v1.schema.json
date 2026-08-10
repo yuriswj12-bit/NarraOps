@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.xyz/schemas/agent/asset-transfer-broadcast-output.v1.schema.json",
+  "title": "Asset Transfer Broadcast Tool Output v1",
+  "type": "object",
+  "required": [
+    "executionId",
+    "status",
+    "txHash",
+    "providerAccepted",
+    "observedAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "executionId": { "type": "string", "format": "uuid" },
+    "status": {
+      "type": "string",
+      "enum": [
+        "submitted",
+        "reconciliation_required",
+        "confirmed",
+        "failed"
+      ]
+    },
+    "txHash": {
+      "type": "string",
+      "pattern": "^[1-9A-HJ-NP-Za-km-z]{64,100}$"
+    },
+    "providerAccepted": { "type": "boolean" },
+    "observedAt": { "type": "string", "format": "date-time" }
+  }
+}

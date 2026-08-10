@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.local/schemas/agent/memory-proposal-request.v1.schema.json",
+  "title": "Agent Memory Proposal Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "content"],
+  "properties": {
+    "kind": {
+      "enum": ["user_preference", "user_fact"]
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    },
+    "structuredValue": {
+      "type": "object"
+    },
+    "sensitivity": {
+      "enum": ["private", "sensitive"],
+      "default": "private"
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

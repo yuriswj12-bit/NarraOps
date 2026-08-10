@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/agent/wallet-signature-confirmation.v1.schema.json",
+  "title": "NarraOps Wallet Signature Confirmation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "messageHash",
+    "txSignature",
+    "signer",
+    "verifiedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent.wallet_signature_confirmation.v1" },
+    "messageHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "txSignature": {
+      "type": "string",
+      "pattern": "^[1-9A-HJ-NP-Za-km-z]{64,100}$"
+    },
+    "signer": {
+      "type": "string",
+      "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$"
+    },
+    "verifiedAt": { "type": "string", "format": "date-time" }
+  }
+}

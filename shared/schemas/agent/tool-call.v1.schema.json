@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/agent/tool-call.v1.schema.json",
+  "title": "NarraOps Agent Tool Call v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "callId", "taskId", "tool", "version", "input", "status", "createdAt"],
+  "properties": {
+    "schemaVersion": { "const": "agent.tool_call.v1" },
+    "callId": { "type": "string", "format": "uuid" },
+    "taskId": { "type": "string", "format": "uuid" },
+    "tool": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,100}$" },
+    "version": { "type": "string", "pattern": "^[1-9][0-9]*\\.[0-9]+\\.[0-9]+$" },
+    "input": { "type": "object" },
+    "status": {
+      "enum": [
+        "proposed",
+        "validating",
+        "waiting_approval",
+        "executing",
+        "succeeded",
+        "blocked",
+        "failed"
+      ]
+    },
+    "result": {},
+    "failure": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}

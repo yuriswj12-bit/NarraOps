@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.local/schemas/agent/memory-proposal-result.v1.schema.json",
+  "title": "Agent Memory Proposal Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["item", "idempotentReplay"],
+  "properties": {
+    "item": {
+      "$ref": "./memory-item.v1.schema.json"
+    },
+    "idempotentReplay": {
+      "type": "boolean"
+    }
+  }
+}

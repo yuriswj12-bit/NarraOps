@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/agent/financial-tool-start.v1.schema.json",
+  "title": "NarraOps Agent Financial Tool Start v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "toolCallId",
+    "eventId",
+    "actorId",
+    "client",
+    "capability",
+    "taskType",
+    "taskStatus",
+    "toolName",
+    "toolVersion",
+    "toolStatus",
+    "risk",
+    "resourceType",
+    "resourceId",
+    "safeInput",
+    "inputDigest",
+    "contextRefs",
+    "idempotencyKey",
+    "toolIdempotencyKey",
+    "traceId",
+    "createdAt",
+    "approval"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent.financial_tool_start.v1" },
+    "taskId": { "type": "string", "format": "uuid" },
+    "toolCallId": { "type": "string", "format": "uuid" },
+    "eventId": { "type": "string", "format": "uuid" },
+    "actorId": { "type": "string", "format": "uuid" },
+    "client": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "capability": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "taskType": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "taskStatus": { "const": "waiting_approval" },
+    "toolName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.-]{2,100}$"
+    },
+    "toolVersion": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*\\.[0-9]+\\.[0-9]+$"
+    },
+    "toolStatus": { "const": "waiting_approval" },
+    "risk": { "const": "financial_irreversible" },
+    "resourceType": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "resourceId": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "safeInput": { "type": "object" },
+    "inputDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "contextRefs": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "id"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "id": { "type": "string", "minLength": 1 },
+          "version": { "type": "string" },
+          "digest": { "type": "string" }
+        }
+      }
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{8,255}$"
+    },
+    "toolIdempotencyKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{8,255}$"
+    },
+    "traceId": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "approval": { "$ref": "approval.v1.schema.json" }
+  }
+}

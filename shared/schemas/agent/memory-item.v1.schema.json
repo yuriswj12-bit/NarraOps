@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/agent/memory-item.v1.schema.json",
+  "title": "NarraOps Agent Memory Item v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "memoryId",
+    "actorId",
+    "scope",
+    "kind",
+    "content",
+    "sensitivity",
+    "source",
+    "confidence",
+    "status",
+    "checksum",
+    "stateVersion",
+    "idempotencyKey",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent.memory_item.v1" },
+    "memoryId": { "type": "string", "format": "uuid" },
+    "actorId": { "type": "string", "format": "uuid" },
+    "agentId": { "type": "string", "format": "uuid" },
+    "conversationId": { "type": "string", "format": "uuid" },
+    "taskId": { "type": "string", "format": "uuid" },
+    "scope": { "enum": ["user", "conversation", "task"] },
+    "kind": {
+      "enum": [
+        "user_preference",
+        "user_fact",
+        "conversation_summary",
+        "task_outcome",
+        "operational_fact",
+        "failure_learning"
+      ]
+    },
+    "content": { "type": "string", "minLength": 1, "maxLength": 8192 },
+    "structuredValue": { "type": "object" },
+    "sensitivity": { "enum": ["private", "sensitive"] },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "refs"],
+      "properties": {
+        "type": {
+          "enum": ["user_message", "conversation", "task", "artifact", "runtime"]
+        },
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "refs": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "version": { "type": "string", "maxLength": 100 },
+              "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          }
+        }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "status": {
+      "enum": ["proposed", "active", "rejected", "superseded", "expired", "deleted"]
+    },
+    "checksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "stateVersion": { "type": "integer", "minimum": 1 },
+    "idempotencyKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{8,255}$"
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "activatedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "supersededBy": { "type": "string", "format": "uuid" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "scope": { "const": "conversation" } } },
+      "then": { "required": ["conversationId"] }
+    },
+    {
+      "if": { "properties": { "scope": { "const": "task" } } },
+      "then": { "required": ["taskId"] }
+    }
+  ]
+}

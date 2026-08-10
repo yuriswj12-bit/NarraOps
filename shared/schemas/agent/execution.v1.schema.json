@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/agent/execution.v1.schema.json",
+  "title": "NarraOps Agent Execution v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "executionId",
+    "taskId",
+    "toolCallId",
+    "approvalId",
+    "intentId",
+    "actorId",
+    "action",
+    "resourceType",
+    "resourceId",
+    "intentDigest",
+    "idempotencyKey",
+    "requestFingerprint",
+    "status",
+    "stateVersion",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent.execution.v1" },
+    "executionId": { "type": "string", "format": "uuid" },
+    "taskId": { "type": "string", "format": "uuid" },
+    "toolCallId": { "type": "string", "format": "uuid" },
+    "approvalId": { "type": "string", "format": "uuid" },
+    "intentId": { "type": "string", "format": "uuid" },
+    "actorId": { "type": "string", "format": "uuid" },
+    "action": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,100}$" },
+    "resourceType": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "resourceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "intentDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "idempotencyKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{8,255}$"
+    },
+    "requestFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "provider": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "chain": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "status": {
+      "enum": [
+        "reserved",
+        "submission_pending",
+        "submitted",
+        "reconciliation_required",
+        "confirmed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "stateVersion": { "type": "integer", "minimum": 1 },
+    "txHash": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "message": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "semanticEnvelope": { "$ref": "execution-envelope.v1.schema.json" },
+    "semanticsVerifiedAt": { "type": "string", "format": "date-time" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "submittedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" }
+  }
+}

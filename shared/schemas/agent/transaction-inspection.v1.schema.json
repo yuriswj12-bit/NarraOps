@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/agent/transaction-inspection.v1.schema.json",
+  "title": "NarraOps Agent Transaction Inspection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "executionId",
+    "transactionId",
+    "chain",
+    "signer",
+    "messageHash",
+    "valueAtomic",
+    "programIds",
+    "recipients",
+    "slippageBps",
+    "estimatedFeeAtomic",
+    "observedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent.transaction_inspection.v1" },
+    "executionId": { "type": "string", "format": "uuid" },
+    "transactionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "chain": { "$ref": "#/$defs/chain" },
+    "signer": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "messageHash": { "$ref": "#/$defs/hash" },
+    "destination": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "valueAtomic": { "$ref": "#/$defs/atomic" },
+    "dataHash": { "$ref": "#/$defs/hash" },
+    "nonce": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "programIds": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+    },
+    "recipients": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/recipient" }
+    },
+    "operation": { "$ref": "#/$defs/operation" },
+    "slippageBps": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "estimatedFeeAtomic": { "$ref": "#/$defs/atomic" },
+    "currentBlockHeight": { "type": "integer", "minimum": 0 },
+    "observedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "atomic": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "chain": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "network"],
+          "properties": {
+            "kind": { "const": "solana" },
+            "network": { "type": "string", "minLength": 1, "maxLength": 64 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "network", "chainId"],
+          "properties": {
+            "kind": { "const": "evm" },
+            "network": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "chainId": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
+    },
+    "recipient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address", "assetId", "amountAtomic"],
+      "properties": {
+        "address": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "assetId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "amountAtomic": { "$ref": "#/$defs/atomic" }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "mintAddress",
+        "name",
+        "symbol",
+        "metadataUri",
+        "creator",
+        "developerBuyLamports"
+      ],
+      "properties": {
+        "kind": { "const": "pump.launch" },
+        "mintAddress": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "symbol": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "metadataUri": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "creator": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "developerBuyLamports": { "$ref": "#/$defs/atomic" }
+      }
+    }
+  }
+}

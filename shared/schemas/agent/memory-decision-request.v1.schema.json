@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.local/schemas/agent/memory-decision-request.v1.schema.json",
+  "title": "Agent Memory Decision Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedStateVersion"],
+  "properties": {
+    "expectedStateVersion": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

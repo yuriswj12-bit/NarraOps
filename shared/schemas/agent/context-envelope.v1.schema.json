@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.com/schemas/agent/context-envelope.v1.schema.json",
+  "title": "NarraOps Agent Context Envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "actor", "client", "conversationId", "refs", "safeModelContext", "policyContext", "createdAt"],
+  "properties": {
+    "schemaVersion": { "const": "agent.context.v1" },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actorId", "permissions"],
+      "properties": {
+        "actorId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tenantId": { "type": "string", "maxLength": 128 },
+        "sessionId": { "type": "string", "maxLength": 256 },
+        "permissions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "client": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "conversationId": { "type": "string", "format": "uuid" },
+    "refs": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": ["kind", "id", "resolvedAt", "safeData"],
+        "properties": {
+          "kind": {
+            "enum": [
+              "pulse.narrative_snapshot",
+              "pulse.opportunity",
+              "assets.wallet_group",
+              "assets.wallet",
+              "agent.artifact"
+            ]
+          },
+          "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "version": { "type": "string", "maxLength": 128 },
+          "digest": { "type": "string", "maxLength": 256 },
+          "resolvedAt": { "type": "string", "format": "date-time" },
+          "safeData": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "safeModelContext": { "type": "object" },
+    "policyContext": {
+      "type": "object",
+      "required": ["permissions", "resourceScopes", "policyProfile"],
+      "properties": {
+        "permissions": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "resourceScopes": { "type": "array" },
+        "policyProfile": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "additionalProperties": false
+    },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

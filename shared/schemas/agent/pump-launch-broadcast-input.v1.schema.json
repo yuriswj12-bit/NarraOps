@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narraops.xyz/schemas/agent/pump-launch-broadcast-input.v1.schema.json",
+  "title": "Pump Launch Broadcast Tool Input v1",
+  "type": "object",
+  "required": [
+    "executionId",
+    "approvalId",
+    "expectedStateVersion",
+    "envelopeDigest",
+    "txHash"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "executionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "approvalId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "expectedStateVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "envelopeDigest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "txHash": {
+      "type": "string",
+      "pattern": "^[1-9A-HJ-NP-Za-km-z]{64,100}$"
+    }
+  }
+}
