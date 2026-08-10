@@ -28,7 +28,9 @@ import {
   RuntimeKnowledgeResolver,
   SupabaseAgentCatalogRepository,
   SupabaseAgentMemoryRepository,
+  ToolRegistry,
   buildApprovedPumpLaunchEnvelope,
+  createPumpLaunchBroadcastTool,
   executionIntentDigest,
   inspectPreparedPumpLaunch,
 } from "../../../backend/agent-runtime/index.ts";
@@ -769,6 +771,92 @@ export async function createAgentTask(body = {}) {
   };
 }
 
+export async function submitPumpBroadcastViaGateway(input = {}) {
+  if (process.env.AGENT_PUMP_GATEWAY_AUTHORITY_ENABLED !== "true") {
+    return { enabled: false, reason: "pump_gateway_authority_disabled" };
+  }
+  const {
+    executionId,
+    approvalId,
+    expectedStateVersion,
+    envelopeDigest,
+    intentDigest,
+    txHash,
+    signedTransactionBase64,
+    actorId,
+    taskId,
+    traceId,
+    requestId,
+    broadcast,
+  } = input;
+  if (
+    !executionId
+    || !approvalId
+    || !Number.isInteger(expectedStateVersion)
+    || expectedStateVersion < 1
+    || !envelopeDigest
+    || !intentDigest
+    || !txHash
+    || !signedTransactionBase64
+    || !actorId
+    || typeof broadcast !== "function"
+  ) {
+    throw Object.assign(
+      new Error("Pump gateway broadcast input is incomplete"),
+      { code: "PUMP_GATEWAY_INPUT_INVALID" },
+    );
+  }
+  const tool = createPumpLaunchBroadcastTool({
+    async submitReservedLaunch(context, toolInput) {
+      const result = await broadcast({
+        signedTransactionBase64: input.signedTransactionBase64,
+        txHash: toolInput.txHash,
+        actorId,
+      });
+      return {
+        executionId: toolInput.executionId,
+        status: result.status,
+        txHash: toolInput.txHash,
+        providerAccepted: result.providerAccepted,
+        observedAt: new Date().toISOString(),
+      };
+    },
+  });
+  const registry = new ToolRegistry().register(tool);
+  const context = {
+    requestId: requestId || randomUUID(),
+    traceId: traceId || randomUUID(),
+    taskId: taskId || randomUUID(),
+    actor: { actorId, permissions: ["launch:execute"] },
+    policy: { profile: "launch", permissions: ["launch:execute"] },
+    approval: {
+      approvalId,
+      actorId,
+      intentDigest,
+      status: "consumed",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      recentAuthAt: new Date().toISOString(),
+    },
+    intentDigest,
+    idempotencyKey: `pump-gateway:${executionId}`,
+    signal: new AbortController().signal,
+    emit: async () => {},
+  };
+  const result = await registry.execute(
+    "launch.pump.broadcast",
+    "1.0.0",
+    context,
+    { executionId, approvalId, expectedStateVersion, envelopeDigest, txHash },
+  );
+  if (result.status !== "succeeded") {
+    throw Object.assign(
+      new Error(`Pump gateway broadcast did not succeed: ${result.reason || result.code}`),
+      { code: result.code || "PUMP_GATEWAY_BROADCAST_FAILED" },
+    );
+  }
+  return { enabled: true, ...result.data };
+}
+
 export async function handleTelegramWebhook(update = {}) {
   const parsed = parseTelegramUpdate(update);
   if (!parsed.handled) {
@@ -833,6 +921,7 @@ export default {
   preparePumpLaunchRuntimeExecution,
   transitionPumpLaunchRuntimeExecution,
   reconcilePumpLaunchRuntimeExecution,
+  submitPumpBroadcastViaGateway,
   getAgentApproval,
   decideAgentApproval,
 };

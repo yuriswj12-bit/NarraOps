@@ -29,6 +29,7 @@ import {
   preparePumpLaunchRuntimeExecution,
   transitionPumpLaunchRuntimeExecution,
   reconcilePumpLaunchRuntimeExecution,
+  submitPumpBroadcastViaGateway,
   getAgentApproval,
   decideAgentApproval,
   proposeAgentMemory,
@@ -1247,6 +1248,57 @@ async function submitDirectLaunchDraft({
       return buildDirectPumpExecutionResponse({
         status: runtimeExecution.status,
         txHash: runtimeExecution.txHash,
+        tokenAddress: validated.expected.mint_address,
+        runtimeExecutionId: runtimeExecution.executionId,
+        cookingWalletGroupId: validated.cookingId,
+        bundledWalletGroupId:
+          validated.expected.bundled_wallet_group_id
+          || validated.draft.metadata?.bundled_wallet_group_id
+          || null,
+      });
+    }
+  }
+  if (
+    process.env.AGENT_PUMP_ENFORCEMENT_ENABLED === "true"
+    && process.env.AGENT_PUMP_GATEWAY_AUTHORITY_ENABLED === "true"
+    && runtimeExecution?.enforced
+    && runtimeExecution?.executionId
+  ) {
+    const gatewayResult = await submitPumpBroadcastViaGateway({
+      executionId: runtimeExecution.executionId,
+      approvalId: validated.expected.runtime_semantic_shadow?.approvalDualRun?.approvalId,
+      expectedStateVersion: runtimeExecution.stateVersion,
+      envelopeDigest: validated.expected.runtime_semantic_shadow?.envelope?.envelopeDigest,
+      intentDigest: validated.expected.runtime_semantic_shadow?.envelope?.intentDigest,
+      txHash: validated.derivedTxHash,
+      signedTransactionBase64: validated.encoded,
+      actorId: userId,
+      broadcast: async () => {
+        const connection = (await directLaunchPlanner()).pump.connection;
+        const sentHash = await connection.sendRawTransaction(
+          Buffer.from(validated.encoded, "base64"),
+          { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 },
+        );
+        if (sentHash !== validated.derivedTxHash) {
+          throw Object.assign(
+            new Error("Solana RPC returned a signature that differs from the signed payload"),
+            { code: "PUMP_TRANSACTION_IDENTITY_MISMATCH" },
+          );
+        }
+        return { status: "submitted", providerAccepted: true };
+      },
+    });
+    if (gatewayResult.enabled) {
+      const finalStatus = gatewayResult.status;
+      await transitionPumpLaunchRuntimeExecution({
+        actorId: userId,
+        executionId: runtimeExecution.executionId,
+        status: finalStatus,
+        txHash: gatewayResult.txHash,
+      });
+      return buildDirectPumpExecutionResponse({
+        status: finalStatus,
+        txHash: gatewayResult.txHash,
         tokenAddress: validated.expected.mint_address,
         runtimeExecutionId: runtimeExecution.executionId,
         cookingWalletGroupId: validated.cookingId,
