@@ -17,6 +17,18 @@ the design or replace the already-working Pump Launch product path.
   `assets.transfer.broadcast`, `swap.solana.broadcast`,
   `launch.pump.broadcast` with independent flags, observation metrics,
   rollback triggers, and red lines. No production authority is switched.
+- Pump broadcast wired through `launch.pump.broadcast@1.0.0` Tool gateway:
+  `submitPumpBroadcastViaGateway` gated by
+  `AGENT_PUMP_GATEWAY_AUTHORITY_ENABLED` (default off) in
+  `api/v1/agent/runtime.ts` and called from the Pump submit branch in
+  `api/v1/[...path].ts`. Consumed-approval/exact-intent checks enforced by
+  the Tool Registry; legacy response fields preserved. API/Runtime now
+  134/134 with a dedicated gateway test.
+- Deployed to production (`narra-4jse3cydv-hek.vercel.app`, aliased to
+  `www.narraops.xyz`). Health and capabilities verified. Production env now
+  has `AGENT_PUMP_GATEWAY_AUTHORITY_ENABLED=false`; enforcement stays off, so
+  the direct path remains authority and the gateway branch is unreachable.
+
 
 - OpenCode verified the Codex Agent control-plane handoff against the dirty
   tree: catalog/memory contracts, services, migrations 035-044 and Supabase
