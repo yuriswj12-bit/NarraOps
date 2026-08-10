@@ -1570,6 +1570,70 @@ async function sealAssetWalletSecret({ walletReferenceId, publicAddress, private
   }
 }
 
+async function unsealAssetWalletSecret({ envelope, password }) {
+  const salt = Buffer.from(String(envelope.salt || ""), "base64url");
+  const iv = Buffer.from(String(envelope.iv || ""), "base64url");
+  const ciphertext = Buffer.from(String(envelope.ciphertext || ""), "base64url");
+  const authTag = Buffer.from(String(envelope.authTag || ""), "base64url");
+  const key = await deriveAssetWalletKey(password, salt);
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAAD(Buffer.from(`${envelope.walletReferenceId}:${envelope.publicAddress}`, "utf8"));
+    decipher.setAuthTag(authTag);
+    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    return plaintext.toString("utf8");
+  } finally {
+    key.fill(0);
+  }
+}
+
+async function broadcastSolanaTransfer({ connection, from, to, lamports, privateKey }) {
+  const web3 = await solanaWeb3();
+  const Keypair = web3.Keypair || web3.default?.Keypair;
+  const SystemProgram = web3.SystemProgram || web3.default?.SystemProgram;
+  const Transaction = web3.Transaction || web3.default?.Transaction;
+  if (!Keypair || !SystemProgram || !Transaction) {
+    throw Object.assign(new Error("Solana transfer module failed to load"), {
+      status: 503,
+      code: "SOLANA_WEB3_UNAVAILABLE",
+    });
+  }
+  const secret = Buffer.from(String(privateKey || ""), "base64");
+  try {
+    const signer = Keypair.fromSecretKey(secret);
+    if (signer.publicKey.toBase58() !== String(from)) {
+      throw Object.assign(new Error("Encrypted wallet signer does not match the sender"), {
+        status: 400,
+        code: "SIGNER_ADDRESS_MISMATCH",
+      });
+    }
+    const latest = await connection.getLatestBlockhash("confirmed");
+    const transaction = new Transaction({ feePayer: signer.publicKey, ...latest }).add(
+      SystemProgram.transfer({
+        fromPubkey: signer.publicKey,
+        toPubkey: new (web3.PublicKey || web3.default?.PublicKey)(String(to)),
+        lamports: Number(lamports),
+      }),
+    );
+    transaction.sign(signer);
+    const signature = await connection.sendRawTransaction(transaction.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+      maxRetries: 3,
+    });
+    const confirmation = await connection.confirmTransaction({ signature, ...latest }, "confirmed");
+    if (confirmation.value.err) {
+      throw Object.assign(new Error("Solana transfer was rejected on-chain"), {
+        status: 502,
+        code: "TRANSFER_REJECTED",
+      });
+    }
+    return { chain: "solana", asset: "SOL", txHash: signature, status: "confirmed" };
+  } finally {
+    secret.fill(0);
+  }
+}
+
 async function provisionAssetWallets(supabase, userId, group, wallets) {
   const password = walletVaultPassword();
   const tasks = (wallets || []).map(async (wallet) => {
@@ -1660,6 +1724,385 @@ async function provisionAssetWallets(supabase, userId, group, wallets) {
   const failed = results.find((result) => result.status === "rejected");
   if (failed) throw failed.reason;
   return results.map((result) => result.value);
+}
+
+export function transferDecimalToLamports(value) {
+  const [whole, fraction = ""] = String(value || "").split(".");
+  const lamports = (BigInt(whole || "0") * 1_000_000_000n)
+    + BigInt(fraction.padEnd(9, "0").slice(0, 9) || "0");
+  return lamports;
+}
+
+export function transferLamportsToDecimal(value) {
+  const whole = value / 1_000_000_000n;
+  const fraction = String(value % 1_000_000_000n).padStart(9, "0").replace(/0+$/, "");
+  return `${whole}${fraction ? `.${fraction}` : ""}`;
+}
+
+const TRANSFER_FEE_RESERVE = 5_000n;
+
+async function transferPreviewInput({ supabase, userId, body }) {
+  const chain = String(body.chain || "solana");
+  if (chain !== "solana") {
+    throw Object.assign(new Error("Only Solana transfers are supported"), {
+      status: 400,
+      code: "TRANSFER_CHAIN_UNSUPPORTED",
+    });
+  }
+  const source = body.source || {};
+  const destination = body.destination || {};
+  if (source.type !== "wallet_group" || !source.id) {
+    throw Object.assign(new Error("Transfer source must be a wallet group"), {
+      status: 400,
+      code: "TRANSFER_SOURCE_INVALID",
+    });
+  }
+  if (destination.type === "wallet_group") {
+    if (!destination.id || destination.id === source.id) {
+      throw Object.assign(new Error("Transfer destination wallet group is invalid"), {
+        status: 400,
+        code: "TRANSFER_DESTINATION_INVALID",
+      });
+    }
+  } else if (destination.type === "login_wallet") {
+    if (!destination.address || !validSolanaAddress(destination.address)) {
+      throw Object.assign(new Error("Transfer destination address is invalid"), {
+        status: 400,
+        code: "TRANSFER_DESTINATION_INVALID",
+      });
+    }
+  } else {
+    throw Object.assign(new Error("Transfer destination must be a wallet group or external address"), {
+      status: 400,
+      code: "TRANSFER_DESTINATION_INVALID",
+    });
+  }
+  const amountMode = String(body.amountMode || "amount");
+  if (!["fraction", "amount"].includes(amountMode)) {
+    throw Object.assign(new Error("amountMode must be fraction or amount"), {
+      status: 400,
+      code: "VALIDATION_ERROR",
+    });
+  }
+  const idempotencyKey = String(body.idempotencyKey || "").trim();
+  if (!/^[A-Za-z0-9._:-]{8,255}$/.test(idempotencyKey)) {
+    throw Object.assign(new Error("idempotencyKey is invalid"), {
+      status: 400,
+      code: "VALIDATION_ERROR",
+    });
+  }
+  return { chain, source, destination, amountMode, idempotencyKey, body };
+}
+
+async function transferPreview({ supabase, userId, body }) {
+  const parsed = await transferPreviewInput({ supabase, userId, body });
+  const sourceGroup = await ownedExecutionGroup(supabase, userId, parsed.source.id, null);
+  const sourceWallets = sourceGroup.wallets;
+  const connection = (await directLaunchPlanner()).pump.connection;
+  const sourceRows = [];
+  for (const wallet of sourceWallets) {
+    const balanceAtomic = await connection.getBalance(
+      new (await solanaWeb3()).PublicKey(wallet.public_address),
+      "confirmed",
+    );
+    sourceRows.push({ ...wallet, balanceAtomic });
+  }
+  const destinationWallets = parsed.destination.type === "wallet_group"
+    ? (await ownedExecutionGroup(supabase, userId, parsed.destination.id, null)).wallets
+    : [];
+  const spendableRows = sourceRows
+    .map((wallet) => ({
+      ...wallet,
+      spendableAtomic: wallet.balanceAtomic > TRANSFER_FEE_RESERVE
+        ? wallet.balanceAtomic - TRANSFER_FEE_RESERVE
+        : 0n,
+    }))
+    .filter(({ spendableAtomic }) => spendableAtomic > 0n);
+  if (spendableRows.length === 0) {
+    throw Object.assign(new Error("No source wallet has spendable SOL balance"), {
+      status: 400,
+      code: "NO_FUNDED_SOURCE_WALLETS",
+    });
+  }
+  const routes = [];
+  if (parsed.destination.type !== "wallet_group") {
+    for (const source of spendableRows) {
+      routes.push({
+        source,
+        to: parsed.destination.address,
+        destinationWalletId: null,
+      });
+    }
+  } else if (destinationWallets.length === 1) {
+    for (const source of spendableRows) {
+      routes.push({
+        source,
+        to: destinationWallets[0].public_address,
+        destinationWalletId: destinationWallets[0].wallet_id,
+      });
+    }
+  } else {
+    for (let index = 0; index < destinationWallets.length; index += 1) {
+      routes.push({
+        source: spendableRows[index % spendableRows.length],
+        to: destinationWallets[index].public_address,
+        destinationWalletId: destinationWallets[index].wallet_id,
+      });
+    }
+  }
+  const amounts = [];
+  if (parsed.amountMode === "fraction") {
+    for (const route of routes) {
+      const requested = (route.source.balanceAtomic * BigInt(Number(body.fractionBps || 0))) / 10_000n;
+      amounts.push(
+        requested >= route.source.balanceAtomic ? route.source.spendableAtomic : requested,
+      );
+    }
+  } else {
+    const total = transferDecimalToLamports(body.amount);
+    if (total <= 0n) {
+      throw Object.assign(new Error("Transfer amount must be positive"), {
+        status: 400,
+        code: "VALIDATION_ERROR",
+      });
+    }
+    const perRoute = total / BigInt(routes.length);
+    let remainder = total % BigInt(routes.length);
+    for (let index = 0; index < routes.length; index += 1) {
+      let amount = perRoute;
+      if (remainder > 0n) { amount += 1n; remainder -= 1n; }
+      amounts.push(amount);
+    }
+  }
+  const allocations = routes
+    .map((route, index) => ({
+      pairIndex: index,
+      sourceWalletId: route.source.wallet_id,
+      from: route.source.public_address,
+      to: route.to,
+      destinationWalletId: route.destinationWalletId,
+      amountLamports: amounts[index],
+      amount: transferLamportsToDecimal(amounts[index]),
+    }))
+    .filter(({ amountLamports }) => amountLamports > 0n);
+  if (allocations.length === 0) {
+    throw Object.assign(new Error("Transfer amounts resolve to zero"), {
+      status: 400,
+      code: "TRANSFER_AMOUNT_TOO_SMALL",
+    });
+  }
+  const now = new Date();
+  const preview = {
+    previewToken: randomUUID(),
+    confirmationToken: randomUUID(),
+    status: "requires_user_confirmation",
+    executionMode: "live",
+    chain: "solana",
+    source: parsed.source,
+    destination: parsed.destination,
+    amountMode: parsed.amountMode,
+    requestedAmount: parsed.amountMode === "amount" ? body.amount : null,
+    fractionBps: parsed.amountMode === "fraction" ? Number(body.fractionBps || 0) : null,
+    estimatedAmount: transferLamportsToDecimal(
+      allocations.reduce((sum, allocation) => sum + allocation.amountLamports, 0n),
+    ),
+    currency: "SOL",
+    distribution: "equal",
+    pairingMode: parsed.destination.type !== "wallet_group"
+      ? "wallet_group_to_external"
+      : destinationWallets.length === 1
+        ? "wallet_group_collect_to_single_destination"
+        : "source_group_to_destination_group_distribution",
+    pairCount: allocations.length,
+    unmatchedSourceWalletIds: [],
+    unmatchedDestinationWalletIds: [],
+    allocations,
+    requiresConfirmation: true,
+    signingStatus: "awaiting_confirmation",
+    broadcastingStatus: "not_started",
+    executable: true,
+    expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
+    createdAt: now.toISOString(),
+  };
+  await requireAssetsResult(
+    supabase.from("asset_transfer_previews").upsert({
+      preview_token: preview.previewToken,
+      confirmation_token: preview.confirmationToken,
+      user_id: userId,
+      idempotency_key: parsed.idempotencyKey,
+      source: parsed.source,
+      destination: parsed.destination,
+      amount_mode: parsed.amountMode,
+      requested_amount: preview.requestedAmount,
+      fraction_bps: preview.fractionBps,
+      estimated_amount: preview.estimatedAmount,
+      allocations: allocations.map((allocation) => ({
+        pairIndex: allocation.pairIndex,
+        sourceWalletId: allocation.sourceWalletId,
+        from: allocation.from,
+        to: allocation.to,
+        destinationWalletId: allocation.destinationWalletId,
+        amountLamports: allocation.amountLamports.toString(),
+        amount: allocation.amount,
+      })),
+      expires_at: preview.expiresAt,
+      created_at: preview.createdAt,
+    }, { onConflict: "preview_token" }),
+    "Unable to persist the transfer preview",
+  );
+  return { preview, idempotencyKey: parsed.idempotencyKey };
+}
+
+async function transferCreate({ supabase, userId, body, headerIdempotencyKey }) {
+  const parsed = await transferPreviewInput({ supabase, userId, body });
+  if (headerIdempotencyKey !== parsed.idempotencyKey) {
+    throw Object.assign(new Error("Idempotency-Key header must equal body idempotencyKey"), {
+      status: 400,
+      code: "IDEMPOTENCY_KEY_MISMATCH",
+    });
+  }
+  const previewToken = String(body.previewToken || "");
+  const confirmationToken = String(body.confirmationToken || "");
+  const existing = await requireAssetsResult(
+    supabase
+      .from("asset_transfer_previews")
+      .select("*")
+      .eq("preview_token", previewToken)
+      .eq("user_id", userId)
+      .maybeSingle(),
+    "Unable to read the transfer preview",
+  );
+  if (!existing) {
+    throw Object.assign(new Error("Transfer preview was not found"), {
+      status: 400,
+      code: "INVALID_TRANSFER_CONFIRMATION",
+    });
+  }
+  if (existing.confirmation_token !== confirmationToken) {
+    throw Object.assign(new Error("Transfer confirmation token is invalid"), {
+      status: 400,
+      code: "INVALID_TRANSFER_CONFIRMATION",
+    });
+  }
+  if (Date.parse(existing.expires_at) <= Date.now()) {
+    throw Object.assign(new Error("Transfer preview has expired"), {
+      status: 410,
+      code: "TRANSFER_PREVIEW_EXPIRED",
+    });
+  }
+  const prior = await requireAssetsResult(
+    supabase
+      .from("asset_transfers")
+      .select("*")
+      .eq("idempotency_key", parsed.idempotencyKey)
+      .eq("user_id", userId)
+      .maybeSingle(),
+    "Unable to read prior transfer",
+  );
+  if (prior) {
+    return {
+      transferId: prior.transfer_id,
+      previewToken: prior.preview_token,
+      status: prior.status,
+      executionMode: "live",
+      submitted: prior.submitted,
+      confirmed: prior.confirmed,
+      transactions: prior.transactions,
+      txHash: prior.tx_hash,
+      ...(prior.error ? { error: prior.error } : {}),
+      createdAt: prior.created_at,
+      updatedAt: prior.updated_at,
+    };
+  }
+  const connection = (await directLaunchPlanner()).pump.connection;
+  const password = walletVaultPassword();
+  const allocations = (existing.allocations || []).map((allocation) => ({
+    ...allocation,
+    amountLamports: BigInt(String(allocation.amountLamports || "0")),
+  }));
+  const transactions = [];
+  for (const allocation of allocations) {
+    const secretEnvelope = await requireAssetsResult(
+      supabase
+        .from("asset_wallet_secrets")
+        .select("encrypted_envelope")
+        .eq("wallet_id", allocation.sourceWalletId)
+        .eq("user_id", userId)
+        .single(),
+      "Unable to read the sender wallet secret",
+    );
+    let privateKey = await unsealAssetWalletSecret({
+      envelope: secretEnvelope.encrypted_envelope,
+      password,
+    });
+    try {
+      const result = await broadcastSolanaTransfer({
+        connection,
+        from: allocation.from,
+        to: allocation.to,
+        lamports: allocation.amountLamports,
+        privateKey,
+      });
+      transactions.push({
+        sourceWalletId: allocation.sourceWalletId,
+        destinationWalletId: allocation.destinationWalletId,
+        from: allocation.from,
+        to: allocation.to,
+        amount: allocation.amount,
+        ...result,
+      });
+    } catch (error) {
+      transactions.push({
+        sourceWalletId: allocation.sourceWalletId,
+        destinationWalletId: allocation.destinationWalletId,
+        from: allocation.from,
+        to: allocation.to,
+        amount: allocation.amount,
+        status: "failed",
+        error: { code: error.code || "TRANSFER_ALLOCATION_FAILED", message: error.message },
+      });
+    } finally {
+      privateKey = "";
+    }
+  }
+  const succeeded = transactions.filter(({ status }) => status !== "failed");
+  const failed = transactions.filter(({ status }) => status === "failed");
+  const confirmed = succeeded.length > 0
+    && succeeded.every(({ status }) => status === "confirmed")
+    && failed.length === 0;
+  const transfer = {
+    transferId: randomUUID(),
+    previewToken,
+    status: failed.length === 0 ? (confirmed ? "confirmed" : "submitted") : succeeded.length > 0 ? "partially_failed" : "failed",
+    executionMode: "live",
+    submitted: succeeded.length > 0,
+    confirmed,
+    transactions,
+    txHash: succeeded.length === 1 && transactions.length === 1 ? succeeded[0].txHash : null,
+    ...(failed.length > 0
+      ? { error: { code: "TRANSFER_ALLOCATIONS_FAILED", message: `${failed.length} transfer allocation(s) failed` } }
+      : {}),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await requireAssetsResult(
+    supabase.from("asset_transfers").insert({
+      transfer_id: transfer.transferId,
+      user_id: userId,
+      idempotency_key: parsed.idempotencyKey,
+      preview_token: previewToken,
+      status: transfer.status,
+      submitted: transfer.submitted,
+      confirmed: transfer.confirmed,
+      transactions,
+      tx_hash: transfer.txHash || null,
+      error: transfer.error || null,
+      created_at: transfer.createdAt,
+      updated_at: transfer.updatedAt,
+    }),
+    "Unable to persist the transfer",
+  );
+  return transfer;
 }
 
 function publicWallet(wallet, network) {
@@ -2965,6 +3408,51 @@ export default async function handler(request, response) {
         error.status || 500,
         error.code || "DIRECT_SWAP_SUBMIT_FAILED",
         error.message || "Unable to complete the direct Swap",
+      );
+    }
+  }
+
+  if (request.method === "POST" && path === "/api/v1/transfers/preview") {
+    try {
+      const body = await readBody(request);
+      const transferSupabase = serverSupabase();
+      const session = transferSupabase ? await loadSession(transferSupabase, request) : null;
+      const userId = authenticatedUserId(session);
+      const { preview } = await transferPreview({
+        supabase: transferSupabase,
+        userId,
+        body,
+      });
+      return sendJson(response, 201, preview, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "TRANSFER_PREVIEW_FAILED",
+        error.message || "Unable to preview the transfer",
+      );
+    }
+  }
+
+  if (request.method === "POST" && path === "/api/v1/transfers") {
+    try {
+      const body = await readBody(request);
+      const transferSupabase = serverSupabase();
+      const session = transferSupabase ? await loadSession(transferSupabase, request) : null;
+      const userId = authenticatedUserId(session);
+      const result = await transferCreate({
+        supabase: transferSupabase,
+        userId,
+        body,
+        headerIdempotencyKey: request.headers["idempotency-key"],
+      });
+      return sendJson(response, 202, result, { "cache-control": "private, no-store" });
+    } catch (error) {
+      return apiError(
+        response,
+        error.status || 500,
+        error.code || "TRANSFER_SUBMIT_FAILED",
+        error.message || "Unable to complete the transfer",
       );
     }
   }

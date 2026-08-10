@@ -5,6 +5,8 @@ import handlerModule, {
   handleAgentApprovalRoute,
   handleAgentMemoryRoute,
   handleAssetsRoute,
+  transferDecimalToLamports,
+  transferLamportsToDecimal,
 } from "../../../api/v1/[...path].ts";
 import goPlanHandlerModule from "../../../api/v1/go/plan.ts";
 import { buildPulseMarketResponse } from "../../../api/v1/pulse-market.ts";
@@ -1160,4 +1162,17 @@ test("Go plan keeps /analyze-meme on the Agent route", async () => {
   assert.equal(result.status, 200);
   assert.equal(result.body.task.type, "meme.analyze");
   assert.equal(result.body.card.type, "meme_analysis");
+});
+
+test("Solana transfer amount conversion preserves exact lamports and decimals", () => {
+  assert.equal(transferDecimalToLamports("1"), 1_000_000_000n);
+  assert.equal(transferDecimalToLamports("0.000000001"), 1n);
+  assert.equal(transferDecimalToLamports("1.5"), 1_500_000_000n);
+  assert.equal(transferDecimalToLamports("0"), 0n);
+  assert.equal(transferLamportsToDecimal(1_000_000_000n), "1");
+  assert.equal(transferLamportsToDecimal(1n), "0.000000001");
+  assert.equal(transferLamportsToDecimal(1_500_000_000n), "1.5");
+  assert.equal(transferLamportsToDecimal(0n), "0");
+  const roundTrip = transferLamportsToDecimal(transferDecimalToLamports("123.456789"));
+  assert.equal(roundTrip, "123.456789");
 });
