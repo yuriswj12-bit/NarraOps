@@ -39,6 +39,9 @@ export function buildDraftMetadata({ narrative, token = {} }) {
     telegram_url: token.telegram_url || null,
     website_url: token.website_url || (!isSocial ? narrative.url : null),
     initial_buy: token.initial_buy || "0",
+    ...(token.bundle_buy_total !== undefined && token.bundle_buy_total !== ""
+      ? { bundle_buy_total: token.bundle_buy_total }
+      : {}),
   };
 }
 

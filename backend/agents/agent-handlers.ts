@@ -9,6 +9,31 @@ function slug(value, fallback) {
   return result || fallback;
 }
 
+export function memoryPrefillForLaunch(input) {
+  const memories = Array.isArray(input?.context?.memory_prefill)
+    ? input.context.memory_prefill
+    : [];
+  const prefill = {
+    cooking_amount: null,
+    bundled_total: null,
+    default_chain: null,
+  };
+  for (const memory of memories) {
+    if (!memory?.kind || !memory?.content) continue;
+    const content = String(memory.content).trim();
+    const lower = content.toLowerCase();
+    if (memory.kind === "user_preference") {
+      const cookingMatch = content.match(/(?:cooking|首买|发射买入)\s*(?:金额|amount)?\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(?:sol)?/i);
+      if (cookingMatch) prefill.cooking_amount = cookingMatch[1];
+      const bundleMatch = content.match(/(?:bundle|捆绑|bundled)\s*(?:总额|总金额|total|amount)?\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(?:sol)?/i);
+      if (bundleMatch) prefill.bundled_total = bundleMatch[1];
+      if (/(solana|\bsol\b)/i.test(lower) && !/(bsc|bnb|eth|base)/i.test(lower)) prefill.default_chain = "solana";
+      if (/(bsc|bnb)/i.test(lower) && !/(solana|\bsol\b)/i.test(lower)) prefill.default_chain = "bsc";
+    }
+  }
+  return prefill;
+}
+
 async function parseTradePlan(input, side, services, context, readWalletGroups) {
   const prompt = String(input.prompt || input.agent_input?.raw_input || input.agent_input?.arguments || "").trim();
   const chain = /\b(bsc|bnb)\b/i.test(prompt) ? "bsc" : "solana";
@@ -331,6 +356,7 @@ export function createAgentHandlers(integrations, services = {}) {
         input.prompt,
       ].filter(Boolean).join("\n");
       const chain = normalizeLaunchChain(input.chain || sourceText || input.prompt);
+      const memoryPrefill = memoryPrefillForLaunch(input);
       const platform = resolveLaunchPlatform({ chain, platform: input.platform });
       const generated = await generateLaunchContent({
         prompt: input.prompt || "",
@@ -344,6 +370,14 @@ export function createAgentHandlers(integrations, services = {}) {
           symbol: generated.content.symbol,
           description: generated.content.description,
           ...(input.token || {}),
+          // Confirmed Memory prefill is an editable suggestion only; explicit
+          // user input still wins.
+          ...(input.token?.initial_buy == null && memoryPrefill.cooking_amount
+            ? { initial_buy: memoryPrefill.cooking_amount }
+            : {}),
+          ...(input.token?.bundle_buy_total == null && memoryPrefill.bundled_total
+            ? { bundle_buy_total: memoryPrefill.bundled_total }
+            : {}),
         },
       });
       if (!token.image_url) token.image_url = null;
@@ -372,6 +406,15 @@ export function createAgentHandlers(integrations, services = {}) {
           content_provider: generated.provider,
           used_llm: Boolean(generated.used_llm),
           ...(linkRead.tool ? { research_tool: linkRead.tool } : {}),
+          ...(memoryPrefill.cooking_amount || memoryPrefill.bundled_total || memoryPrefill.default_chain
+            ? {
+                memory_prefill: {
+                  ...(memoryPrefill.cooking_amount ? { cooking_amount: memoryPrefill.cooking_amount } : {}),
+                  ...(memoryPrefill.bundled_total ? { bundled_total: memoryPrefill.bundled_total } : {}),
+                  ...(memoryPrefill.default_chain ? { default_chain: memoryPrefill.default_chain } : {}),
+                },
+              }
+            : {}),
         },
       };
       const draft = services.launchDraftRepository?.create

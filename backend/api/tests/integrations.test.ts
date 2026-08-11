@@ -287,3 +287,42 @@ test("launch platform mapping is fixed to the product chain choices", () => {
   assert.equal(pons.browser_execution_mode, "direct_wallet_confirmation");
   assert.equal(resolveLaunchPlatform({ chain: "bsc", platform: "pump" }).chain, "solana");
 });
+
+test("launch.meme prefills editable amounts from confirmed Memory without overriding explicit input", async () => {
+  const base = { taskId: "task-mem", requestId: "req-mem", conversationId: "conv-mem", emitEvent() {} };
+
+  const handlers = createAgentHandlers({}, { launchDraftRepository: new InMemoryLaunchDraftRepository() });
+  const prefilled = await handlers["launch.meme"](
+    {
+      prompt: "https://example.com/meme-story",
+      chain: "solana",
+      context: {
+        memory_prefill: [
+          { kind: "user_preference", content: "cooking 金额 2 SOL，bundled 总额 5 SOL" },
+        ],
+      },
+    },
+    base,
+  );
+  assert.equal(prefilled.card.type, "launch_draft");
+  assert.equal(prefilled.launch_parameters.token.initial_buy, "2");
+  assert.equal(prefilled.launch_parameters.token.bundle_buy_total, "5");
+  assert.equal(prefilled.metadata.memory_prefill.cooking_amount, "2");
+  assert.equal(prefilled.metadata.memory_prefill.bundled_total, "5");
+
+  const explicitHandlers = createAgentHandlers({}, { launchDraftRepository: new InMemoryLaunchDraftRepository() });
+  const explicitWins = await explicitHandlers["launch.meme"](
+    {
+      prompt: "https://example.com/meme-story",
+      chain: "solana",
+      token: { initial_buy: "0.1" },
+      context: {
+        memory_prefill: [
+          { kind: "user_preference", content: "cooking 金额 2 SOL" },
+        ],
+      },
+    },
+    base,
+  );
+  assert.equal(explicitWins.launch_parameters.token.initial_buy, "0.1");
+});

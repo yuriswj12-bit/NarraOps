@@ -316,3 +316,25 @@ test("/launch routes to meme-launch-plan and produces an editable launch draft c
   assert.ok("launch_parameters" in (card?.data || {}));
   assert.ok(card?.data?.required_user_selections?.includes("cooking_wallet_group_id"));
 });
+
+test("memory prefill parses confirmed launch preferences as editable suggestions", async () => {
+  const { memoryPrefillForLaunch } = await import("../../agents/agent-handlers.ts");
+  const prefill = memoryPrefillForLaunch({
+    context: {
+      memory_prefill: [
+        { kind: "user_preference", content: "cooking 金额 2 SOL，bundled 总额 5 SOL" },
+      ],
+    },
+  });
+  assert.equal(prefill.cooking_amount, "2");
+  assert.equal(prefill.bundled_total, "5");
+
+  const noMatch = memoryPrefillForLaunch({ context: { memory_prefill: [] } });
+  assert.equal(noMatch.cooking_amount, null);
+  assert.equal(noMatch.bundled_total, null);
+
+  const chainPrefill = memoryPrefillForLaunch({
+    context: { memory_prefill: [{ kind: "user_preference", content: "默认用 Solana 发射" }] },
+  });
+  assert.equal(chainPrefill.default_chain, "solana");
+});

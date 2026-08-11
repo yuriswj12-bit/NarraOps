@@ -732,6 +732,21 @@ export function createAgentRuntime(options = {}) {
       capabilities.push(...runtimeKnowledge.manifest.agent.capabilityManifest);
     }
 
+    // Confirmed Memory is injected only as editable prefill suggestions. It
+    // never overrides the user's explicit input and never authorizes execution.
+    const memoryPrefill = (runtimeKnowledge?.memories || []).length
+      ? structuredClone(runtimeKnowledge.memories)
+      : [];
+    if (memoryPrefill.length && parsed.input && typeof parsed.input === "object") {
+      parsed.input = {
+        ...parsed.input,
+        context: {
+          ...(parsed.input.context || {}),
+          memory_prefill: memoryPrefill,
+        },
+      };
+    }
+
     const created = await withTimeout(
       manager.create(parsed.type, parsed.input, requestId, {
         ...parsed.metadata,
