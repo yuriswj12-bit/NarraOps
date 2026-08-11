@@ -3079,30 +3079,6 @@ async function submitAgentConversation(command, pendingId) {
     });
   };
 
-  // 1) Wallet-group questions read Assets directly. No Agent round-trip.
-  if (isWalletStatusQuestion(command)) {
-    try {
-      if (!state.assets.groups.length) await loadGoWalletGroups();
-      finish(localWalletGroupsReply());
-    } catch (error) {
-      fail(error);
-    } finally {
-      state.go.busy = false;
-      state.agent.submitting = false;
-    }
-    return;
-  }
-
-  // 2) Simple chat stays local.
-  if (isTrivialAgentChat(command)) {
-    window.setTimeout(() => {
-      finish(localAgentChatReply(command));
-      state.go.busy = false;
-      state.agent.submitting = false;
-    }, 20);
-    return;
-  }
-
   const launchIntent = isLaunchIntent(command);
   const hardMs = launchIntent ? 35_000 : 12_000;
   const requestMs = launchIntent ? 30_000 : 8_000;
