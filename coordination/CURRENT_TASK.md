@@ -21,6 +21,14 @@ until the Agent main chain and acceptance coverage are stable.
   bound to `research.public_link.read` + `pulse.narratives.list`). Bootstrap
   `--apply` ran successfully against production; `/capabilities` reports v3 and
   five skills with zero published financial tools.
+- Added actor-scoped user analytics: `createUserAnalyticsService` queries only
+  the authenticated user's `go_launch_drafts` and `asset_transfers` and returns
+  safe aggregates. New `account.launches.summary`, `account.project.performance`,
+  and `account.pnl.summary` handlers are wired through `/my-launches`,
+  `/my-projects`, `/my-pnl` and Chinese natural-language intents. Handlers return
+  `data-gap` without an actor or configured service. API now 145/145; deployed
+  to `narra-j1df1kp99-hek.vercel.app` (anonymous task access returns 401 as
+  expected for actor-scoped data).
 - OpenCode closed out the dirty tree: secret scan clean, 74 changes grouped
   into 5 scoped commits (Runtime v2 core, control plane, migrations 023-035,
   product-route wiring, docs) and pushed to `yuriswj12-bit/NarraOps` main.
@@ -240,6 +248,20 @@ the shared coordination/OpenCode command files. Preserve unrelated UI changes.
 2. Wallet/gateway authority rollout (transfer -> swap -> pump) stays frozen
    until the Agent main chain is stable.
 3. Do not expand live fund execution beyond the current direct path.
+
+## Remaining (updated)
+
+1. Wire the new analytics handlers into the published Agent catalog as
+   declarative analytics skills and add frontend cards for
+   `user_launch_summary` / `user_project_performance` / `user_pnl_summary`.
+2. Verify a real authenticated `POST /api/v1/agent/tasks` with `/my-launches`
+   against production and confirm the actor-scoped aggregates render.
+3. Wire `meme-launch-plan` into the Go Agent card flow end-to-end and add
+   acceptance coverage.
+4. Enable confirmed Memory to prefill default chain, Cooking/bundled amounts,
+   and wallet groups only as editable suggestions.
+5. Wallet/gateway authority rollout stays frozen until the Agent main chain is
+   stable.
 
 ## Known blockers
 
