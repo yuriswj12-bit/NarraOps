@@ -48,6 +48,10 @@ until the Agent main chain and acceptance coverage are stable.
   `buildDraftMetadata` now preserves `bundle_buy_total`. Parser and handler
   tests prove prefill works and explicit input wins. API now 148/148; deployed
   to `narra-522l1f9qq-hek.vercel.app`.
+- Extended Memory prefill to default wallet groups and slippage, added the
+  Go Memory modal quick templates for launch defaults and Chinese replies, and
+  verified proposal/review/confirm/forget UI/API paths. API tests 149/149;
+  deployed frontend to `narra-5va0ofuus-hek.vercel.app`.
 - Extended Memory prefill to default wallet groups and slippage: parses cooking/
   bundled wallet-group names and slippage percent from confirmed Memory, applies
   them as editable launch-draft prefill, exposes `slippage_bps` in
@@ -267,12 +271,11 @@ the shared coordination/OpenCode command files. Preserve unrelated UI changes.
    (launch_draft + meme-launch-plan), /analyze-meme, and durable event replay,
    all with a fresh random wallet and full cleanup. Browser-side acceptance
    steps remain in `docs/engineering/agent-main-chain-acceptance.md`.
-2. REMINDER from user: after A and B, the remaining deferred Agent work is:
-   - C: view the actual confirmed Memory items in production `agent_memory_items`
-     (needs the service-role key or a screenshot of Go -> Memory).
-   - Verify a real authenticated `/api/v1/agent/tasks` with `/my-launches` in a
-     browser and confirm the analytics cards render, plus the Memory-prefilled
-     launch card (amounts, wallet groups, slippage) end-to-end.
+2. REMINDER from user: run the remaining real-browser acceptance pass:
+   authenticate in Go, propose/confirm a launch preference with the Memory
+   quick template, verify it appears in production `agent_memory_items`, then
+   run `/my-launches`, `/my-projects`, `/my-pnl`, and `/launch` to confirm the
+   analytics cards and Memory-prefilled launch card render end-to-end.
 3. Wallet/gateway authority rollout stays frozen until the Agent main chain is
    stable.
 4. Do not expand live fund execution beyond the current direct path.
