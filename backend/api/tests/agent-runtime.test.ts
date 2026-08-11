@@ -1,7 +1,7 @@
 ﻿// @ts-nocheck
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAgentRuntime } from "../../agents/agent-runtime.ts";
+import { createAgentRuntime, normalizeLaunchDraftPatch } from "../../agents/agent-runtime.ts";
 import {
   formatTelegramReply,
   parseTelegramUpdate,
@@ -264,4 +264,36 @@ test("telegram adapter parses bot updates and formats replies", async () => {
 test("unsupported telegram updates are ignored", () => {
   const parsed = parseTelegramUpdate({ update_id: 1 });
   assert.equal(parsed.handled, false);
+});
+
+test("launch draft patch preserves frontend token fields and rejects secrets", () => {
+  const normalized = normalizeLaunchDraftPatch({
+    token: {
+      name: "Raccoon Mayor",
+      symbol: "RACC",
+      description: "A review-only meme draft",
+      image_url: "https://example.com/racc.png",
+      initial_buy: "0.05",
+      bundle_buy_total: "0.1",
+    },
+    cooking_wallet_group_id: "cook-group",
+    bundled_wallet_group_id: "bundle-group",
+  });
+  assert.equal(normalized.token.bundle_buy_total, "0.1");
+  assert.equal(normalized.token.initial_buy, "0.05");
+  assert.equal(normalized.cooking_wallet_group_id, "cook-group");
+  assert.equal(normalized.bundled_wallet_group_id, "bundle-group");
+
+  assert.throws(
+    () => normalizeLaunchDraftPatch({ token: { name: "x", privateKey: "abc123" } }),
+    (error: any) => error.code === "SENSITIVE_INPUT_REJECTED",
+  );
+  assert.throws(
+    () => normalizeLaunchDraftPatch({ token: { name: "x", seedPhrase: "abc" } }),
+    (error: any) => error.code === "SENSITIVE_INPUT_REJECTED",
+  );
+  assert.throws(
+    () => normalizeLaunchDraftPatch("not-an-object"),
+    (error: any) => error.code === "VALIDATION_ERROR",
+  );
 });
