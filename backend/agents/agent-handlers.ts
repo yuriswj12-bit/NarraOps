@@ -683,6 +683,61 @@ export function createAgentHandlers(integrations, services = {}) {
       };
       return { ...result, card: { type: "recent_summary", data: result } };
     },
+
+    async "account.launches.summary"(input, context) {
+      const ownerUserId = context.userId || input.context?.userId || input.context?.user_id || null;
+      if (!services.userAnalytics || !ownerUserId) {
+        return {
+          mode: "data-gap",
+          reason: "user_analytics_unavailable",
+          code: "USER_ANALYTICS_UNAVAILABLE",
+          card: { type: "user_launch_summary", data: {} },
+        };
+      }
+      const summary = await services.userAnalytics.launchSummary(ownerUserId, {
+        since: input.time_range && /^\d+[dh]$/i.test(String(input.time_range))
+          ? new Date(Date.now() - Number(String(input.time_range).slice(0, -1)) * 3600_000 * (String(input.time_range).endsWith("d") ? 24 : 1)).toISOString()
+          : undefined,
+      });
+      return { ...summary, card: { type: "user_launch_summary", data: summary } };
+    },
+
+    async "account.project.performance"(input, context) {
+      const ownerUserId = context.userId || input.context?.userId || input.context?.user_id || null;
+      if (!services.userAnalytics || !ownerUserId) {
+        return {
+          mode: "data-gap",
+          reason: "user_analytics_unavailable",
+          code: "USER_ANALYTICS_UNAVAILABLE",
+          card: { type: "user_project_performance", data: {} },
+        };
+      }
+      const performance = await services.userAnalytics.projectPerformance(ownerUserId);
+      return { ...performance, card: { type: "user_project_performance", data: performance } };
+    },
+
+    async "account.pnl.summary"(input, context) {
+      const ownerUserId = context.userId || input.context?.userId || input.context?.user_id || null;
+      if (!services.userAnalytics || !ownerUserId) {
+        return {
+          mode: "data-gap",
+          reason: "user_analytics_unavailable",
+          code: "USER_ANALYTICS_UNAVAILABLE",
+          card: { type: "user_pnl_summary", data: {} },
+        };
+      }
+      const history = await services.userAnalytics.executionHistory(ownerUserId);
+      const confirmedLaunches = history.launches.filter(({ status }) => status === "confirmed").length;
+      return {
+        ...history,
+        mode: "actor_scoped",
+        data_status: history.execution_count ? "live" : "empty",
+        realized_pnl_sol: null,
+        unrealized_pnl_sol: null,
+        confirmed_launches: confirmedLaunches,
+        card: { type: "user_pnl_summary", data: { ...history, confirmed_launches: confirmedLaunches } },
+      };
+    },
   };
 }
 

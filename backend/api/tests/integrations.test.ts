@@ -267,6 +267,16 @@ test("Chinese natural-language intents route without encoding loss", () => {
   assert.equal(parseGoInput("把资金转到 cooking 钱包组").type, "funds.transfer");
 });
 
+test("user analytics intents route to actor-scoped summary handlers", () => {
+  assert.equal(parseGoInput("/my-launches").type, "account.launches.summary");
+  assert.equal(parseGoInput("/launch-history").type, "account.launches.summary");
+  assert.equal(parseGoInput("/my-projects").type, "account.project.performance");
+  assert.equal(parseGoInput("/my-pnl").type, "account.pnl.summary");
+  assert.equal(parseGoInput("我发射过多少个 meme").type, "account.launches.summary");
+  assert.equal(parseGoInput("我的项目表现如何").type, "account.project.performance");
+  assert.equal(parseGoInput("我赚了多少").type, "account.pnl.summary");
+});
+
 test("launch platform mapping is fixed to the product chain choices", () => {
   assert.equal(resolveLaunchPlatform({ chain: "solana" }).id, "pump");
   assert.equal(resolveLaunchPlatform({ chain: "bsc" }).id, "fourmeme");

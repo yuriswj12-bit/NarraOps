@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { TaskManager } from "./task-manager.ts";
 import { createAgentHandlers } from "./agent-handlers.ts";
 import { createIntegrationRegistry } from "../integrations/registry.ts";
+import { createUserAnalyticsService } from "./user-analytics.ts";
 import { InMemoryConversationRepository } from "../api/src/repositories/in-memory-conversation-repository.ts";
 import { InMemoryTaskRepository } from "../api/src/repositories/in-memory-task-repository.ts";
 import { InMemoryLaunchDraftRepository } from "../api/src/repositories/in-memory-launch-draft-repository.ts";
@@ -385,6 +386,7 @@ export function createAgentRuntime(options = {}) {
     walletGroupRepository: options.walletGroupRepository,
     narrativeRepository,
   });
+  const userAnalytics = options.userAnalytics || createUserAnalyticsService(supabase);
 
   const manager =
     options.taskManager ||
@@ -398,6 +400,7 @@ export function createAgentRuntime(options = {}) {
         narrativeRepository,
         modelContentGenerator: generateConfiguredLaunchContent,
         toolRegistry,
+        userAnalytics,
       }),
       stepDelayMs: options.stepDelayMs ?? config.taskStepDelayMs ?? 20,
     });
