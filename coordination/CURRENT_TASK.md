@@ -178,10 +178,16 @@ the design or replace the already-working Pump Launch product path.
   transaction bytes. Injected zero-network tests prove their gateways are not
   reached before approval. Neither Tool is published or connected to
   production authority.
+- Added visible Go Launch `bundle_buy_total` input. Pump now freezes a
+  deterministic `TOTAL_RANDOM` allocation whose amounts sum exactly to the
+  requested SOL total, binds that allocation into the approval intent, waits
+  for the T1-T5 window after the Cooking launch, then signs/broadcasts each
+  bundled-wallet buy through the encrypted vault with per-wallet results.
+  Legacy launch responses remain unchanged when no bundled buy is requested.
 - Latest production deployment is
-  `https://narra-dmvju6d5j-hek.vercel.app`, aliased to
+  `https://narra-pgf1rgjz3-hek.vercel.app`, aliased to
   `https://www.narraops.xyz`.
-- Latest verification: Runtime/API 133/133, execution 35/35, typecheck green,
+- Latest verification: Runtime/API 138/138, execution 35/35, typecheck green,
   28 Agent schemas, Vercel build, Supabase migration parity through
   `20260810070000`, 13-check production capabilities/Memory/knowledge/Pulse/
   GMGN/Assets Tool canary, Supabase reservation concurrency canary, browser QA,
@@ -189,7 +195,7 @@ the design or replace the already-working Pump Launch product path.
 
 ## In progress
 
-All business changes remain unstaged, uncommitted, and unpushed on `main`.
+All current business changes are committed and pushed on `main`.
 `AGENT_PUMP_SEMANTIC_SHADOW_ENABLED=true` and
 `AGENT_PUMP_APPROVAL_DUAL_RUN_ENABLED=true` are in production.
 `AGENT_PUMP_ENFORCEMENT_ENABLED` is absent/off, so the existing direct Pump
@@ -215,8 +221,8 @@ the shared coordination/OpenCode command files. Preserve unrelated UI changes.
    `docs/engineering/financial-gateway-rollout.md`.
 2. Execute the financial-gateway rollouts (transfer -> swap -> pump) as
    explicit, independently reversible steps with rollback observation.
-3. Review the dirty-tree diff, exclude secrets/generated noise, then prepare a
-   scoped commit/PR only when publication is explicitly authorized.
+3. Run a real small-value Pump launch with bundled total-buy allocation after
+   the user confirms the funded test wallets.
 
 ## Known blockers
 
