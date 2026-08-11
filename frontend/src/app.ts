@@ -738,6 +738,13 @@ function launchDraftToken(data = {}) {
   return { ...(data.token || {}), ...(parameters.token || {}) };
 }
 
+function launchSlippagePercent(data = {}) {
+  const prefilled = data.metadata?.memory_prefill?.slippage_bps;
+  const draftValue = data.launch_parameters?.slippage_bps ?? data.slippage_bps;
+  const bps = Number(prefilled || draftValue || 300);
+  return String(bps / 100);
+}
+
 function launchDraftId(data = {}) {
   return data.launch_draft_id || data.draft_id || data.draft?.launch_draft_id || null;
 }
@@ -791,6 +798,7 @@ function renderLaunchDraftCard(card) {
           <label class="go-field"><span>${t("捆绑钱包组", "Bundled wallet group")}</span><select name="bundled_wallet_group_id" required>${walletGroupOptions(groups, bundled, { purpose: "general", exclude: cooking })}</select></label>
         </div>
         <label class="go-field go-field-full"><span>${t("捆绑钱包购买总额 SOL", "Bundled wallet total buy SOL")}</span><input name="bundle_buy_total" inputmode="decimal" value="${escapeHtml(token.bundle_buy_total || "")}" placeholder="例如 0.3，后端随机分配到每个钱包" /></label>
+        <label class="go-field go-field-full"><span>${t("滑点 %", "Slippage %")}</span><input name="slippage_percent" inputmode="decimal" value="${escapeHtml(launchSlippagePercent(data))}" placeholder="例如 5" /></label>
         <div class="go-launch-actions">
           <button type="submit" data-launch-action="launch" ${draftId ? "" : "disabled"}>${t("发射到 Pump", "Launch to Pump")}</button>
         </div>
@@ -3511,7 +3519,7 @@ async function saveLaunchDraftForm(form, action) {
   if (action === "launch" && (!cookingWalletGroupId || !bundledWalletGroupId)) {
     throw new Error(t("请先选择 Cooking 钱包组和捆绑钱包组。", "Select both Cooking and bundled wallet groups first."));
   }
-  const token = Object.fromEntries(["name", "symbol", "description", "image_url", "x_url", "telegram_url", "website_url", "initial_buy", "bundle_buy_total"]
+  const token = Object.fromEntries(["name", "symbol", "description", "image_url", "x_url", "telegram_url", "website_url", "initial_buy", "bundle_buy_total", "slippage_percent"]
     .map((field) => [field, String(formData.get(field) || "").trim()]));
   if (action === "launch" && (!token.name || !token.symbol || !token.description || !token.image_url)) {
     throw new Error(t("请先补全名称、符号、简介和图片链接。", "Complete name, symbol, description, and image URL first."));

@@ -337,4 +337,15 @@ test("memory prefill parses confirmed launch preferences as editable suggestions
     context: { memory_prefill: [{ kind: "user_preference", content: "默认用 Solana 发射" }] },
   });
   assert.equal(chainPrefill.default_chain, "solana");
+
+  const groupsPrefill = memoryPrefillForLaunch({
+    context: {
+      memory_prefill: [
+        { kind: "user_preference", content: "cooking 钱包组 Alpha，bundled 钱包组 Bravo，滑点 5%" },
+      ],
+    },
+  });
+  assert.equal(groupsPrefill.default_cooking_group, "Alpha");
+  assert.equal(groupsPrefill.default_bundled_group, "Bravo");
+  assert.equal(groupsPrefill.default_slippage_bps, "500");
 });

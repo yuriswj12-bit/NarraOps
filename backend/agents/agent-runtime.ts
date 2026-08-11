@@ -137,6 +137,7 @@ const LAUNCH_DRAFT_TOKEN_FIELDS = Object.freeze([
   "initial_buy",
   "bundle_buy_total",
   "bundle_buy_per_wallet",
+  "slippage_percent",
 ]);
 const LAUNCH_DRAFT_SELECTION_FIELDS = Object.freeze([
   "cooking_wallet_group_id",

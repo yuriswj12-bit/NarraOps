@@ -9,14 +9,26 @@ function slug(value, fallback) {
   return result || fallback;
 }
 
-export function memoryPrefillForLaunch(input) {
-  const memories = Array.isArray(input?.context?.memory_prefill)
+function resolveLaunchSlippage(input, memoryPrefill) {
+  const explicit = input?.token?.slippage_percent ?? input?.slippage_percent;
+  if (explicit !== undefined && explicit !== null && explicit !== "") {
+    const value = Number(explicit);
+    if (Number.isFinite(value) && value >= 0 && value <= 100) return Math.round(value * 100);
+  }
+  if (memoryPrefill?.default_slippage_bps) return Number(memoryPrefill.default_slippage_bps);
+  return 300;
+}
+
+export function memoryPrefillForLaunch(input) {  const memories = Array.isArray(input?.context?.memory_prefill)
     ? input.context.memory_prefill
     : [];
   const prefill = {
     cooking_amount: null,
     bundled_total: null,
     default_chain: null,
+    default_cooking_group: null,
+    default_bundled_group: null,
+    default_slippage_bps: null,
   };
   for (const memory of memories) {
     if (!memory?.kind || !memory?.content) continue;
@@ -27,6 +39,19 @@ export function memoryPrefillForLaunch(input) {
       if (cookingMatch) prefill.cooking_amount = cookingMatch[1];
       const bundleMatch = content.match(/(?:bundle|捆绑|bundled)\s*(?:总额|总金额|total|amount)?\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(?:sol)?/i);
       if (bundleMatch) prefill.bundled_total = bundleMatch[1];
+      const cookingGroupMatch = content.match(/(?:cooking|首买|发射)\s*(?:钱包组|组|wallet\s*group)?\s*[:：]?\s*([^\s,，:：]+)/i);
+      if (cookingGroupMatch && !/^(?:金额|amount|sol|bundled|bundle)$/i.test(cookingGroupMatch[1])) {
+        prefill.default_cooking_group = cookingGroupMatch[1];
+      }
+      const bundledGroupMatch = content.match(/(?:bundled|bundle|捆绑)\s*(?:钱包组|组|wallet\s*group)?\s*[:：]?\s*([^\s,，:：]+)/i);
+      if (bundledGroupMatch && !/^(?:总额|总金额|total|amount|sol|cooking)$/i.test(bundledGroupMatch[1])) {
+        prefill.default_bundled_group = bundledGroupMatch[1];
+      }
+      const slippageMatch = content.match(/(?:滑点|slippage)\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(?:%|bps)?/i);
+      if (slippageMatch) {
+        const raw = Number(slippageMatch[1]);
+        prefill.default_slippage_bps = String(content.match(/bps/i) ? raw : Math.round(raw * 100));
+      }
       if (/(solana|\bsol\b)/i.test(lower) && !/(bsc|bnb|eth|base)/i.test(lower)) prefill.default_chain = "solana";
       if (/(bsc|bnb)/i.test(lower) && !/(solana|\bsol\b)/i.test(lower)) prefill.default_chain = "bsc";
     }
@@ -394,8 +419,8 @@ export function createAgentHandlers(integrations, services = {}) {
         token,
         dev_wallet_id: input.dev_wallet_id || null,
         wallet_group_id: input.wallet_group_id || null,
-        cooking_wallet_group_id: input.cooking_wallet_group_id || null,
-        bundled_wallet_group_id: input.bundled_wallet_group_id || input.wallet_group_id || null,
+        cooking_wallet_group_id: input.cooking_wallet_group_id || memoryPrefill.default_cooking_group || null,
+        bundled_wallet_group_id: input.bundled_wallet_group_id || memoryPrefill.default_bundled_group || input.wallet_group_id || null,
         preparation_status: missingFields.length ? "requires_enrichment" : "requires_wallet_selection",
         missing_fields: missingFields,
         required_user_selections: ["cooking_wallet_group_id", "bundled_wallet_group_id"],
@@ -406,12 +431,20 @@ export function createAgentHandlers(integrations, services = {}) {
           content_provider: generated.provider,
           used_llm: Boolean(generated.used_llm),
           ...(linkRead.tool ? { research_tool: linkRead.tool } : {}),
-          ...(memoryPrefill.cooking_amount || memoryPrefill.bundled_total || memoryPrefill.default_chain
+          ...(memoryPrefill.cooking_amount
+            || memoryPrefill.bundled_total
+            || memoryPrefill.default_chain
+            || memoryPrefill.default_cooking_group
+            || memoryPrefill.default_bundled_group
+            || memoryPrefill.default_slippage_bps
             ? {
                 memory_prefill: {
                   ...(memoryPrefill.cooking_amount ? { cooking_amount: memoryPrefill.cooking_amount } : {}),
                   ...(memoryPrefill.bundled_total ? { bundled_total: memoryPrefill.bundled_total } : {}),
                   ...(memoryPrefill.default_chain ? { default_chain: memoryPrefill.default_chain } : {}),
+                  ...(memoryPrefill.default_cooking_group ? { cooking_group: memoryPrefill.default_cooking_group } : {}),
+                  ...(memoryPrefill.default_bundled_group ? { bundled_group: memoryPrefill.default_bundled_group } : {}),
+                  ...(memoryPrefill.default_slippage_bps ? { slippage_bps: memoryPrefill.default_slippage_bps } : {}),
                 },
               }
             : {}),
@@ -453,6 +486,7 @@ export function createAgentHandlers(integrations, services = {}) {
             bundle_buy_total: token.bundle_buy_total,
             bundle_buy_per_wallet: token.bundle_buy_per_wallet,
           },
+          slippage_bps: resolveLaunchSlippage(input, memoryPrefill),
           missing_fields: missingFields,
           required_user_selections: ["cooking_wallet_group_id", "bundled_wallet_group_id"],
         },

@@ -326,3 +326,42 @@ test("launch.meme prefills editable amounts from confirmed Memory without overri
   );
   assert.equal(explicitWins.launch_parameters.token.initial_buy, "0.1");
 });
+
+test("launch.meme prefills wallet groups and slippage from confirmed Memory", async () => {
+  const handlers = createAgentHandlers({}, { launchDraftRepository: new InMemoryLaunchDraftRepository() });
+  const base = { taskId: "task-mem2", requestId: "req-mem2", conversationId: "conv-mem2", emitEvent() {} };
+  const result = await handlers["launch.meme"](
+    {
+      prompt: "https://example.com/meme-story",
+      chain: "solana",
+      context: {
+        memory_prefill: [
+          { kind: "user_preference", content: "cooking 钱包组 Alpha，bundled 钱包组 Bravo，滑点 5%" },
+        ],
+      },
+    },
+    base,
+  );
+  assert.equal(result.card.type, "launch_draft");
+  assert.equal(result.cooking_wallet_group_id, "Alpha");
+  assert.equal(result.bundled_wallet_group_id, "Bravo");
+  assert.equal(result.launch_parameters.slippage_bps, 500);
+  assert.equal(result.metadata.memory_prefill.cooking_group, "Alpha");
+  assert.equal(result.metadata.memory_prefill.bundled_group, "Bravo");
+  assert.equal(result.metadata.memory_prefill.slippage_bps, "500");
+
+  const explicitSlippage = await handlers["launch.meme"](
+    {
+      prompt: "https://example.com/meme-story",
+      chain: "solana",
+      token: { slippage_percent: "10" },
+      context: {
+        memory_prefill: [
+          { kind: "user_preference", content: "滑点 5%" },
+        ],
+      },
+    },
+    { ...base, conversationId: "conv-mem3" },
+  );
+  assert.equal(explicitSlippage.launch_parameters.slippage_bps, 1000);
+});
