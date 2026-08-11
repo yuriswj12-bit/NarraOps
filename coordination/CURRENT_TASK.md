@@ -48,6 +48,12 @@ until the Agent main chain and acceptance coverage are stable.
   `buildDraftMetadata` now preserves `bundle_buy_total`. Parser and handler
   tests prove prefill works and explicit input wins. API now 148/148; deployed
   to `narra-522l1f9qq-hek.vercel.app`.
+- Extended Memory prefill to default wallet groups and slippage: parses cooking/
+  bundled wallet-group names and slippage percent from confirmed Memory, applies
+  them as editable launch-draft prefill, exposes `slippage_bps` in
+  `launch_parameters`, and adds a slippage input to the Go launch card.
+  Explicit input still wins. API now 149/149; deployed to
+  `narra-q1i2aenfn-hek.vercel.app`.
 - OpenCode closed out the dirty tree: secret scan clean, 74 changes grouped
   into 5 scoped commits (Runtime v2 core, control plane, migrations 023-035,
   product-route wiring, docs) and pushed to `yuriswj12-bit/NarraOps` main.
@@ -261,14 +267,12 @@ the shared coordination/OpenCode command files. Preserve unrelated UI changes.
    (launch_draft + meme-launch-plan), /analyze-meme, and durable event replay,
    all with a fresh random wallet and full cleanup. Browser-side acceptance
    steps remain in `docs/engineering/agent-main-chain-acceptance.md`.
-2. REMINDER from user: after A, complete the remaining Agent work that was
-   deferred:
-   - B: extend Memory prefill to default wallet groups and slippage (currently
-     only cooking/bundled amounts and default chain).
+2. REMINDER from user: after A and B, the remaining deferred Agent work is:
    - C: view the actual confirmed Memory items in production `agent_memory_items`
      (needs the service-role key or a screenshot of Go -> Memory).
    - Verify a real authenticated `/api/v1/agent/tasks` with `/my-launches` in a
-     browser and confirm the analytics cards render.
+     browser and confirm the analytics cards render, plus the Memory-prefilled
+     launch card (amounts, wallet groups, slippage) end-to-end.
 3. Wallet/gateway authority rollout stays frozen until the Agent main chain is
    stable.
 4. Do not expand live fund execution beyond the current direct path.
