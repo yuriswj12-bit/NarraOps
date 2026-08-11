@@ -58,6 +58,10 @@ until the Agent main chain and acceptance coverage are stable.
   `launch_parameters`, and adds a slippage input to the Go launch card.
   Explicit input still wins. API now 149/149; deployed to
   `narra-q1i2aenfn-hek.vercel.app`.
+- Removed the frontend local natural-language reply shortcuts. Go natural
+  language now always enters the Agent conversation/Model Gateway path instead
+  of returning the same static response for questions such as "你能做什么" or
+  "你家吗". Deployed to `narra-21oyh5602-hek.vercel.app`; API 149/149.
 - OpenCode closed out the dirty tree: secret scan clean, 74 changes grouped
   into 5 scoped commits (Runtime v2 core, control plane, migrations 023-035,
   product-route wiring, docs) and pushed to `yuriswj12-bit/NarraOps` main.
