@@ -2344,6 +2344,11 @@ function memoryManagerMarkup() {
       <label class="field-label">${t("新增一条记忆", "Propose a memory")}
         <textarea class="field-input" name="content" maxlength="8192" rows="3" required placeholder="${t("例如：我偏好中文回答。", "For example: I prefer responses in Chinese.")}"></textarea>
       </label>
+      <div class="agent-memory-presets">
+        <span>${t("快速模板", "Quick templates")}</span>
+        <button class="secondary-button compact" type="button" data-memory-preset="cooking 金额 2 SOL，bundled 总额 5 SOL，滑点 5%">${t("发射偏好", "Launch defaults")}</button>
+        <button class="secondary-button compact" type="button" data-memory-preset="我偏好中文回答">${t("中文回答", "Chinese replies")}</button>
+      </div>
       <div class="agent-memory-form-row">
         <label class="field-label">${t("类型", "Type")}
           <select class="field-select" name="kind">
@@ -3634,6 +3639,16 @@ viewRoot.addEventListener("submit", async (event) => {
 viewRoot.addEventListener("reset", (event) => {
   if (!event.target.matches("[data-launch-draft-form]")) return;
   window.setTimeout(renderConversation, 0);
+});
+
+modal.addEventListener("click", (event) => {
+  const preset = event.target.closest("[data-memory-preset]");
+  if (!preset) return;
+  const input = modalBody.querySelector("#agentMemoryProposalForm [name='content']");
+  if (input) {
+    input.value = preset.dataset.memoryPreset || "";
+    input.focus();
+  }
 });
 
 modal.addEventListener("submit", async (event) => {

@@ -1572,6 +1572,17 @@ button {
 
 .agent-memory-proposal-form textarea { resize: vertical; }
 
+.agent-memory-presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agent-memory-presets .compact { margin: 0; }
+
 .agent-memory-form-row {
   display: flex;
   gap: 12px;
