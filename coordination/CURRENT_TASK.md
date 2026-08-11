@@ -29,6 +29,13 @@ until the Agent main chain and acceptance coverage are stable.
   `data-gap` without an actor or configured service. API now 145/145; deployed
   to `narra-j1df1kp99-hek.vercel.app` (anonymous task access returns 401 as
   expected for actor-scoped data).
+- Published the three analytics skills (`user-launches-summary`,
+  `user-project-performance`, `user-pnl-summary`) into the production catalog
+  and added Go frontend cards (`user_launch_summary` /
+  `user_project_performance` / `user_pnl_summary`) with metrics and per-entry
+  lists. Production `/capabilities` now reports Agent v3 with 8 skills
+  (4 read + meme-launch-plan + 3 analytics), zero published financial tools.
+  Bootstrap applied with the user-provided service-role key.
 - OpenCode closed out the dirty tree: secret scan clean, 74 changes grouped
   into 5 scoped commits (Runtime v2 core, control plane, migrations 023-035,
   product-route wiring, docs) and pushed to `yuriswj12-bit/NarraOps` main.
@@ -236,32 +243,16 @@ the shared coordination/OpenCode command files. Preserve unrelated UI changes.
 
 ## Remaining
 
-1. Continue the Agent-as-operating-system work:
-   - Land user analytics tools (`analytics.user_launches.summary@1`,
-     `analytics.user_pnl.summary@1`, `analytics.user_project.performance@1`)
-     behind actor-scoped aggregation so the Agent can answer personal launch
-     history and PnL questions.
-   - Wire `meme-launch-plan` into the Go Agent card flow end-to-end and add
-     acceptance coverage.
-   - Enable confirmed Memory to prefill default chain, Cooking/bundled amounts,
-     and wallet groups only as editable suggestions.
-2. Wallet/gateway authority rollout (transfer -> swap -> pump) stays frozen
-   until the Agent main chain is stable.
-3. Do not expand live fund execution beyond the current direct path.
-
-## Remaining (updated)
-
-1. Wire the new analytics handlers into the published Agent catalog as
-   declarative analytics skills and add frontend cards for
-   `user_launch_summary` / `user_project_performance` / `user_pnl_summary`.
-2. Verify a real authenticated `POST /api/v1/agent/tasks` with `/my-launches`
-   against production and confirm the actor-scoped aggregates render.
-3. Wire `meme-launch-plan` into the Go Agent card flow end-to-end and add
+1. Verify a real authenticated `POST /api/v1/agent/tasks` with `/my-launches`
+   against production and confirm the actor-scoped aggregates render in the new
+   analytics cards.
+2. Wire `meme-launch-plan` into the Go Agent card flow end-to-end and add
    acceptance coverage.
-4. Enable confirmed Memory to prefill default chain, Cooking/bundled amounts,
+3. Enable confirmed Memory to prefill default chain, Cooking/bundled amounts,
    and wallet groups only as editable suggestions.
-5. Wallet/gateway authority rollout stays frozen until the Agent main chain is
+4. Wallet/gateway authority rollout stays frozen until the Agent main chain is
    stable.
+5. Do not expand live fund execution beyond the current direct path.
 
 ## Known blockers
 
