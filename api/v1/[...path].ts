@@ -1804,10 +1804,10 @@ async function transferPreview({ supabase, userId, body }) {
   const connection = (await directLaunchPlanner()).pump.connection;
   const sourceRows = [];
   for (const wallet of sourceWallets) {
-    const balanceAtomic = await connection.getBalance(
+    const balanceAtomic = BigInt(await connection.getBalance(
       new (await solanaWeb3()).PublicKey(wallet.public_address),
       "confirmed",
-    );
+    ));
     sourceRows.push({ ...wallet, balanceAtomic });
   }
   const destinationWallets = parsed.destination.type === "wallet_group"
