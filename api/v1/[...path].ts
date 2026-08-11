@@ -3938,6 +3938,23 @@ export default async function handler(request, response) {
     if (request.method === "POST" && path === "/api/v1/auth/logout") {
       return await logout(supabase, request, response);
     }
+    if (request.method === "POST" && path === "/api/v1/auth/onboarding/complete") {
+      const session = await loadSession(supabase, request);
+      const userId = authenticatedUserId(session);
+      const { error } = await supabase
+        .from("web3_users")
+        .update({ onboarding_completed: true })
+        .eq("user_id", userId);
+      if (error) {
+        return apiError(
+          response,
+          500,
+          error.code || "ONBOARDING_UPDATE_FAILED",
+          error.message || "Unable to complete onboarding",
+        );
+      }
+      return sendJson(response, 200, { onboardingCompleted: true });
+    }
     if (
       request.method === "POST" &&
       path === "/api/v1/pulse/narratives/state"
