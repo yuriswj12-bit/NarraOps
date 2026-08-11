@@ -297,3 +297,22 @@ test("launch draft patch preserves frontend token fields and rejects secrets", (
     (error: any) => error.code === "VALIDATION_ERROR",
   );
 });
+
+test("/launch routes to meme-launch-plan and produces an editable launch draft card", async () => {
+  const runtime = createAgentRuntime({ stepDelayMs: 1 });
+  const result = await runtime.handleMessage({
+    channel: "web",
+    message: "/launch https://example.com/story",
+    command: "/launch https://example.com/story",
+    context: { language: "en", currentView: "go" },
+    wait: true,
+    timeoutMs: 12000,
+  });
+  assert.equal(result.status, "succeeded");
+  const card = result.cards?.[0];
+  assert.equal(card?.type, "launch_draft");
+  assert.equal(card?.data?.skill, "meme-launch-plan");
+  assert.equal(card?.data?.execution_mode, "live");
+  assert.ok("launch_parameters" in (card?.data || {}));
+  assert.ok(card?.data?.required_user_selections?.includes("cooking_wallet_group_id"));
+});

@@ -771,6 +771,7 @@ function renderLaunchDraftCard(card) {
 
   return `
     <article class="go-launch-card" data-card-type="launch_draft" data-draft-id="${escapeHtml(draftId || "")}">
+      <div class="go-card-skill-tag">${data.skill === "meme-launch-plan" ? `<i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>${t("Meme Launch Plan", "Meme Launch Plan")}` : ""}</div>
       <form class="go-launch-form" data-launch-draft-form>
         <div class="go-launch-grid">
           <label class="go-field"><span>${t("名称 name", "Name name")}</span><input name="name" maxlength="32" value="${escapeHtml(token.name || "")}" placeholder="My Token" required /></label>

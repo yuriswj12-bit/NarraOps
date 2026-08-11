@@ -384,6 +384,7 @@ export function createAgentHandlers(integrations, services = {}) {
           };
       const result = {
         ...draft,
+        skill: "meme-launch-plan",
         execution_mode: "live",
         execution_status: "draft",
         executable: Boolean(draft.launch_draft_id),
