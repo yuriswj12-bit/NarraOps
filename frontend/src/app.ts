@@ -23,7 +23,7 @@ const supabaseClient = getSupabaseClient();
 
 // Wallet providers sign transactions; the browser bundle supplies the
 // transaction constructors and serializers used before and after signing.
-window.solanaWeb3 = solanaWeb3Module;
+if (!window.solanaWeb3) window.solanaWeb3 = solanaWeb3Module;
 
 Object.defineProperty(window, "NarraOpsRuntime", {
   value: {
