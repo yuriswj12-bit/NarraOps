@@ -36,6 +36,11 @@ until the Agent main chain and acceptance coverage are stable.
   lists. Production `/capabilities` now reports Agent v3 with 8 skills
   (4 read + meme-launch-plan + 3 analytics), zero published financial tools.
   Bootstrap applied with the user-provided service-role key.
+- Wired `meme-launch-plan` end-to-end: `launch.meme` results carry
+  `skill: "meme-launch-plan"`, the Go launch draft card renders the skill tag,
+  and a runtime test asserts `/launch` produces an editable launch_draft card
+  with launch parameters and required wallet-group selections. Deployed to
+  `narra-fos3e7025-hek.vercel.app`; production bundle includes the skill tag.
 - OpenCode closed out the dirty tree: secret scan clean, 74 changes grouped
   into 5 scoped commits (Runtime v2 core, control plane, migrations 023-035,
   product-route wiring, docs) and pushed to `yuriswj12-bit/NarraOps` main.
@@ -243,16 +248,18 @@ the shared coordination/OpenCode command files. Preserve unrelated UI changes.
 
 ## Remaining
 
+0. REMINDER: run a consolidated real-browser acceptance pass later — user
+   asked to batch testing: `/my-launches`, `/my-projects`, `/my-pnl`, a
+   bundled-buy Pump launch, and `meme-launch-plan` card end-to-end. Do not skip
+   these before handoff.
 1. Verify a real authenticated `POST /api/v1/agent/tasks` with `/my-launches`
    against production and confirm the actor-scoped aggregates render in the new
    analytics cards.
-2. Wire `meme-launch-plan` into the Go Agent card flow end-to-end and add
-   acceptance coverage.
-3. Enable confirmed Memory to prefill default chain, Cooking/bundled amounts,
+2. Enable confirmed Memory to prefill default chain, Cooking/bundled amounts,
    and wallet groups only as editable suggestions.
-4. Wallet/gateway authority rollout stays frozen until the Agent main chain is
+3. Wallet/gateway authority rollout stays frozen until the Agent main chain is
    stable.
-5. Do not expand live fund execution beyond the current direct path.
+4. Do not expand live fund execution beyond the current direct path.
 
 ## Known blockers
 
