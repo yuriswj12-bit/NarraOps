@@ -132,6 +132,18 @@ export const NARRAOPS_AGENT_V2 = Object.freeze({
   version: 2,
 });
 
+export const NARRAOPS_AGENT_V3 = Object.freeze({
+  ...NARRAOPS_AGENT_V2,
+  version: 3,
+  capabilityManifest: [
+    ...new Set([
+      ...NARRAOPS_AGENT_V2.capabilityManifest,
+      "launch.plan",
+      "meme.plan",
+    ]),
+  ],
+});
+
 export const NARRAOPS_READ_SKILLS_V2: readonly BootstrapSkill[] = Object.freeze(
   NARRAOPS_READ_SKILLS_V1.map((skill) => (
     skill.slug === "market-research"
@@ -143,3 +155,28 @@ export const NARRAOPS_READ_SKILLS_V2: readonly BootstrapSkill[] = Object.freeze(
       : skill
   )),
 );
+
+export const NARRAOPS_BUSINESS_SKILLS_V1: readonly BootstrapSkill[] = Object.freeze([
+  {
+    slug: "meme-launch-plan",
+    version: 1,
+    name: "Meme Launch Plan",
+    description: "Turn a public link, narrative, or prompt into an editable Pump launch draft with reviewable fields.",
+    instructions: [
+      "Extract the narrative, source, and token identity from the user input or resolved context.",
+      "Propose name, ticker, description, image, chain, and launch platform as an editable draft.",
+      "Ask only for the minimum missing values (Cooking buy, bundled buy total, wallet groups).",
+      "Keep the draft review-only: never sign, broadcast, or move funds without an explicit final confirmation.",
+    ].join(" "),
+    inputSchema: OBJECT_SCHEMA,
+    outputSchema: OBJECT_SCHEMA,
+    risk: "write_reversible",
+    sideEffect: "internal_write",
+    approvalPolicy: "none",
+    requiredPermissions: ["launch:plan"],
+    requiredTools: [
+      { name: "research.public_link.read", version: "1.0.0" },
+      { name: "pulse.narratives.list", version: "1.0.0" },
+    ],
+  },
+]);

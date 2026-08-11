@@ -9,8 +9,10 @@ export { SupabaseAgentCatalogRepository } from "./control-plane/supabase-catalog
 export {
   NARRAOPS_AGENT_V1,
   NARRAOPS_AGENT_V2,
+  NARRAOPS_AGENT_V3,
   NARRAOPS_READ_SKILLS_V1,
   NARRAOPS_READ_SKILLS_V2,
+  NARRAOPS_BUSINESS_SKILLS_V1,
 } from "./control-plane/narraops-agent-v1.ts";
 export {
   RuntimeKnowledgeResolver,

@@ -37,7 +37,9 @@ import {
   ModelGateway,
   ModelPolicyRouter,
   NARRAOPS_AGENT_V2,
+  NARRAOPS_AGENT_V3,
   NARRAOPS_READ_SKILLS_V2,
+  NARRAOPS_BUSINESS_SKILLS_V1,
   PulseSnapshotContextProvider,
   PumpLaunchInspectionError,
   RuntimeKnowledgeResolver,
@@ -3124,4 +3126,32 @@ test("submitAssetTransferViaGateway gates on the flag and routes broadcast ident
   } else {
     process.env.AGENT_TRANSFER_GATEWAY_AUTHORITY_ENABLED = previous;
   }
+});
+
+test("Agent v3 publishes the meme-launch-plan business skill as declarative data", async () => {
+  const repository = new InMemoryAgentCatalogRepository();
+  const service = new AgentCatalogService(repository, () => new Date());
+  const admin = { actorId: randomUUID(), permissions: ["agent:admin"] };
+  const agent = await service.publishAgent({ actor: admin, ...NARRAOPS_AGENT_V3 });
+  assert.equal(agent.version, 3);
+  assert.ok(agent.capabilityManifest.includes("launch.plan"));
+
+  const skill = NARRAOPS_BUSINESS_SKILLS_V1.find(({ slug }) => slug === "meme-launch-plan");
+  assert.ok(skill, "meme-launch-plan skill must be defined");
+  assert.equal(skill.risk, "write_reversible");
+  assert.equal(skill.sideEffect, "internal_write");
+  assert.equal(skill.approvalPolicy, "none");
+  assert.equal(skill.requiredTools.length, 2);
+
+  const published = await service.publishSkill({ actor: admin, ...skill });
+  await service.bindSkill({
+    actor: admin,
+    agentVersionId: agent.agentVersionId,
+    skillVersionId: published.skillVersionId,
+  });
+  const manifest = await service.getManifest("narraops-agent");
+  assert.equal(manifest?.agent.version, 3);
+  assert.equal(manifest?.skills.length, 1);
+  assert.equal(manifest?.skills[0].skill.slug, "meme-launch-plan");
+  assert.equal("execute" in manifest!.skills[0].skill, false);
 });
