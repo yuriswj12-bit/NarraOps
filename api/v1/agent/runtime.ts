@@ -352,6 +352,8 @@ export async function recordPumpLaunchSemanticShadow(input = {}) {
       developer_buy_lamports: String(input.developerBuyLamports || "0"),
       max_fee_lamports: maxFeeAtomic,
       last_valid_block_height: Number(input.lastValidBlockHeight),
+      bundled_buy_total: input.bundledBuyTotal || null,
+      bundled_buy_allocation: input.bundledBuyAllocation || [],
     };
     const intentDigest = executionIntentDigest({
       actorId: input.actorId,

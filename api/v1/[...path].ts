@@ -452,6 +452,28 @@ function positiveDecimal(value, field) {
   return text;
 }
 
+export function allocateFixedTotalRandom({ totalLamports, walletCount, seed }) {
+  const total = BigInt(totalLamports);
+  const count = Number(walletCount);
+  if (!Number.isInteger(count) || count < 1 || total < BigInt(count)) {
+    throw Object.assign(new Error("Bundled buy total must allocate at least one lamport per wallet"), {
+      status: 400,
+      code: "BOUND_BUY_TOTAL_TOO_SMALL",
+    });
+  }
+  const weights = Array.from({ length: count }, (_, index) =>
+    BigInt(`0x${createHash("sha256").update(`${seed}:${index}`).digest("hex").slice(0, 16)}`) + 1n,
+  );
+  const distributable = total - BigInt(count);
+  const weightTotal = weights.reduce((sum, value) => sum + value, 0n);
+  const amounts = weights.map((weight) => 1n + (distributable * weight) / weightTotal);
+  let remainder = total - amounts.reduce((sum, value) => sum + value, 0n);
+  for (let index = 0; remainder > 0n; index = (index + 1) % count, remainder -= 1n) {
+    amounts[index] += 1n;
+  }
+  return amounts;
+}
+
 function launchPlatformId(platform) {
   if (platform && typeof platform === "object") return String(platform.id || platform.name || "").toLowerCase();
   return String(platform || "").toLowerCase();
@@ -771,7 +793,17 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
     });
   }
   const initialBuy = token.initial_buy ? positiveDecimal(token.initial_buy, "initial_buy") : "0";
-  const bundleBuy = token.bundle_buy_per_wallet ? positiveDecimal(token.bundle_buy_per_wallet, "bundle_buy_per_wallet") : null;
+  const bundleBuyTotal = token.bundle_buy_total ? positiveDecimal(token.bundle_buy_total, "bundle_buy_total") : null;
+  const bundleAllocation = bundleBuyTotal
+    ? allocateFixedTotalRandom({
+        totalLamports: transferDecimalToLamports(bundleBuyTotal),
+        walletCount: bundled.wallets.length,
+        seed: draftId,
+      }).map((amount, index) => ({
+        wallet_id: bundled.wallets[index].wallet_id,
+        amount_lamports: amount.toString(),
+      }))
+    : [];
   if (!token.name || !token.symbol || !token.description || !token.image_url) {
     throw Object.assign(new Error("Complete token name, symbol, description, and image URL before launching"), {
       status: 400,
@@ -779,12 +811,6 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
     });
   }
 
-  if (bundleBuy) {
-    throw Object.assign(new Error("Bundled buys need a signer for every selected wallet. The selected group is not yet connected to direct signers."), {
-      status: 409,
-      code: "DIRECT_BUNDLED_BUY_REQUIRES_SIGNER",
-    });
-  }
   const existing = draft.metadata?.direct_execution || {};
   if (existing.status === "confirmed" && existing.tx_hash) {
     return {
@@ -797,7 +823,9 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
       token_address: existing.token_address || null,
       cooking_wallet_group_id: cookingId,
       bundled_wallet_group_id: bundledId,
-      bundled_wallet_count: 0,
+      bundled_wallet_count: bundled.wallets.length,
+      bundled_buy_total: bundleBuyTotal,
+      bundled_buy_allocation: bundleAllocation,
     };
   }
   const runtimeShadow = existing.runtime_semantic_shadow || {};
@@ -831,7 +859,9 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
       },
       cooking_wallet_group_id: cookingId,
       bundled_wallet_group_id: bundledId,
-      bundled_wallet_count: 0,
+      bundled_wallet_count: bundled.wallets.length,
+      bundled_buy_total: bundleBuyTotal,
+      bundled_buy_allocation: bundleAllocation,
       runtime: existing.runtime_semantic_shadow || {
         recorded: false,
         reason: "semantic_shadow_not_recorded",
@@ -890,6 +920,8 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
         estimatedFeeAtomic: String(fee.value),
         currentBlockHeight,
         lastValidBlockHeight: plan.lastValidBlockHeight,
+        bundledBuyTotal: bundleBuyTotal,
+        bundledBuyAllocation: bundleAllocation,
       });
     } catch (error) {
       console.error("pump_semantic_shadow_prepare_failed", {
@@ -917,7 +949,9 @@ async function executeLiveLaunchDraft({ supabase, userId, draftId }) {
     last_valid_block_height: plan.lastValidBlockHeight,
     cooking_wallet_group_id: cookingId,
     bundled_wallet_group_id: bundledId,
-    bundled_wallet_count: 0,
+    bundled_wallet_count: bundled.wallets.length,
+    bundled_buy_total: bundleBuyTotal,
+    bundled_buy_allocation: bundleAllocation,
     runtime_semantic_shadow: runtimeSemanticShadow,
     updated_at: new Date().toISOString(),
   };
@@ -1015,6 +1049,7 @@ export function buildDirectPumpExecutionResponse({
   tokenAddress,
   cookingWalletGroupId,
   bundledWalletGroupId = null,
+  bundledBuys = [],
   runtimeExecutionId = null,
 }) {
   return {
@@ -1031,6 +1066,7 @@ export function buildDirectPumpExecutionResponse({
     cooking_wallet_group_id: cookingWalletGroupId,
     bundled_wallet_group_id: bundledWalletGroupId,
     bundled_wallet_count: 0,
+    ...(bundledBuys.length ? { bundled_buys: bundledBuys } : {}),
   };
 }
 
@@ -1142,11 +1178,23 @@ async function broadcastValidatedDirectLaunch({
       txHash,
     });
   }
+  let boundBuys = [];
+  if (expected.bundled_buy_total && expected.bundled_buy_allocation?.length) {
+    boundBuys = await executePumpBoundBuys({
+      supabase,
+      userId,
+      draftId,
+      draft,
+      expected,
+      connection,
+    });
+  }
   const execution = {
     ...expected,
     status: "confirmed",
     tx_hash: txHash,
     token_address: expected.mint_address,
+    bundled_buys: boundBuys,
     ...(runtimeExecution?.executionId
       ? { runtime_execution_id: runtimeExecution.executionId }
       : {}),
@@ -1174,6 +1222,7 @@ async function broadcastValidatedDirectLaunch({
       expected.bundled_wallet_group_id
       || draft.metadata?.bundled_wallet_group_id
       || null,
+    bundledBuys: boundBuys,
   });
 }
 
@@ -2340,6 +2389,121 @@ async function listWalletGroups(supabase, userId) {
   return (groups || []).map((group) =>
     publicGroup(group, counts.get(group.group_id) || 0, activeCounts.get(group.group_id) || 0),
   );
+}
+
+async function executePumpBoundBuys({ supabase, userId, draftId, draft, expected, connection }) {
+  const allocations = expected.bundled_buy_allocation || [];
+  if (!allocations.length) return [];
+  const wallets = await requireAssetsResult(
+    supabase
+      .from("asset_wallets")
+      .select("wallet_id,public_address")
+      .eq("group_id", expected.bundled_wallet_group_id)
+      .eq("user_id", userId)
+      .eq("provisioning_status", "active")
+      .order("wallet_index", { ascending: true }),
+    "Unable to read bundled wallet group wallets",
+  );
+  const walletById = new Map((wallets || []).map((wallet) => [wallet.wallet_id, wallet]));
+  const sdkModule = await import("@pump-fun/pump-sdk");
+  const sdk = sdkModule.default || sdkModule;
+  const { default: BN } = await import("bn.js");
+  const web3 = await solanaWeb3();
+  const PublicKey = web3.PublicKey;
+  const Transaction = web3.Transaction;
+  const onlineSdk = new sdk.OnlinePumpSdk(connection);
+  const offlineSdk = sdk.PUMP_SDK;
+  const wrappedSol = new PublicKey("So11111111111111111111111111111111111111112");
+  const password = walletVaultPassword();
+  const launchBlock = await connection.getBlockHeight("confirmed");
+  const deadline = launchBlock + 5;
+  while ((await connection.getBlockHeight("confirmed")) <= launchBlock) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  const results = [];
+  for (const allocation of allocations) {
+    const wallet = walletById.get(allocation.wallet_id);
+    const result = {
+      wallet_id: allocation.wallet_id,
+      wallet_address: wallet?.public_address || null,
+      amount_lamports: allocation.amount_lamports,
+      status: "failed",
+    };
+    if (!wallet?.public_address) {
+      result.error = { code: "BOUND_BUY_WALLET_NOT_FOUND" };
+      results.push(result);
+      continue;
+    }
+    if ((await connection.getBlockHeight("confirmed")) > deadline) {
+      result.error = { code: "BOUND_BUY_WINDOW_EXPIRED" };
+      results.push(result);
+      continue;
+    }
+    const secretEnvelope = await requireAssetsResult(
+      supabase
+        .from("asset_wallet_secrets")
+        .select("encrypted_envelope")
+        .eq("wallet_id", allocation.wallet_id)
+        .eq("user_id", userId)
+        .single(),
+      "Unable to read bundled wallet secret",
+    );
+    let privateKey = await unsealAssetWalletSecret({
+      envelope: secretEnvelope.encrypted_envelope,
+      password,
+    });
+    try {
+      const keyBytes = Buffer.from(privateKey, "base64");
+      const signer = web3.Keypair.fromSecretKey(keyBytes);
+      const mint = new PublicKey(expected.mint_address);
+      const [global, feeConfig, state] = await Promise.all([
+        onlineSdk.fetchGlobal(),
+        onlineSdk.fetchFeeConfig(),
+        onlineSdk.fetchBuyState(mint, signer.publicKey),
+      ]);
+      const quote = new BN(String(allocation.amount_lamports));
+      const amount = sdk.getBuyTokenAmountFromSolAmount({
+        global,
+        feeConfig,
+        mintSupply: null,
+        bondingCurve: state.bondingCurve,
+        amount: quote,
+        quoteMint: wrappedSol,
+      });
+      const instructions = await offlineSdk.buyV2Instructions({
+        global,
+        ...state,
+        mint,
+        user: signer.publicKey,
+        amount,
+        quoteAmount: quote,
+        slippage: 0.05,
+      });
+      const latest = await connection.getLatestBlockhash("confirmed");
+      const transaction = new Transaction({ feePayer: signer.publicKey, ...latest }).add(...instructions);
+      transaction.sign(signer);
+      const txHash = await connection.sendRawTransaction(transaction.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: "confirmed",
+        maxRetries: 3,
+      });
+      result.tx_hash = txHash;
+      result.status = "submitted";
+      const confirmation = await connection.confirmTransaction({ signature: txHash, ...latest }, "confirmed");
+      if (confirmation.value.err) {
+        result.status = "failed";
+        result.error = { code: "BOUND_BUY_REJECTED", detail: confirmation.value.err };
+      } else {
+        result.status = "confirmed";
+      }
+    } catch (error) {
+      result.error = { code: error.code || "BOUND_BUY_FAILED", message: error.message };
+    } finally {
+      privateKey = "";
+    }
+    results.push(result);
+  }
+  return results;
 }
 
 async function removeFailedWalletGroup(

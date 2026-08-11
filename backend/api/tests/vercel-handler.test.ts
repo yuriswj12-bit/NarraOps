@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import handlerModule, {
   buildDirectPumpExecutionResponse,
+  allocateFixedTotalRandom,
   handleAgentApprovalRoute,
   handleAgentMemoryRoute,
   handleAssetsRoute,
@@ -1175,4 +1176,16 @@ test("Solana transfer amount conversion preserves exact lamports and decimals", 
   assert.equal(transferLamportsToDecimal(0n), "0");
   const roundTrip = transferLamportsToDecimal(transferDecimalToLamports("123.456789"));
   assert.equal(roundTrip, "123.456789");
+});
+
+test("Pump bundled-buy random allocation is deterministic and preserves the exact total", () => {
+  const first = allocateFixedTotalRandom({ totalLamports: "300000000", walletCount: 3, seed: "draft-1" });
+  const second = allocateFixedTotalRandom({ totalLamports: "300000000", walletCount: 3, seed: "draft-1" });
+  assert.deepEqual(first, second);
+  assert.equal(first.reduce((sum, value) => sum + value, 0n), 300000000n);
+  assert.ok(first.every((value) => value > 0n));
+  assert.throws(
+    () => allocateFixedTotalRandom({ totalLamports: "2", walletCount: 3, seed: "draft-1" }),
+    (error: any) => error.code === "BOUND_BUY_TOTAL_TOO_SMALL",
+  );
 });

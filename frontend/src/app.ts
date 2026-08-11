@@ -789,7 +789,7 @@ function renderLaunchDraftCard(card) {
           <label class="go-field"><span>${t("Cooking 钱包组", "Cooking wallet group")}</span><select name="cooking_wallet_group_id" required>${walletGroupOptions(groups, cooking, { purpose: "cooking" })}</select></label>
           <label class="go-field"><span>${t("捆绑钱包组", "Bundled wallet group")}</span><select name="bundled_wallet_group_id" required>${walletGroupOptions(groups, bundled, { purpose: "general", exclude: cooking })}</select></label>
         </div>
-        <input type="hidden" name="bundle_buy_per_wallet" value="${escapeHtml(token.bundle_buy_per_wallet || "")}" />
+        <label class="go-field go-field-full"><span>${t("捆绑钱包购买总额 SOL", "Bundled wallet total buy SOL")}</span><input name="bundle_buy_total" inputmode="decimal" value="${escapeHtml(token.bundle_buy_total || "")}" placeholder="例如 0.3，后端随机分配到每个钱包" /></label>
         <div class="go-launch-actions">
           <button type="submit" data-launch-action="launch" ${draftId ? "" : "disabled"}>${t("发射到 Pump", "Launch to Pump")}</button>
         </div>
@@ -3463,7 +3463,7 @@ async function saveLaunchDraftForm(form, action) {
   if (action === "launch" && (!cookingWalletGroupId || !bundledWalletGroupId)) {
     throw new Error(t("请先选择 Cooking 钱包组和捆绑钱包组。", "Select both Cooking and bundled wallet groups first."));
   }
-  const token = Object.fromEntries(["name", "symbol", "description", "image_url", "x_url", "telegram_url", "website_url", "initial_buy", "bundle_buy_per_wallet"]
+  const token = Object.fromEntries(["name", "symbol", "description", "image_url", "x_url", "telegram_url", "website_url", "initial_buy", "bundle_buy_total"]
     .map((field) => [field, String(formData.get(field) || "").trim()]));
   if (action === "launch" && (!token.name || !token.symbol || !token.description || !token.image_url)) {
     throw new Error(t("请先补全名称、符号、简介和图片链接。", "Complete name, symbol, description, and image URL first."));
