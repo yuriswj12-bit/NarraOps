@@ -41,6 +41,13 @@ until the Agent main chain and acceptance coverage are stable.
   and a runtime test asserts `/launch` produces an editable launch_draft card
   with launch parameters and required wallet-group selections. Deployed to
   `narra-fos3e7025-hek.vercel.app`; production bundle includes the skill tag.
+- Enabled confirmed Memory prefill for launch amounts: `handleMessage` injects
+  `runtimeKnowledge.memories` as `context.memory_prefill`, `launch.meme` parses
+  cooking/bundled amounts and default-chain preferences, and prefills
+  `initial_buy`/`bundle_buy_total` only when the user did not provide them.
+  `buildDraftMetadata` now preserves `bundle_buy_total`. Parser and handler
+  tests prove prefill works and explicit input wins. API now 148/148; deployed
+  to `narra-522l1f9qq-hek.vercel.app`.
 - OpenCode closed out the dirty tree: secret scan clean, 74 changes grouped
   into 5 scoped commits (Runtime v2 core, control plane, migrations 023-035,
   product-route wiring, docs) and pushed to `yuriswj12-bit/NarraOps` main.
@@ -255,11 +262,9 @@ the shared coordination/OpenCode command files. Preserve unrelated UI changes.
 1. Verify a real authenticated `POST /api/v1/agent/tasks` with `/my-launches`
    against production and confirm the actor-scoped aggregates render in the new
    analytics cards.
-2. Enable confirmed Memory to prefill default chain, Cooking/bundled amounts,
-   and wallet groups only as editable suggestions.
-3. Wallet/gateway authority rollout stays frozen until the Agent main chain is
+2. Wallet/gateway authority rollout stays frozen until the Agent main chain is
    stable.
-4. Do not expand live fund execution beyond the current direct path.
+3. Do not expand live fund execution beyond the current direct path.
 
 ## Known blockers
 
