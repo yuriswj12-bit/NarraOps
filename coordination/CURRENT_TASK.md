@@ -2,12 +2,25 @@
 
 ## Goal
 
-Continue the uncommitted NarraOps Agent Runtime v2/control-plane and Pump
-safety integration from the current dirty `main` working tree. Do not restart
-the design or replace the already-working Pump Launch product path.
+Prioritize the NarraOps Agent as the product operating system: stabilize the
+Go Agent main chain (conversation, `/analyze-meme`, `/launch`, session restore),
+harden Card/API contracts against field drift, and land the first business
+skills and user analytics tools. Wallet/gateway authority rollout is frozen
+until the Agent main chain and acceptance coverage are stable.
 
 ## Completed
 
+- Agent main-chain audit complete: Go conversation, `/analyze-meme`, `/launch`,
+  session restore, and message submission are wired through the conversation
+  path with 140/140 API tests; all production Agent routes verified non-404.
+- Added a launch-draft token contract test guarding `bundle_buy_total` and
+  `initial_buy` against future frontend/backend field drift, plus secret and
+  non-object rejection.
+- Published `narraops-agent@3` with `launch.plan`/`meme.plan` capabilities and
+  the first business skill `meme-launch-plan@1` (declarative, `write_reversible`,
+  bound to `research.public_link.read` + `pulse.narratives.list`). Bootstrap
+  `--apply` ran successfully against production; `/capabilities` reports v3 and
+  five skills with zero published financial tools.
 - OpenCode closed out the dirty tree: secret scan clean, 74 changes grouped
   into 5 scoped commits (Runtime v2 core, control plane, migrations 023-035,
   product-route wiring, docs) and pushed to `yuriswj12-bit/NarraOps` main.
@@ -215,20 +228,26 @@ the shared coordination/OpenCode command files. Preserve unrelated UI changes.
 
 ## Remaining
 
-1. Keep enforcement off until the authorized rollout. Harness,
-   concurrency/idempotency, reconciliation, rollback, and legacy-response
-   compatibility now have no-broadcast evidence. The rollout design lives in
-   `docs/engineering/financial-gateway-rollout.md`.
-2. Execute the financial-gateway rollouts (transfer -> swap -> pump) as
-   explicit, independently reversible steps with rollback observation.
-3. Run a real small-value Pump launch with bundled total-buy allocation after
-   the user confirms the funded test wallets.
+1. Continue the Agent-as-operating-system work:
+   - Land user analytics tools (`analytics.user_launches.summary@1`,
+     `analytics.user_pnl.summary@1`, `analytics.user_project.performance@1`)
+     behind actor-scoped aggregation so the Agent can answer personal launch
+     history and PnL questions.
+   - Wire `meme-launch-plan` into the Go Agent card flow end-to-end and add
+     acceptance coverage.
+   - Enable confirmed Memory to prefill default chain, Cooking/bundled amounts,
+     and wallet groups only as editable suggestions.
+2. Wallet/gateway authority rollout (transfer -> swap -> pump) stays frozen
+   until the Agent main chain is stable.
+3. Do not expand live fund execution beyond the current direct path.
 
 ## Known blockers
 
-Pump enforcement evidence gates now pass without broadcasting. Production
-enforcement still requires an explicit authorized rollout and must remain off
-until then. Pulse coverage remains sampled/partial.
+Pump enforcement evidence gates pass without broadcasting. Production
+enforcement stays off until the Agent main chain and acceptance coverage are
+stable. Pulse coverage remains sampled/partial. Bootstrapping new Agent/Skill
+versions to production requires the Supabase service-role key (provided by the
+user).
 
 ## Do not break
 
