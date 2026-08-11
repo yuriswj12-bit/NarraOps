@@ -255,16 +255,23 @@ the shared coordination/OpenCode command files. Preserve unrelated UI changes.
 
 ## Remaining
 
-0. REMINDER: run a consolidated real-browser acceptance pass later — user
-   asked to batch testing: `/my-launches`, `/my-projects`, `/my-pnl`, a
-   bundled-buy Pump launch, and `meme-launch-plan` card end-to-end. Do not skip
-   these before handoff.
-1. Verify a real authenticated `POST /api/v1/agent/tasks` with `/my-launches`
-   against production and confirm the actor-scoped aggregates render in the new
-   analytics cards.
-2. Wallet/gateway authority rollout stays frozen until the Agent main chain is
+1. Done: consolidated production acceptance canary
+   (`scripts/canary/production-agent-acceptance.mjs`) passes on narraops.xyz —
+   /recent-summary, /my-launches, /my-projects, /my-pnl, /launch
+   (launch_draft + meme-launch-plan), /analyze-meme, and durable event replay,
+   all with a fresh random wallet and full cleanup. Browser-side acceptance
+   steps remain in `docs/engineering/agent-main-chain-acceptance.md`.
+2. REMINDER from user: after A, complete the remaining Agent work that was
+   deferred:
+   - B: extend Memory prefill to default wallet groups and slippage (currently
+     only cooking/bundled amounts and default chain).
+   - C: view the actual confirmed Memory items in production `agent_memory_items`
+     (needs the service-role key or a screenshot of Go -> Memory).
+   - Verify a real authenticated `/api/v1/agent/tasks` with `/my-launches` in a
+     browser and confirm the analytics cards render.
+3. Wallet/gateway authority rollout stays frozen until the Agent main chain is
    stable.
-3. Do not expand live fund execution beyond the current direct path.
+4. Do not expand live fund execution beyond the current direct path.
 
 ## Known blockers
 
