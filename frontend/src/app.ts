@@ -803,6 +803,9 @@ function renderStructuredCard(card) {
   if (!card) return "";
   if (card.type === "launch_draft") return renderLaunchDraftCard(card);
   if (card.type === "direct_swap") return renderDirectSwapCard(card);
+  if (["user_launch_summary", "user_project_performance", "user_pnl_summary"].includes(card.type)) {
+    return renderUserAnalyticsCard(card);
+  }
   const cardMeta = {
     narrative_snapshot: ["fa-solid fa-wave-square", "叙事快照", "Narrative Snapshot"],
     meme_package: ["fa-solid fa-shapes", "Meme 构建包", "Meme Build Package"],
@@ -812,6 +815,9 @@ function renderStructuredCard(card) {
     narrative_trends: ["fa-solid fa-arrow-trend-up", "叙事信号趋势", "Narrative Signal Trends"],
     meme_analysis: ["fa-solid fa-magnifying-glass-chart", "Meme 分析报告", "Meme Analysis Report"],
     recent_summary: ["fa-solid fa-clock-rotate-left", "近期总结", "Recent Summary"],
+    user_launch_summary: ["fa-solid fa-rocket", "我的发射记录", "My Launch History"],
+    user_project_performance: ["fa-solid fa-chart-column", "我的项目表现", "My Project Performance"],
+    user_pnl_summary: ["fa-solid fa-sack-dollar", "我的盈亏", "My PnL"],
   };
   const [icon, titleZh, titleEn] = cardMeta[card.type] || ["fa-solid fa-table-list", "任务结果", "Task Result"];
   const data = card.data && typeof card.data === "object" ? card.data : {};
@@ -836,8 +842,49 @@ function renderStructuredCard(card) {
   `;
 }
 
-function renderDirectSwapCard(card) {
+function renderUserAnalyticsCard(card) {
   const data = card.data && typeof card.data === "object" ? card.data : {};
+  const meta = {
+    user_launch_summary: ["fa-solid fa-rocket", "我的发射记录", "My Launch History"],
+    user_project_performance: ["fa-solid fa-chart-column", "我的项目表现", "My Project Performance"],
+    user_pnl_summary: ["fa-solid fa-sack-dollar", "我的盈亏", "My PnL"],
+  };
+  const [icon, titleZh, titleEn] = meta[card.type] || ["fa-solid fa-table-list", "我的数据", "My Data"];
+  const metricKeys = ["total_launches", "confirmed_launches", "pending_launches", "failed_launches", "execution_count", "unique_wallet_groups", "launches_with_bundled_buys"];
+  const metrics = metricKeys
+    .filter((key) => data[key] !== undefined && data[key] !== null)
+    .map((key) => `
+      <div class="go-card-metric"><span>${formatAgentKey(key)}</span><strong>${escapeHtml(String(data[key]))}</strong></div>
+    `).join("");
+
+  const rows = [];
+  for (const entry of data.recent || []) {
+    rows.push(`<li><span>${escapeHtml(entry.token_symbol || entry.token_name || entry.launch_draft_id || "—")}</span><em>${escapeHtml(String(entry.status || ""))}</em></li>`);
+  }
+  for (const project of data.projects || []) {
+    const buys = project.bundled_buy_count ? ` · ${project.bundled_buy_confirmed}/${project.bundled_buy_count} ${t("捆绑买入", "bundled buys")}` : "";
+    rows.push(`<li><span>${escapeHtml(project.token_symbol || project.token_name || project.launch_draft_id || "—")}</span><em>${escapeHtml(String(project.status || project.bundled_buy_failed ? "partial" : "confirmed"))}${buys}</em></li>`);
+  }
+  for (const launch of data.launches || []) {
+    rows.push(`<li><span>${t("发射", "Launch")} ${escapeHtml(shortAddress(launch.token_address || launch.tx_hash || launch.id || ""))}</span><em>${escapeHtml(String(launch.status || ""))}</em></li>`);
+  }
+  for (const transfer of data.transfers || []) {
+    rows.push(`<li><span>${t("转账", "Transfer")} ${escapeHtml(shortAddress(transfer.tx_hashes?.[0] || transfer.id || ""))}</span><em>${escapeHtml(String(transfer.status || ""))}</em></li>`);
+  }
+
+  return `
+    <article class="go-structured-card" data-card-type="${escapeHtml(String(card.type || ""))}">
+      <header>
+        <div><i class="${icon}" aria-hidden="true"></i><strong>${t(titleZh, titleEn)}</strong></div>
+        <span>${t("已完成", "Completed")}</span>
+      </header>
+      ${metrics ? `<div class="go-card-metrics">${metrics}</div>` : ""}
+      ${rows.length ? `<ul class="go-analytics-list">${rows.join("")}</ul>` : `<p class="go-card-empty">${t("暂无数据。", "No data yet.")}</p>`}
+    </article>
+  `;
+}
+
+function renderDirectSwapCard(card) {  const data = card.data && typeof card.data === "object" ? card.data : {};
   const execution = data.execution && typeof data.execution === "object" ? data.execution : {};
   const planId = execution.message_hash || data.confirmation_id || crypto.randomUUID();
   state.agent.swapPlans.set(planId, {
