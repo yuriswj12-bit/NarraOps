@@ -3080,9 +3080,9 @@ async function submitAgentConversation(command, pendingId) {
   };
 
   const launchIntent = isLaunchIntent(command);
-  const hardMs = launchIntent ? 35_000 : 12_000;
-  const requestMs = launchIntent ? 30_000 : 8_000;
-  const waitMs = launchIntent ? 25_000 : 6_000;
+  const hardMs = 35_000;
+  const requestMs = 30_000;
+  const waitMs = 25_000;
   const hardTimer = window.setTimeout(() => {
     fail(new Error(t("Agent 响应超时，请重试。", "The Agent timed out. Please retry.")));
     state.go.busy = false;

@@ -588,7 +588,9 @@ export function createAgentRuntime(options = {}) {
       (entry) => Array.isArray(entry?.blocks) && entry.blocks.some((block) => block?.type === "launch_draft"),
     );
     // Plain chat may use the fast path only when no persisted structured
-    // context needs the normal handler/repository resolution.
+    // context needs the normal handler/repository resolution. When a durable
+    // repository is present, chat still goes through the task path so the task
+    // is queryable and its events can replay.
     if (wait && parsedEarly.type === "agent.chat" && !hasLaunchContext && !supabase) {
       const capabilities = AGENT_CAPABILITIES
         .filter((capability) => !/mock|review-only|disabled/i.test(String(capability)))
@@ -800,7 +802,7 @@ export function createAgentRuntime(options = {}) {
           runtimeInstructions: runtimeKnowledge?.manifest?.agent?.systemInstructions || "",
           durableMemories: runtimeKnowledge?.memories || [],
         }, runtimeKnowledge),
-        6_000,
+        12_000,
         "agent.reply",
       ).catch(() => ({
         provider: "fallback",
