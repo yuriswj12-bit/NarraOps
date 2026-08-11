@@ -406,6 +406,7 @@ export function createAgentHandlers(integrations, services = {}) {
             telegram_url: token.telegram_url,
             website_url: token.website_url,
             initial_buy: token.initial_buy,
+            bundle_buy_total: token.bundle_buy_total,
             bundle_buy_per_wallet: token.bundle_buy_per_wallet,
           },
           missing_fields: missingFields,

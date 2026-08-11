@@ -134,6 +134,7 @@ const LAUNCH_DRAFT_TOKEN_FIELDS = Object.freeze([
   "telegram_url",
   "website_url",
   "initial_buy",
+  "bundle_buy_total",
   "bundle_buy_per_wallet",
 ]);
 const LAUNCH_DRAFT_SELECTION_FIELDS = Object.freeze([

@@ -116,12 +116,14 @@ test("launch draft can be created and patched through runtime", async () => {
     token: {
       name: "Raccoon Mayor",
       symbol: "RACC",
-      description: "A review-only meme draft",
-      image_url: "https://example.com/racc.png",
+       description: "A review-only meme draft",
+       image_url: "https://example.com/racc.png",
+       bundle_buy_total: "0.1",
     },
   });
   assert.equal(updated.card.type, "launch_draft");
   assert.equal(updated.draft.token.symbol, "RACC");
+  assert.equal(updated.draft.token.bundle_buy_total, "0.1");
   assert.equal(updated.draft.preparation_status, "requires_wallet_selection");
   assert.deepEqual(updated.draft.missing_fields, []);
   assert.deepEqual(updated.draft.required_user_selections, [
