@@ -4,6 +4,7 @@
 import { apiRequest } from "./lib/api-client";
 import { getSupabasePublicConfig } from "./lib/public-env";
 import { getSupabaseClient } from "./lib/supabase-client";
+import * as solanaWeb3Module from "@solana/web3.js";
 
 const viewRoot = document.querySelector("#viewRoot");
 const toast = document.querySelector("#toast");
@@ -19,6 +20,10 @@ const languageMenu = document.querySelector("#languageMenu");
 const accountAssetsButton = document.querySelector("#accountAssetsButton");
 const supabasePublicConfig = getSupabasePublicConfig();
 const supabaseClient = getSupabaseClient();
+
+// Wallet providers sign transactions; the browser bundle supplies the
+// transaction constructors and serializers used before and after signing.
+window.solanaWeb3 = solanaWeb3Module;
 
 Object.defineProperty(window, "NarraOpsRuntime", {
   value: {
