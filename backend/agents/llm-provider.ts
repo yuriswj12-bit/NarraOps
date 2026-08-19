@@ -116,6 +116,120 @@ async function fetchChatCompletion(url, init, timeoutMs = 5_000) {
   }
 }
 
+/**
+ * Streaming variant of generateAgentReply for the plain-chat direct path.
+ * The model returns plain text content (no JSON wrapper) so the frontend can
+ * render tokens as they arrive. onDelta receives { content } chunks.
+ */
+export async function streamAgentReply({
+  message = "",
+  language = "en",
+  history = [],
+  task = null,
+  capabilities = DEFAULT_AGENT_CAPABILITIES,
+  runtimeInstructions = "",
+  durableMemories = [],
+  timeoutMs = 30_000,
+  onDelta = () => {},
+} = {}) {
+  const status = getLlmProviderStatus();
+  const fallback = fallbackAgentReply({ message, language, task, capabilities });
+  const input = String(message || "");
+  if (task?.status === "succeeded" && (task?.result?.card || task?.result?.cards)) {
+    onDelta({ content: fallback.content });
+    return { content: fallback.content, done: true, provider: "structured_result" };
+  }
+  if (!status.configured) {
+    onDelta({ content: fallback.content });
+    return { content: fallback.content, done: true, provider: "fallback", fallback_reason: "missing_provider_key" };
+  }
+
+  const system = [
+    "You are the NarraOps Agent, a Chinese-first AI assistant for meme narrative research, live market context, and confirmed launch/trade workflows.",
+    "Follow the requested language exactly: language=en means all user-facing text is English; language=zh means all user-facing text is Chinese.",
+    "Answer naturally and directly in plain text. Do NOT wrap your reply in JSON; output only the message text that the user should see.",
+    "When the workspace context includes pulse_narratives, offer 3-5 distinct candidates from that list, then ask which one the user wants. Never invent candidates outside the provided list.",
+    "When the user selects one offered candidate, elaborate on that exact narrative and offer to turn it into an editable launch draft.",
+    "Never invent live prices, wallet balances, social evidence, or completed actions.",
+    "Real signing, broadcasting, fund movement, and token launch may happen only after explicit user confirmation.",
+    runtimeInstructions ? `Apply this versioned NarraOps Agent configuration: ${String(runtimeInstructions).slice(0, 30_000)}` : "",
+  ].join(" ");
+  const context = JSON.stringify({
+    language: language === "zh" ? "zh" : "en",
+    user_message: String(message).slice(0, 4_000),
+    capabilities: Array.isArray(capabilities) ? capabilities.slice(0, 5) : capabilities,
+    durable_memory: (Array.isArray(durableMemories) ? durableMemories : []).slice(0, 20).map((item) => ({
+      scope: item?.scope,
+      kind: item?.kind,
+      content: String(item?.content || "").slice(0, 500),
+    })),
+    task: task ? sanitizeAgentTask(task) : null,
+  });
+  const prior = (Array.isArray(history) ? history : [])
+    .filter((entry) => entry?.role === "user" || entry?.role === "assistant")
+    .map((entry) => ({ role: entry.role, content: String(entry.content || "").slice(0, 1_200) }))
+    .filter((entry) => entry.content)
+    .slice(-4);
+  if (!prior.length || prior.at(-1)?.role !== "user" || prior.at(-1)?.content !== message) {
+    prior.push({ role: "user", content: String(message).slice(0, 4_000) });
+  }
+
+  let full = "";
+  const pushDelta = (chunk) => {
+    if (!chunk) return;
+    full += chunk;
+    onDelta({ content: chunk });
+  };
+
+  try {
+    const response = await fetchChatCompletion(`${status.base_url}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${process.env.OPENAI_API_KEY || process.env.LLM_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: status.model,
+        temperature: 0.35,
+        max_tokens: 900,
+        stream: true,
+        messages: [
+          { role: "system", content: system },
+          ...prior,
+          { role: "user", content: `Use this NarraOps context to answer the latest user message:\n${context}` },
+        ],
+      }),
+    }, timeoutMs);
+    if (!response.ok || !response.body) {
+      pushDelta(fallback.content);
+      return { content: full || fallback.content, done: true, provider: "fallback", fallback_reason: `llm_http_${response.status}` };
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, { stream: true });
+      for (const line of text.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payload = trimmed.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        try {
+          const json = JSON.parse(payload);
+          const delta = json?.choices?.[0]?.delta?.content || "";
+          pushDelta(delta);
+        } catch { /* partial SSE frame */ }
+      }
+    }
+    if (!full) pushDelta(fallback.content);
+    return { content: full || fallback.content, done: true, provider: "openai_compatible" };
+  } catch (error) {
+    if (!full) pushDelta(fallback.content);
+    return { content: full || fallback.content, done: true, provider: "fallback", fallback_reason: error instanceof Error ? error.name : "llm_error" };
+  }
+}
+
 export async function generateAgentReply({
   message = "",
   language = "en",
@@ -490,5 +604,6 @@ function normalizeLaunchContent(value, fallbackInput) {
 export default {
   generateStructuredLaunchContent,
   generateAgentReply,
+  streamAgentReply,
   getLlmProviderStatus,
 };
