@@ -116,6 +116,25 @@ export class SupabaseConversationRepository {
     return true;
   }
 
+  async updateContext(conversationId, patch = {}) {
+    const conversation = await this.get(conversationId);
+    if (!conversation) return null;
+    const merged = {
+      ...(conversation.context || {}),
+      ...(patch || {}),
+    };
+    const { error } = await withRepoTimeout(
+      this.#supabase
+        .from("agent_conversations")
+        .update({ context: merged, updated_at: new Date().toISOString() })
+        .eq("conversation_id", conversationId),
+      5_000,
+      "agent_conversations.update_context",
+    );
+    if (error) throw error;
+    return { ...conversation, context: merged, updatedAt: new Date().toISOString() };
+  }
+
   async conversationIdForTask(taskId) {
     const { data, error } = await this.#supabase
       .from("agent_tasks")

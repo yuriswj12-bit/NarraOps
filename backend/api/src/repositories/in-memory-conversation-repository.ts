@@ -39,6 +39,17 @@ export class InMemoryConversationRepository {
     return structuredClone(next);
   }
 
+  async updateContext(conversationId, patch = {}) {
+    const conversation = this.#conversations.get(conversationId);
+    if (!conversation) return null;
+    conversation.context = {
+      ...(conversation.context || {}),
+      ...structuredClone(patch),
+    };
+    conversation.updatedAt = new Date().toISOString();
+    return structuredClone(conversation);
+  }
+
   async bindTask(conversationId, taskId) {
     if (!this.#conversations.has(conversationId)) return false;
     this.#taskToConversation.set(taskId, conversationId);

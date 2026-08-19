@@ -365,12 +365,30 @@ export function createAgentHandlers(integrations, services = {}) {
         return { ...result, card: { type: "launch_draft", data: result } };
       }
       const narrativeUrl = launchContext.narrativeUrl;
-      const linkRead = await readPublicLink(
-        narrativeUrl,
-        Number(input.link_timeout_ms || 6_000),
-        context,
-      );
-      const narrative = linkRead.data;
+      const pendingNarrative = launchContext.pendingNarrative;
+      let linkRead = null;
+      let narrative = null;
+      if (pendingNarrative) {
+        // A Pulse narrative selected earlier in plain chat becomes the launch
+        // source; no public-link fetch is required.
+        narrative = {
+          status: "live",
+          url: pendingNarrative.source_url || null,
+          canonical_url: pendingNarrative.source_url || null,
+          title: pendingNarrative.title || pendingNarrative.content || null,
+          summary: pendingNarrative.summary || pendingNarrative.content || null,
+          content: pendingNarrative.content || pendingNarrative.summary || pendingNarrative.title || "",
+          author_name: pendingNarrative.author_name || null,
+          fetched: false,
+        };
+      } else {
+        linkRead = await readPublicLink(
+          narrativeUrl,
+          Number(input.link_timeout_ms || 6_000),
+          context,
+        );
+        narrative = linkRead.data;
+      }
       const language = input?.context?.language === "zh" ? "zh" : "en";
       const sourceText = [
         narrative?.content,
@@ -430,7 +448,7 @@ export function createAgentHandlers(integrations, services = {}) {
         metadata: {
           content_provider: generated.provider,
           used_llm: Boolean(generated.used_llm),
-          ...(linkRead.tool ? { research_tool: linkRead.tool } : {}),
+          ...(linkRead?.tool ? { research_tool: linkRead.tool } : {}),
           ...(memoryPrefill.cooking_amount
             || memoryPrefill.bundled_total
             || memoryPrefill.default_chain
@@ -879,8 +897,14 @@ async function resolveLaunchContext(input, context, services) {
     };
   }
 
+  // A selected Pulse narrative (chosen earlier in plain chat) becomes the
+  // launch source when the user asks to generate a launch plan.
   if (conversationId && services.conversationRepository?.get) {
     const conversation = await services.conversationRepository.get(conversationId);
+    const pendingNarrative = conversation?.context?.pending_narrative;
+    if (pendingNarrative) {
+      return { narrativeUrl: null, existingDraft: null, pendingNarrative };
+    }
     const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index]?.role !== "user") continue;

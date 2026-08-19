@@ -474,14 +474,64 @@ export function createAgentRuntime(options = {}) {
   const NARRATIVE_INTENT = /(有什么叙事|看下叙事|热点叙事|叙事雷达|pulse|看看.*(热点|叙事|趋势|机会)|narrative|trend|what.*(narrative|pumping|hot)|热门叙事)/i;
   const NARRATIVE_SELECT_INTENT = /^(第[一二三四五六七八九十]|(选|就|要)(第|这|那个)?[一二三四五六七八九十\d]|(选|就|要)(这个|这个吧))\s*[个条第]?/i;
 
-  async function resolvePlainChatContext(message, actorId) {
+  function indexFromSelectText(text) {
+    const match = String(text || "").match(/[一二三四五六七八九十\d]/);
+    if (!match) return null;
+    const map = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+    return map[match[0]] || Number(match[0]) || null;
+  }
+
+  async function persistPendingNarrative(conversationId, candidate) {
+    if (!conversationId || !conversations?.updateContext) return;
+    try {
+      await withTimeout(
+        conversations.updateContext(conversationId, {
+          pending_narrative: {
+            narrative_id: candidate.narrative_id,
+            title: candidate.title,
+            category: candidate.category,
+            platform: candidate.platform,
+            author_name: candidate.author_name,
+            source_url: candidate.source_url,
+            published_at: candidate.published_at,
+            content: candidate.content || candidate.original_text || candidate.title || "",
+            summary: candidate.summary || candidate.original_text || candidate.title || "",
+          },
+        }),
+        3_000,
+        "agent.pending_narrative.persist",
+      ).catch(() => null);
+    } catch {
+      options.logger?.warn?.("agent_pending_narrative_persist_failed");
+    }
+  }
+
+  async function resolvePlainChatContext(message, conversation) {
     const text = String(message || "").trim();
     const hasNarrativeIntent = NARRATIVE_INTENT.test(text);
-    // Selecting one of the previously offered narratives re-reads Pulse so the
-    // model can elaborate on the chosen candidate.
     const selectingNarrative = NARRATIVE_SELECT_INTENT.test(text)
       || /^(给我|详细|展开|讲讲|介绍|分析).{0,6}(这个|那个|第)/i.test(text);
+    const conversationId = conversation?.conversationId || null;
+    const priorCandidates = Array.isArray(conversation?.context?.pulse_candidates)
+      ? conversation.context.pulse_candidates
+      : [];
     if (!hasNarrativeIntent && !selectingNarrative) return {};
+
+    // User selected one of the previously offered candidates.
+    if (selectingNarrative && priorCandidates.length) {
+      const index = indexFromSelectText(text);
+      const selected = index
+        ? priorCandidates[index - 1]
+        : priorCandidates[0];
+      if (selected) {
+        await persistPendingNarrative(conversationId, selected);
+        return {
+          pulse_selected: selected,
+          pulse_narratives: [selected],
+        };
+      }
+    }
+
     if (!narrativeRepository?.listActive) return { pulse_unavailable: "Pulse narrative source is not configured." };
     try {
       const candidates = await narrativeRepository.listActive({
@@ -491,18 +541,27 @@ export function createAgentRuntime(options = {}) {
       if (!Array.isArray(candidates) || !candidates.length) {
         return { pulse_unavailable: "No live Pulse narrative candidates are currently available." };
       }
-      return {
-        pulse_narratives: candidates.map((candidate) => ({
-          narrative_id: candidate.narrative_id,
-          title: candidate.original_text || candidate.title || "",
-          category: candidate.category || null,
-          platform: candidate.platform || null,
-          author_name: candidate.author_name || null,
-          source_url: candidate.source_url || null,
-          published_at: candidate.published_at || null,
-          media_type: candidate.media_type || null,
-        })),
-      };
+      const normalized = candidates.map((candidate) => ({
+        narrative_id: candidate.narrative_id,
+        title: candidate.original_text || candidate.title || "",
+        category: candidate.category || null,
+        platform: candidate.platform || null,
+        author_name: candidate.author_name || null,
+        source_url: candidate.source_url || null,
+        published_at: candidate.published_at || null,
+        media_type: candidate.media_type || null,
+        content: candidate.content || candidate.original_text || candidate.title || "",
+        summary: candidate.summary || candidate.original_text || candidate.title || "",
+      }));
+      // Persist candidates so a later selection can match against the same set.
+      if (conversationId && conversations?.updateContext) {
+        await withTimeout(
+          conversations.updateContext(conversationId, { pulse_candidates: normalized }),
+          3_000,
+          "agent.pulse_candidates.persist",
+        ).catch(() => null);
+      }
+      return { pulse_narratives: normalized };
     } catch (error) {
       options.logger?.warn?.("plain_chat_pulse_resolve_failed", {
         code: error?.code || "PULSE_RESOLVE_FAILED",
@@ -662,7 +721,7 @@ export function createAgentRuntime(options = {}) {
           mode: "assistant",
           request: validated.message,
           ...(resolvedContext ? { context: resolvedContext.safeModelContext } : {}),
-          ...(await resolvePlainChatContext(validated.message, actorId)),
+          ...(await resolvePlainChatContext(validated.message, conversation)),
         },
       };
       const agentReply = await withTimeout(
