@@ -3359,7 +3359,9 @@ export default async function handler(request, response) {
       const authSupabase = serverSupabase();
       const session = authSupabase ? await loadSession(authSupabase, request) : null;
       const { userId: _ignoredUserId, user_id: _ignoredSnakeUserId, ...clientContext } = body.context || {};
-      const userId = authenticatedUserId(session);
+      // Allow anonymous conversation creation for plain chat; authenticated
+      // users get their userId attached for Memory and user-scoped features.
+      const userId = session?.user?.userId || null;
       const conversation = await withHardTimeout(
         createAgentConversation({
           ...body,
@@ -3388,12 +3390,14 @@ export default async function handler(request, response) {
       if (conversationId && !conversationId.includes("/")) {
         const authSupabase = serverSupabase();
         const session = authSupabase ? await loadSession(authSupabase, request) : null;
-        const userId = authenticatedUserId(session);
+        // Allow anonymous access for plain-chat conversations; authenticated
+        // users still get their userId for user-scoped access checks.
+        const userId = session?.user?.userId || null;
         const conversation = await getAgentConversation(conversationId);
         if (!conversation) {
           return apiError(response, 404, "CONVERSATION_NOT_FOUND", "Agent conversation was not found");
         }
-        assertAgentConversationAccess(conversation, userId);
+        if (userId) assertAgentConversationAccess(conversation, userId);
         return sendJson(response, 200, conversation, { "cache-control": "private, no-store" });
       }
     } catch (error) {
