@@ -947,8 +947,8 @@ export function createAgentRuntime(options = {}) {
           capabilities,
           runtimeInstructions: runtimeKnowledge?.manifest?.agent?.systemInstructions || "",
           durableMemories: runtimeKnowledge?.memories || [],
-        }, runtimeKnowledge, 5_000),
-        5_000,
+        }, runtimeKnowledge, 10_000),
+        10_000,
         "agent.reply",
       ).catch(() => ({
         provider: "fallback",

@@ -3094,9 +3094,9 @@ async function submitAgentConversation(command, pendingId) {
   // Chat: backend LLM can take 8-10s through Vercel; the request budget
   // MUST exceed backend total time or the client aborts first while the
   // server still persists the reply (seen as "timeout" until refresh).
-  const hardMs = launchIntent ? 35_000 : skillIntent ? 25_000 : 20_000;
-  const requestMs = launchIntent ? 30_000 : skillIntent ? 18_000 : 15_000;
-  const waitMs = launchIntent ? 25_000 : skillIntent ? 15_000 : 12_000;
+  const hardMs = launchIntent ? 45_000 : skillIntent ? 35_000 : 20_000;
+  const requestMs = launchIntent ? 40_000 : skillIntent ? 30_000 : 15_000;
+  const waitMs = launchIntent ? 35_000 : skillIntent ? 25_000 : 12_000;
   const hardTimer = window.setTimeout(() => {
     fail(new Error(t("Agent 响应超时，请重试。", "The Agent timed out. Please retry.")));
     state.go.busy = false;
