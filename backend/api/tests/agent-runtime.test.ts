@@ -456,3 +456,38 @@ test("plain chat with assets intent injects wallet groups for an authenticated a
     else process.env.OPENAI_API_KEY = originalKey;
   }
 });
+
+test("wallet.group.create creates a wallet group for the signed-in actor", async () => {
+  const created = [];
+  const walletGroupRepository = {
+    async listGroups() { return []; },
+    async createGroup(input) {
+      created.push(input);
+      return {
+        groupId: "group-new",
+        name: input.name,
+        purpose: input.purpose,
+        network: input.network,
+        walletCount: input.walletCount,
+      };
+    },
+  };
+  const runtime = createAgentRuntime({
+    stepDelayMs: 1,
+    walletGroupRepository,
+  });
+  const result = await runtime.handleMessage({
+    channel: "web",
+    message: "创建一个钱包组叫 Alpha 3 个钱包",
+    context: { language: "zh", currentView: "go", userId: "user-1" },
+    wait: true,
+    timeoutMs: 3000,
+  });
+  assert.equal(result.status, "succeeded");
+  assert.equal(created.length, 1);
+  assert.equal(created[0].name, "Alpha");
+  assert.equal(created[0].walletCount, 3);
+  assert.equal(created[0].ownerUserId, "user-1");
+  assert.equal(result.cards[0]?.type, "wallet_group");
+  assert.equal(result.cards[0]?.data?.name, "Alpha");
+});

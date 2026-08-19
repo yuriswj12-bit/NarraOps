@@ -232,6 +232,7 @@ test("SSE covers Go domain events and unavailable provider actions", async (t) =
     "narrative_detected",
     "meme_draft_ready",
     "wallet_group_plan_ready",
+    "wallet_group_created",
     "launch_plan_ready",
     "trade_confirmation_required",
     "trade_submitted",
