@@ -343,12 +343,61 @@ export function createAgentHandlers(integrations, services = {}) {
       return { ...result, card: { type: "meme_package", data: result } };
     },
 
-    async "wallet.group.create"(_input, _context) {
-      return {
-        status: "unsupported",
-        mode: "live",
-        reason: "Create or provision wallet groups in Assets so every address and signer binding is visible before execution.",
-      };
+    async "wallet.group.create"(input, context) {
+      const ownerUserId = input?.context?.user_id || input?.context?.userId || context.actorId || null;
+      if (!ownerUserId || !services.walletGroupRepository?.createGroup) {
+        return {
+          status: "unsupported",
+          mode: "live",
+          reason: "Sign in and configure wallet-group provisioning in Assets before creating groups from chat.",
+        };
+      }
+      const prompt = String(input.prompt || input.arguments || input.name || "").trim();
+      const name = extractWalletGroupName(input, prompt);
+      const walletCount = Number(input.wallet_count ?? input.walletCount ?? extractWalletGroupCount(prompt) ?? 1);
+      const purpose = normalizeWalletGroupPurpose(input.purpose || prompt);
+      const network = normalizeWalletGroupNetwork(input.network || prompt);
+      try {
+        const group = await services.walletGroupRepository.createGroup({
+          name,
+          walletCount,
+          purpose,
+          network,
+          ownerUserId,
+        });
+        context.emitEvent("wallet_group_created", {
+          group_id: group.groupId || group.group_id,
+          wallet_count: walletCount,
+        });
+        return {
+          status: "created",
+          mode: "live",
+          group: {
+            group_id: group.groupId || group.group_id,
+            name: group.name,
+            purpose: group.purpose,
+            network: group.network,
+            wallet_count: Number(group.walletCount ?? group.wallet_count ?? walletCount),
+          },
+          card: {
+            type: "wallet_group",
+            data: {
+              group_id: group.groupId || group.group_id,
+              name: group.name,
+              purpose: group.purpose,
+              network: group.network,
+              wallet_count: Number(group.walletCount ?? group.wallet_count ?? walletCount),
+              message: `钱包组「${group.name}」已创建（${walletCount} 个钱包，${group.purpose} 用途）。可在 Assets 中管理。`,
+            },
+          },
+        };
+      } catch (error) {
+        return {
+          status: "failed",
+          mode: "live",
+          reason: error?.message || "Unable to create wallet group",
+        };
+      }
     },
 
     async "launch.meme"(input, context) {
@@ -980,5 +1029,35 @@ function normalizeAnalysisChain(value, contractAddress) {
   if (text.includes("base")) return "base";
   if (text.includes("eth") || text.includes("ethereum")) return "eth";
   if (text.includes("bsc") || String(contractAddress || "").startsWith("0x")) return "bsc";
+  return "solana";
+}
+
+function extractWalletGroupName(input, prompt) {
+  const explicit = String(input.name || input.group_name || "").trim();
+  if (explicit) return explicit.slice(0, 80);
+  const match = String(prompt || "").match(/(?:叫|名为|名称|name\s*[:为是]?)\s*["'“”‘’]?([^"'"“”‘’，,。\s]+)/i);
+  const candidate = match ? match[1] : null;
+  if (candidate) return candidate.slice(0, 80);
+  const stripped = String(prompt || "")
+    .replace(/(钱包组|钱包组叫|创建|新建|生成|给我|帮我|一个|cooking|bundled|solana|bsc|evm|个钱包|个)/gi, "")
+    .trim();
+  return (stripped || "Wallet Group").slice(0, 80);
+}
+
+function extractWalletGroupCount(prompt) {
+  const match = String(prompt || "").match(/(\d+)\s*个?钱包/i);
+  return match ? Math.min(Math.max(Number(match[1]), 1), 200) : null;
+}
+
+function normalizeWalletGroupPurpose(value) {
+  const text = String(value || "").toLowerCase();
+  if (text.includes("cooking")) return "cooking";
+  return "general";
+}
+
+function normalizeWalletGroupNetwork(value) {
+  const text = String(value || "").toLowerCase();
+  if (text.includes("bsc") || text.includes("bnb")) return "bsc";
+  if (text.includes("evm")) return "evm";
   return "solana";
 }
