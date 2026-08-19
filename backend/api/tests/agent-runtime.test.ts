@@ -349,3 +349,63 @@ test("memory prefill parses confirmed launch preferences as editable suggestions
   assert.equal(groupsPrefill.default_bundled_group, "Bravo");
   assert.equal(groupsPrefill.default_slippage_bps, "500");
 });
+
+test("plain chat with narrative intent injects Pulse candidates into model context", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  let modelContext = "";
+  globalThis.fetch = async (_url, options) => {
+    const request = JSON.parse(options.body);
+    modelContext = request.messages.at(-1)?.content || "";
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                content: "这里有几个热门叙事候选：",
+                suggestion: "告诉我选哪个。",
+              }),
+            },
+          }],
+        };
+      },
+    };
+  };
+
+  const narrativeRepository = {
+    async listActive({ topic = "", limit = 12 } = {}) {
+      return [{
+        narrative_id: "narrative-1",
+        original_text: "AI agents are becoming meme royalty",
+        category: "tech",
+        platform: "twitter",
+        author_name: "coolish",
+        source_url: "https://x.com/coolish/status/1",
+        published_at: new Date().toISOString(),
+      }];
+    },
+  };
+
+  try {
+    const runtime = createAgentRuntime({ stepDelayMs: 1, narrativeRepository });
+    const result = await runtime.handleMessage({
+      channel: "web",
+      message: "看看有什么叙事",
+      context: { language: "zh", currentView: "go" },
+      wait: true,
+      timeoutMs: 3000,
+    });
+    assert.equal(result.status, "succeeded");
+    assert.match(modelContext, /pulse_narratives/);
+    assert.match(modelContext, /AI agents are becoming meme royalty/);
+    assert.match(modelContext, /narrative-1/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
+  }
+});
