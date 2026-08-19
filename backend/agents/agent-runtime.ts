@@ -253,9 +253,12 @@ export function createAgentRuntime(options = {}) {
   const runtimeKnowledgeResolver = options.runtimeKnowledgeResolver || null;
   const modelPolicyRouter = options.modelPolicyRouter || null;
 
-  async function generateConfiguredAgentReply(input, runtimeKnowledge) {
+  async function generateConfiguredAgentReply(input, runtimeKnowledge, replyTimeoutMs = 3_000) {
+    const timeoutMs = Math.min(Math.max(Number(replyTimeoutMs) || 3_000, 1_000), 12_000);
     const policy = runtimeKnowledge?.manifest?.agent?.modelPolicy;
-    if (!modelPolicyRouter || !policy) return generateAgentReply(input);
+    if (!modelPolicyRouter || !policy) {
+      return generateAgentReply({ ...input, timeoutMs });
+    }
     const response = await modelPolicyRouter.generate(policy, {
       requestId: randomUUID(),
       operation: "agent.reply",
@@ -266,6 +269,7 @@ export function createAgentRuntime(options = {}) {
         capabilities: input.capabilities || [],
         runtimeInstructions: input.runtimeInstructions || "",
         durableMemories: input.durableMemories || [],
+        timeoutMs,
       },
       responseSchema: {
         type: "object",
@@ -282,7 +286,7 @@ export function createAgentRuntime(options = {}) {
         policyProfile: "agent-version",
       },
     }, {
-      timeoutMs: 8_000,
+      timeoutMs,
     });
     const structured = response.structuredOutput || {};
     return {
@@ -587,11 +591,10 @@ export function createAgentRuntime(options = {}) {
     const hasLaunchContext = Array.isArray(conversation.messages) && conversation.messages.some(
       (entry) => Array.isArray(entry?.blocks) && entry.blocks.some((block) => block?.type === "launch_draft"),
     );
-    // Plain chat may use the fast path only when no persisted structured
-    // context needs the normal handler/repository resolution. When a durable
-    // repository is present, chat still goes through the task path so the task
-    // is queryable and its events can replay.
-    if (wait && parsedEarly.type === "agent.chat" && !hasLaunchContext && !supabase) {
+    // Plain chat uses the fast direct-model path. Skills/analysis still go
+    // through the durable task path below so cards, events, and Memory
+    // prefill remain queryable.
+    if (wait && parsedEarly.type === "agent.chat" && !hasLaunchContext) {
       const capabilities = AGENT_CAPABILITIES
         .filter((capability) => !/mock|review-only|disabled/i.test(String(capability)))
         .concat([
@@ -615,19 +618,23 @@ export function createAgentRuntime(options = {}) {
           ...(resolvedContext ? { context: resolvedContext.safeModelContext } : {}),
         },
       };
-      const agentReply = await generateConfiguredAgentReply({
-        message: validated.message,
-        language: validated.context.language,
-        history: Array.isArray(conversation.messages) ? conversation.messages.slice(-6) : [],
-        task: syntheticTask,
-        capabilities,
-        runtimeInstructions: runtimeKnowledge?.manifest?.agent?.systemInstructions || "",
-        durableMemories: runtimeKnowledge?.memories || [],
-      }, runtimeKnowledge).catch(() => ({
+      const agentReply = await withTimeout(
+        generateConfiguredAgentReply({
+          message: validated.message,
+          language: validated.context.language,
+          history: Array.isArray(conversation.messages) ? conversation.messages.slice(-6) : [],
+          task: syntheticTask,
+          capabilities,
+          runtimeInstructions: runtimeKnowledge?.manifest?.agent?.systemInstructions || "",
+          durableMemories: runtimeKnowledge?.memories || [],
+        }, runtimeKnowledge, 3_000),
+        3_000,
+        "agent.chat.direct",
+      ).catch(() => ({
         provider: "fallback",
         used_llm: false,
         configured: false,
-        fallback_reason: "chat_error",
+        fallback_reason: "chat_timeout",
         content: validated.context.language === "zh"
           ? "在。我可以帮你解读叙事、根据链接生成发射参数，并在你确认后进入 Pump 发射或钱包买卖。"
           : "Here. I can explain narratives, turn links into launch fields, and enter Pump launch or wallet trade flows after you confirm.",
@@ -801,8 +808,8 @@ export function createAgentRuntime(options = {}) {
           capabilities,
           runtimeInstructions: runtimeKnowledge?.manifest?.agent?.systemInstructions || "",
           durableMemories: runtimeKnowledge?.memories || [],
-        }, runtimeKnowledge),
-        12_000,
+        }, runtimeKnowledge, 5_000),
+        5_000,
         "agent.reply",
       ).catch(() => ({
         provider: "fallback",

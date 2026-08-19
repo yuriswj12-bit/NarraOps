@@ -124,10 +124,12 @@ export async function generateAgentReply({
   capabilities = DEFAULT_AGENT_CAPABILITIES,
   runtimeInstructions = "",
   durableMemories = [],
+  timeoutMs = 3_000,
 } = {}) {
   const status = getLlmProviderStatus();
   const fallback = fallbackAgentReply({ message, language, task, capabilities });
   const input = String(message || "");
+  const replyTimeoutMs = Math.min(Math.max(Number(timeoutMs) || 3_000, 1_000), 12_000);
   const capabilityQuestion = /你可以做什么|你能做什么|能做什么|有什么功能|介绍自己|自我介绍|你是谁|help|what can you do|who are you|capabilit/i.test(input);
   const trivialChat = task?.type === "agent.chat"
     && input.trim().length <= 24
@@ -212,7 +214,7 @@ export async function generateAgentReply({
       body: JSON.stringify({
         model: status.model,
         temperature: 0.35,
-        max_tokens: 700,
+        max_tokens: 900,
         stream: false,
         response_format: { type: "json_object" },
         messages: [
@@ -221,7 +223,7 @@ export async function generateAgentReply({
           { role: "user", content: `Use this NarraOps context to answer the latest user message:\n${context}` },
         ],
       }),
-    }, 5_000);
+    }, replyTimeoutMs);
     if (!response.ok) {
       return {
         provider: "fallback",
@@ -233,7 +235,10 @@ export async function generateAgentReply({
       };
     }
     const payload = await response.json();
-    const parsed = parseJsonObject(payload?.choices?.[0]?.message?.content);
+    const messagePayload = payload?.choices?.[0]?.message || {};
+    // Some OpenCode Go models (e.g. deepseek-v4-flash) may fill reasoning_content
+    // before content when max_tokens is tight. Prefer content, then fall back.
+    const parsed = parseJsonObject(messagePayload.content || messagePayload.reasoning_content);
     const content = normalizeReplyText(parsed?.content, fallback.content, 1_200);
     const suggestion = normalizeReplyText(parsed?.suggestion, fallback.suggestion, 240);
     return {

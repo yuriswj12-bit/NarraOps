@@ -40,3 +40,5 @@ Thumbs.db
 .vercel/
 /api/v1/agent/runtime.cjs
 /api/v1/launch-planner.cjs
+.vercel
+.env*

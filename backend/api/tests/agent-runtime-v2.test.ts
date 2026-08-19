@@ -2466,12 +2466,13 @@ test("structured launch content follows the Agent version model policy", async (
   }
 });
 
-test("persistent runtime stores plain-chat tasks instead of returning synthetic task ids", async () => {
+test("persistent runtime keeps plain chat on the direct path without durable tasks", async () => {
   const taskRepository = new InMemoryTaskRepository();
+  const conversationRepository = new InMemoryConversationRepository();
   const runtime = createAgentRuntime({
     supabase: {},
     taskRepository,
-    conversationRepository: new InMemoryConversationRepository(),
+    conversationRepository,
     launchDraftRepository: new InMemoryLaunchDraftRepository(),
     stepDelayMs: 1,
   });
@@ -2483,8 +2484,13 @@ test("persistent runtime stores plain-chat tasks instead of returning synthetic 
     timeoutMs: 3_000,
   });
   assert.equal(result.status, "succeeded");
-  assert.ok(await taskRepository.get(result.task_id));
-  assert.equal((await runtime.getTaskForActor(result.task_id, "user-1"))?.status, "succeeded");
+  assert.equal(result.task?.type, "agent.chat");
+  assert.equal(result.task?.execution_mode, "assistant");
+  assert.equal(await taskRepository.get(result.task_id), null);
+  const conversation = await conversationRepository.get(result.conversation_id);
+  assert.ok(conversation);
+  assert.equal(conversation.messages.at(-1)?.role, "assistant");
+  assert.equal(conversation.messages.at(-1)?.content, result.message?.content);
 });
 
 test("durable task state machine rejects terminal-state rewrites", () => {

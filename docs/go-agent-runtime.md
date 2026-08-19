@@ -37,11 +37,11 @@ SSE / sync response / Telegram reply
 - Web path waits for task completion and returns cards immediately for serverless UX.
 - Conversations/messages/tasks/launch drafts persist to Supabase when server credentials exist; otherwise memory fallback.
 - Launch drafts support incremental token field updates.
-- Conversational LLM:
+- Conversational LLM (OpenAI-compatible, including DeepSeek):
   - `OPENAI_API_KEY` or `LLM_API_KEY`
-  - `OPENAI_BASE_URL` / `LLM_BASE_URL`
-  - `OPENAI_MODEL` / `LLM_MODEL`
-  - `agent.chat` handles general conversation and capability questions without creating a mock card
+  - `OPENAI_BASE_URL` / `LLM_BASE_URL` (DeepSeek: `https://api.deepseek.com` or `https://api.deepseek.com/v1`)
+  - `OPENAI_MODEL` / `LLM_MODEL` (`deepseek-chat` or `deepseek-reasoner`)
+  - Dual path: plain `agent.chat` is a 3s direct model call with Memory injection; skills/analysis use the durable task path and a 5s model narrate budget
   - every task result is passed to the model as bounded context; the model cannot sign, broadcast, or move funds
   - if the provider is not configured or fails, the response explicitly reports safe fallback mode
 

@@ -2902,6 +2902,16 @@ function isLaunchIntent(command) {
   return /(发射|发射模板|launch\s*draft|生成发射|帮我发射|发射参数)/i.test(value);
 }
 
+function isSkillOrAnalysisIntent(command) {
+  const value = String(command || "").trim();
+  if (!value) return false;
+  if (isLaunchIntent(value)) return true;
+  if (/^\/(analyze-meme|market-trending|trenches|kline|signals|dev-market|my-launches|my-projects|my-pnl|recent-summary)\b/i.test(value)) {
+    return true;
+  }
+  return /(分析|买入|卖出|热门|新币|k线|信号|聪明钱|我的发射|我的项目|盈亏|analy[sz]e|buy|sell|trending|trenches|kline|signal|swap)/i.test(value);
+}
+
 function localWalletGroupsReply() {
   const zh = state.language === "zh";
   const groups = Array.isArray(state.assets.groups) ? state.assets.groups : [];
@@ -3080,9 +3090,11 @@ async function submitAgentConversation(command, pendingId) {
   };
 
   const launchIntent = isLaunchIntent(command);
-  const hardMs = 35_000;
-  const requestMs = 30_000;
-  const waitMs = 25_000;
+  const skillIntent = isSkillOrAnalysisIntent(command);
+  // Chat: short direct-model budget. Skills/analysis/launch: longer task path.
+  const hardMs = launchIntent ? 35_000 : skillIntent ? 20_000 : 10_000;
+  const requestMs = launchIntent ? 30_000 : skillIntent ? 15_000 : 6_000;
+  const waitMs = launchIntent ? 25_000 : skillIntent ? 12_000 : 5_000;
   const hardTimer = window.setTimeout(() => {
     fail(new Error(t("Agent 响应超时，请重试。", "The Agent timed out. Please retry.")));
     state.go.busy = false;
