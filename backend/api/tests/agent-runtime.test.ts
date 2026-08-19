@@ -409,3 +409,50 @@ test("plain chat with narrative intent injects Pulse candidates into model conte
     else process.env.OPENAI_API_KEY = originalKey;
   }
 });
+
+test("plain chat with assets intent injects wallet groups for an authenticated actor", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  let modelContext = "";
+  globalThis.fetch = async (_url, options) => {
+    const request = JSON.parse(options.body);
+    modelContext = request.messages.at(-1)?.content || "";
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          choices: [{
+            message: {
+              content: JSON.stringify({ content: "你的钱包组如下：", suggestion: "还要我做什么？" }),
+            },
+          }],
+        };
+      },
+    };
+  };
+  const walletGroupRepository = {
+    async listGroups(ownerUserId) {
+      assert.equal(ownerUserId, "user-1");
+      return [{ groupId: "group-1", name: "Alpha", purpose: "cooking", network: "solana", walletCount: 1 }];
+    },
+  };
+  try {
+    const runtime = createAgentRuntime({ stepDelayMs: 1, walletGroupRepository });
+    const result = await runtime.handleMessage({
+      channel: "web",
+      message: "我的钱包组有哪些",
+      context: { language: "zh", currentView: "go", userId: "user-1" },
+      wait: true,
+      timeoutMs: 3000,
+    });
+    assert.equal(result.status, "succeeded");
+    assert.match(modelContext, /assets_groups/);
+    assert.match(modelContext, /Alpha/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
+  }
+});

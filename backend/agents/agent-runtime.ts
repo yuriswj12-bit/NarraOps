@@ -506,7 +506,7 @@ export function createAgentRuntime(options = {}) {
     }
   }
 
-  async function resolvePlainChatContext(message, conversation) {
+  async function resolvePlainChatContext(message, conversation, actorId) {
     const text = String(message || "").trim();
     const hasNarrativeIntent = NARRATIVE_INTENT.test(text);
     const selectingNarrative = NARRATIVE_SELECT_INTENT.test(text)
@@ -515,6 +515,33 @@ export function createAgentRuntime(options = {}) {
     const priorCandidates = Array.isArray(conversation?.context?.pulse_candidates)
       ? conversation.context.pulse_candidates
       : [];
+
+    // Asset / wallet / balance reads are resolved for the authenticated actor.
+    const assetsIntent = /(我的钱包|钱包组|钱包|余额|资产|持仓|有多少钱|assets|wallet|balance|holdings)/i.test(text)
+      && !/(生成|创建|新建|create|generate)/i.test(text);
+    if (assetsIntent) {
+      if (!actorId) return { assets_unavailable: "Sign in with a Web3 wallet to read your assets." };
+      try {
+        const groups = options.walletGroupRepository?.listGroups
+          ? await options.walletGroupRepository.listGroups(actorId)
+          : [];
+        const safeGroups = (Array.isArray(groups) ? groups : []).map((group) => ({
+          group_id: group.groupId || group.group_id || null,
+          name: group.name || null,
+          purpose: group.purpose || null,
+          network: group.network || null,
+          wallet_count: Number(group.walletCount ?? group.wallet_count ?? 0),
+        }));
+        return { assets_groups: safeGroups };
+      } catch (error) {
+        options.logger?.warn?.("plain_chat_assets_resolve_failed", {
+          code: error?.code || "ASSETS_RESOLVE_FAILED",
+          message: error?.message || String(error),
+        });
+        return { assets_unavailable: "Assets data is temporarily unavailable." };
+      }
+    }
+
     if (!hasNarrativeIntent && !selectingNarrative) return {};
 
     // User selected one of the previously offered candidates.
@@ -699,7 +726,13 @@ export function createAgentRuntime(options = {}) {
     const isNaturalNarrativeQuery = !validated.command
       && /(有什么叙事|看下叙事|看下热点|热点叙事|叙事雷达|看看.*(热点|叙事|趋势|机会)|pulse|narrative|最近有什么)/i.test(validated.message)
       && !/(发射|买入|卖出|分析|launch|buy|sell|analy[sz]e|swap|钱包|转账)/i.test(validated.message);
-    if (wait && (parsedEarly.type === "agent.chat" || isNaturalNarrativeQuery) && !hasLaunchContext) {
+    // Natural-language asset / wallet queries (no slash command, read intent)
+    // route to the direct path so the model can read wallet groups for the
+    // authenticated actor. Creation is intentionally excluded.
+    const isNaturalAssetsQuery = !validated.command
+      && /(我的钱包|钱包组|钱包有哪些|有多少钱包|余额|资产|持仓|assets|wallet|balance|holdings)/i.test(validated.message)
+      && !/(生成|创建|新建|create|generate|发射|买入|卖出|swap|转账|分析)/i.test(validated.message);
+    if (wait && (parsedEarly.type === "agent.chat" || isNaturalNarrativeQuery || isNaturalAssetsQuery) && !hasLaunchContext) {
       const capabilities = AGENT_CAPABILITIES
         .filter((capability) => !/mock|review-only|disabled/i.test(String(capability)))
         .concat([
@@ -721,7 +754,7 @@ export function createAgentRuntime(options = {}) {
           mode: "assistant",
           request: validated.message,
           ...(resolvedContext ? { context: resolvedContext.safeModelContext } : {}),
-          ...(await resolvePlainChatContext(validated.message, conversation)),
+          ...(await resolvePlainChatContext(validated.message, conversation, actorId)),
         },
       };
       const agentReply = await withTimeout(
