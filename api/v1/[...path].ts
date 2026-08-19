@@ -3413,12 +3413,19 @@ export default async function handler(request, response) {
       const authSupabase = serverSupabase();
       const session = authSupabase ? await loadSession(authSupabase, request) : null;
       const { userId: _ignoredUserId, user_id: _ignoredSnakeUserId, ...clientContext } = body.context || {};
-      const userId = authenticatedUserId(session);
+      // Plain agent.chat messages do not require authentication; skills/analysis
+      // and any route that touches user-owned data still do.
+      const messageText = String(body.message || "").trim();
+      const isPlainChat = !messageText.startsWith("/")
+        && !/https?:\/\//i.test(messageText)
+        && messageText.length <= 64
+        && !/(发射|买入|卖出|分析|launch|buy|sell|analy[sz]e|swap|合约|meme)/i.test(messageText);
+      const userId = isPlainChat ? (session?.user?.userId || null) : authenticatedUserId(session);
       const conversation = await getAgentConversation(conversationId);
       if (!conversation) {
         return apiError(response, 404, "CONVERSATION_NOT_FOUND", "Agent conversation was not found");
       }
-      assertAgentConversationAccess(conversation, userId);
+      if (userId) assertAgentConversationAccess(conversation, userId);
       const requestedTimeout = Number(body.timeout_ms || body.timeoutMs || 8_000);
       const waitTimeout = Math.min(Math.max(requestedTimeout, 1_000), 30_000);
       const result = await withHardTimeout(
