@@ -124,12 +124,12 @@ export async function generateAgentReply({
   capabilities = DEFAULT_AGENT_CAPABILITIES,
   runtimeInstructions = "",
   durableMemories = [],
-  timeoutMs = 8_000,
+  timeoutMs = 5_000,
 } = {}) {
   const status = getLlmProviderStatus();
   const fallback = fallbackAgentReply({ message, language, task, capabilities });
   const input = String(message || "");
-  const replyTimeoutMs = Math.min(Math.max(Number(timeoutMs) || 8_000, 1_000), 12_000);
+  const replyTimeoutMs = Math.min(Math.max(Number(timeoutMs) || 5_000, 1_000), 12_000);
   const capabilityQuestion = /你可以做什么|你能做什么|能做什么|有什么功能|介绍自己|自我介绍|你是谁|help|what can you do|who are you|capabilit/i.test(input);
   const trivialChat = task?.type === "agent.chat"
     && input.trim().length <= 24

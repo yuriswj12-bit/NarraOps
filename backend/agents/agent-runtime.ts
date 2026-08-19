@@ -253,8 +253,8 @@ export function createAgentRuntime(options = {}) {
   const runtimeKnowledgeResolver = options.runtimeKnowledgeResolver || null;
   const modelPolicyRouter = options.modelPolicyRouter || null;
 
-  async function generateConfiguredAgentReply(input, runtimeKnowledge, replyTimeoutMs = 8_000) {
-    const timeoutMs = Math.min(Math.max(Number(replyTimeoutMs) || 8_000, 1_000), 12_000);
+  async function generateConfiguredAgentReply(input, runtimeKnowledge, replyTimeoutMs = 5_000) {
+    const timeoutMs = Math.min(Math.max(Number(replyTimeoutMs) || 5_000, 1_000), 12_000);
     const policy = runtimeKnowledge?.manifest?.agent?.modelPolicy;
     if (!modelPolicyRouter || !policy) {
       return generateAgentReply({ ...input, timeoutMs });
@@ -627,8 +627,8 @@ export function createAgentRuntime(options = {}) {
           capabilities,
           runtimeInstructions: runtimeKnowledge?.manifest?.agent?.systemInstructions || "",
           durableMemories: runtimeKnowledge?.memories || [],
-        }, runtimeKnowledge, 8_000),
-        8_000,
+        }, runtimeKnowledge, 5_000),
+        5_000,
         "agent.chat.direct",
       ).catch(() => ({
         provider: "fallback",
