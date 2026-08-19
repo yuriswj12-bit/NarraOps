@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { VersionedTransaction } from "@solana/web3.js";
 import { createAgentRuntime } from "../../../backend/agents/agent-runtime.ts";
+import { streamAgentReply } from "../../../backend/agents/llm-provider.ts";
 import { SupabaseWalletGroupRepository } from "../../../backend/api/src/repositories/supabase-wallet-group-repository.ts";
 import {
   AssetsWalletGroupContextProvider,
@@ -118,6 +119,15 @@ function getRuntime() {
 
 export function getSharedAgentRuntime() {
   return getRuntime();
+}
+
+export async function streamAgentChat({ message = "", language = "en", onDelta, timeoutMs = 30_000 } = {}) {
+  return streamAgentReply({
+    message,
+    language,
+    onDelta,
+    timeoutMs,
+  });
 }
 
 export function projectAgentCapabilities(manifest) {

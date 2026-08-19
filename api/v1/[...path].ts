@@ -43,6 +43,7 @@ import {
   forgetAgentMemory,
   listAgentMemories,
   updateAgentLaunchDraft,
+  streamAgentChat,
 } from "./agent/runtime.cjs";
 
 const COOKIE_NAME = "narraops_session";
@@ -3352,6 +3353,36 @@ export default async function handler(request, response) {
     }
   }
 
+
+  if (request.method === "POST" && path === "/api/v1/agent/chat/stream") {
+    const body = await readBody(request);
+    const message = String(body.message || "").trim();
+    const language = body.context?.language === "zh" ? "zh" : "en";
+    if (!message) return apiError(response, 400, "VALIDATION_ERROR", "message is required");
+    response.statusCode = 200;
+    response.setHeader("content-type", "text/event-stream; charset=utf-8");
+    response.setHeader("cache-control", "no-cache, no-store");
+    response.setHeader("connection", "keep-alive");
+    response.setHeader("x-accel-buffering", "no");
+    response.write(`event: start\ndata: {}\n\n`);
+    try {
+      await streamAgentChat({
+        message,
+        language,
+        onDelta: ({ content }) => {
+          response.write(`event: delta\ndata: ${JSON.stringify({ content: String(content || "") })}\n\n`);
+        },
+      });
+      response.write(`event: done\ndata: {}\n\n`);
+      response.end();
+    } catch (error) {
+      try {
+        response.write(`event: error\ndata: ${JSON.stringify({ message: error?.message || "stream error" })}\n\n`);
+        response.end();
+      } catch { /* response already closed */ }
+    }
+    return;
+  }
 
   if (request.method === "POST" && path === "/api/v1/agent/conversations") {
     try {

@@ -948,7 +948,10 @@ function renderMessageContent(message) {
       running: t("Agent 正在处理…", "Agent is working…"),
       reconnecting: t("事件流重连中…", "Reconnecting event stream…"),
     };
-    return `<div class="go-agent-thinking"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>${labels[message.lifecycle] || labels.connecting}</span></div>${(message.cards || []).filter((card) => ["launch_draft", "direct_swap"].includes(card?.type)).map(renderStructuredCard).join("")}`;
+    const streaming = message.content
+      ? `<p>${escapeHtml(message.content)}</p><div class="go-agent-thinking"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>${t("正在输入…", "Typing…")}</span></div>`
+      : `<div class="go-agent-thinking"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>${labels[message.lifecycle] || labels.connecting}</span></div>`;
+    return `${streaming}${(message.cards || []).filter((card) => ["launch_draft", "direct_swap"].includes(card?.type)).map(renderStructuredCard).join("")}`;
   }
 
   const content = message.contentZh ? t(message.contentZh, message.contentEn) : message.content;
@@ -3074,6 +3077,75 @@ async function waitForAgentTask(taskId, pendingId, timeoutMs = 15_000) {
   throw new Error(t("Agent 仍在后台处理，请稍后重试。", "The Agent is still working in the background. Please retry shortly."));
 }
 
+async function streamPlainChat(command, pendingId) {
+  const conversationId = await ensureGoAgentConversation();
+  if (conversationId) state.agent.conversationId = conversationId;
+  const existing = state.conversation.find((item) => item.pendingId === pendingId);
+  if (!existing) {
+    state.conversation.push({ role: "agent", pending: true, pendingId, content: "", timestamp: getMessageTime() });
+    renderConversation();
+  }
+  const response = await fetch("/api/v1/agent/chat/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: command,
+      context: { language: state.language, currentView: "go" },
+    }),
+  });
+  if (!response.ok || !response.body) {
+    let message = `HTTP ${response.status}`;
+    try { message = (await response.json()).error?.message || message; } catch {}
+    throw new Error(message);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let full = "";
+  const current = () => state.conversation.find((item) => item.pendingId === pendingId);
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop() || "";
+    for (const block of blocks) {
+      let eventType = "";
+      let eventData = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) eventType = line.slice(6).trim();
+        else if (line.startsWith("data:")) eventData += line.slice(5).trim();
+      }
+      if (eventType === "delta") {
+        try {
+          const parsed = JSON.parse(eventData);
+          full += parsed.content || "";
+          const msg = current();
+          if (msg) {
+            msg.content = full;
+            msg.lifecycle = "running";
+            msg.pending = true;
+            renderConversation();
+          }
+        } catch { /* partial frame */ }
+      } else if (eventType === "done") {
+        break;
+      } else if (eventType === "error") {
+        let message = "stream error";
+        try { message = JSON.parse(eventData).message || message; } catch {}
+        throw new Error(message);
+      }
+    }
+  }
+  const msg = current();
+  if (msg) {
+    msg.content = full || msg.content;
+    msg.lifecycle = "completed";
+    msg.pending = false;
+    renderConversation();
+  }
+}
+
 async function submitAgentConversation(command, pendingId) {
   state.go.busy = true;
   state.agent.submitting = true;
@@ -3096,6 +3168,30 @@ async function submitAgentConversation(command, pendingId) {
 
   const launchIntent = isLaunchIntent(command);
   const skillIntent = isSkillOrAnalysisIntent(command);
+  // Plain chat streams the reply so the first token appears quickly and the
+  // client never aborts before the server finishes (no timeout-on-refresh).
+  if (!launchIntent && !skillIntent) {
+    state.go.busy = true;
+    state.agent.submitting = true;
+    state.agent.retryCommand = command;
+    void (async () => {
+      try {
+        await streamPlainChat(command, pendingId);
+      } catch (error) {
+        replacePendingMessage(pendingId, {
+          role: "agent",
+          timestamp: getMessageTime(),
+          lifecycle: "failed",
+          pending: false,
+          error: error instanceof Error ? error.message : String(error || t("Agent 服务当前不可用。", "The Agent service is currently unavailable.")),
+        });
+      } finally {
+        state.go.busy = false;
+        state.agent.submitting = false;
+      }
+    })();
+    return;
+  }
   // Chat: backend LLM can take 8-10s through Vercel; the request budget
   // MUST exceed backend total time or the client aborts first while the
   // server still persists the reply (seen as "timeout" until refresh).
