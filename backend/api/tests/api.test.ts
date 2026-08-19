@@ -92,7 +92,8 @@ test("Go command catalog exposes all requested categories and safe execution pol
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.deepEqual(body.categories, ["narrative", "meme", "wallet", "launch", "trade", "funds", "market", "analysis", "summary"]);
-  assert.ok(body.commands.some(({ command }) => command === "/meme"));
+  assert.ok(body.commands.some(({ command }) => command === "/analyze-meme"));
+  assert.ok(!body.commands.some(({ command }) => ["/meme", "/pulse", "/market-trending", "/dev-market"].includes(command)));
   for (const command of body.commands.filter(({ category }) => ["launch", "trade", "funds"].includes(category))) {
     assert.equal(command.requires_confirmation, true);
     assert.equal(command.execution_mode, command.category === "trade" ? "confirmation_required" : "live_confirmation_required");
@@ -103,15 +104,14 @@ test("Go accepts natural language and slash commands with snake_case task contra
   const { application, baseUrl } = await startApi();
   t.after(() => application.close());
 
-  const memeResponse = await post(baseUrl, "/api/v1/agent/tasks", { input: "帮我创建一个关于 AI 宠物的 meme" });
-  assert.equal(memeResponse.status, 202);
-  const memeTask = await memeResponse.json();
-  assert.equal(memeTask.type, "meme.create");
-  assert.equal(memeTask.requires_confirmation, false);
-  assert.equal(memeTask.execution_mode, "live_llm");
-  const memeCompleted = await waitForTask(baseUrl, memeTask.task_id);
-  assert.equal(memeCompleted.status, "succeeded");
-  assert.equal(memeCompleted.result.publishable, false);
+  const recentResponse = await post(baseUrl, "/api/v1/agent/tasks", { command: "/recent-summary" });
+  assert.equal(recentResponse.status, 202);
+  const recentTask = await recentResponse.json();
+  assert.equal(recentTask.type, "account.recent-summary");
+  assert.equal(recentTask.requires_confirmation, false);
+  assert.equal(recentTask.execution_mode, "live_read_only");
+  const recentCompleted = await waitForTask(baseUrl, recentTask.task_id);
+  assert.equal(recentCompleted.status, "succeeded");
 
 });
 
@@ -297,7 +297,7 @@ test("SSE taskId filter emits the selected Go card and excludes unrelated tasks"
   const controller = new AbortController();
   const streamResponse = await fetch(`${baseUrl}/api/v1/events?taskId=${selected.task_id}`, { signal: controller.signal });
   const reader = streamResponse.body.getReader();
-  const unrelatedResponse = await post(baseUrl, "/api/v1/agent/tasks", { command: "/dev-market" });
+  const unrelatedResponse = await post(baseUrl, "/api/v1/agent/tasks", { command: "/my-pnl" });
   const unrelated = await unrelatedResponse.json();
   let eventText = "";
   while (!eventText.includes("event: agent.completed")) {
@@ -345,8 +345,8 @@ test("Go conversation contract accepts a quick action and stores the resulting c
   const created = await createdResponse.json();
 
   const messageResponse = await post(baseUrl, `/api/v1/agent/conversations/${created.conversationId}/messages`, {
-    message: "查看 Dev 钱包行情",
-    command: "/dev-market",
+    message: "查看最近总结",
+    command: "/recent-summary",
     context: { language: "zh", currentView: "go", projectId: "project-test" },
   });
   assert.equal(messageResponse.status, 202);
@@ -355,16 +355,13 @@ test("Go conversation contract accepts a quick action and stores the resulting c
   assert.equal(accepted.status, "queued");
   const task = await waitForTask(baseUrl, accepted.taskId);
   assert.equal(task.status, "succeeded");
-  assert.equal(task.result.card.type, "dev_market");
-  assert.equal(task.result.data_source, "gmgn");
-  assert.equal(task.result.data_source_status, "unavailable");
-  assert.deepEqual(task.result.dev_wallets, []);
+  assert.equal(task.result.card.type, "recent_summary");
 
   const conversation = await fetch(`${baseUrl}/api/v1/agent/conversations/${created.conversationId}`).then((response) => response.json());
   assert.equal(conversation.messages.length, 2);
   assert.equal(conversation.messages[0].role, "user");
   assert.equal(conversation.messages[1].role, "assistant");
-  assert.equal(conversation.messages[1].blocks[0].type, "dev_market");
+  assert.equal(conversation.messages[1].blocks[0].type, "recent_summary");
 });
 
 test("Go conversation wait mode returns the completed launch card inline", async (t) => {
@@ -394,19 +391,6 @@ test("Go conversation wait mode returns the completed launch card inline", async
   assert.equal(followUp.status, "succeeded");
   assert.ok(followUp.message.content);
   assert.notEqual(followUp.message.content, "Task completed.");
-});
-
-test("market scan exposes explicit GMGN data gaps without fabricated Dev wallets", async (t) => {
-  const { application, baseUrl } = await startApi();
-  t.after(() => application.close());
-  const response = await post(baseUrl, "/api/v1/market/dev-wallets/scan", { chain: "solana", limit: 10 });
-  assert.equal(response.status, 202);
-  const accepted = await response.json();
-  const completed = await waitForTask(baseUrl, accepted.task_id);
-  assert.equal(completed.result.data_source, "gmgn");
-  assert.equal(completed.result.data_source_status, "unavailable");
-  const wallets = await fetch(`${baseUrl}/api/v1/market/dev-wallets?chain=solana`).then((item) => item.json());
-  assert.deepEqual(wallets.wallets, []);
 });
 
 test("launch drafts map Solana, BSC, and Robinhood to the required platforms", async (t) => {

@@ -45,47 +45,6 @@ export class SupabaseWalletGroupRepository {
     }));
   }
 
-  async createGroup({ name, walletCount = 1, purpose = "general", network = "solana", ownerUserId }) {
-    if (!ownerUserId) throw new Error("A signed-in actor is required to create a wallet group");
-    const safeCount = Math.min(Math.max(Number(walletCount) || 1, 1), 200);
-    const groupInput = {
-      user_id: ownerUserId,
-      name: String(name || "Wallet Group").slice(0, 80),
-      purpose: purpose === "cooking" ? "cooking" : "general",
-      network: ["solana", "bsc", "evm"].includes(network) ? network : "solana",
-    };
-    const { data: group, error: groupError } = await this.#supabase
-      .from("asset_wallet_groups")
-      .insert(groupInput)
-      .select("group_id,name,purpose,network,created_at,updated_at")
-      .single();
-    if (groupError) throw groupError;
-    const walletRows = Array.from({ length: safeCount }, (_, index) => ({
-      group_id: group.group_id,
-      user_id: ownerUserId,
-      wallet_index: index + 1,
-      provisioning_status: "planned",
-      public_address: null,
-      signer_reference: null,
-    }));
-    const { error: walletError } = await this.#supabase
-      .from("asset_wallets")
-      .insert(walletRows);
-    if (walletError) {
-      await this.#supabase.from("asset_wallet_groups").delete().eq("group_id", group.group_id).eq("user_id", ownerUserId);
-      throw walletError;
-    }
-    return {
-      groupId: group.group_id,
-      name: group.name,
-      purpose: group.purpose,
-      network: group.network,
-      walletCount: safeCount,
-      createdAt: group.created_at,
-      updatedAt: group.updated_at,
-    };
-  }
-
   #publicGroup(group, walletCount) {
     return {
       groupId: group.group_id,

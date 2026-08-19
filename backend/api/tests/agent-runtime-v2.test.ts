@@ -1873,10 +1873,10 @@ test("LegacyRuntimeFacade preserves current runtime behavior behind the v2 task 
         status: "succeeded",
         task: {
           taskId,
-          type: "market.trending",
+          type: "account.recent-summary",
           status: "succeeded",
           progress: 100,
-          result: { card: { type: "market_trending", data: {} } },
+          result: { card: { type: "recent_summary", data: {} } },
         },
       };
     },
@@ -1884,7 +1884,7 @@ test("LegacyRuntimeFacade preserves current runtime behavior behind the v2 task 
       return id === taskId ? {
         taskId,
         conversationId,
-        type: "market.trending",
+        type: "account.recent-summary",
         status: "succeeded",
         progress: 100,
       } : null;
@@ -1894,13 +1894,13 @@ test("LegacyRuntimeFacade preserves current runtime behavior behind the v2 task 
     requestId: randomUUID(),
     actor: { actorId: "user-1", permissions: ["market:read"] },
     client: "go",
-    message: "/market-trending solana",
+    message: "/recent-summary",
     idempotencyKey: `go:${randomUUID()}`,
     locale: "zh-CN",
   });
   assert.equal(task.schemaVersion, "agent.task.v2");
   assert.equal(task.taskId, taskId);
-  assert.equal(task.capability, "market.trending");
+  assert.equal(task.capability, "account.recent-summary");
   assert.equal(task.actorId, "user-1");
   assert.equal(await facade.getTask({ actorId: "other-user" }, taskId), null);
   assert.equal((await facade.getTask({ actorId: "user-1" }, taskId))?.status, "succeeded");
@@ -2118,97 +2118,6 @@ test("current Agent runtime resolves private refs before exposing model-safe con
     }),
     (error: any) => error.code === "CONTEXT_AUTHENTICATION_REQUIRED",
   );
-});
-
-test("current Agent runtime executes Pulse reads through the fixed Tool Registry", async () => {
-  let observedContext: any = null;
-  const runtime = createAgentRuntime({
-    stepDelayMs: 1,
-    toolRegistry: {
-      async execute(name: string, version: string, context: any, input: any) {
-        assert.equal(name, "pulse.narratives.list");
-        assert.equal(version, "1.0.0");
-        assert.equal(input.limit, 12);
-        observedContext = context;
-        return {
-          status: "succeeded",
-          data: {
-            narratives: [{
-              narrative_id: "narrative-1",
-              original_text: "Runtime-owned Pulse evidence",
-              source_url: "https://example.com/evidence",
-              category: "ai",
-              platform: "x",
-            }],
-          },
-        };
-      },
-    },
-  });
-  const result = await runtime.handleMessage({
-    channel: "web",
-    message: "/narrative ai",
-    command: "/narrative ai",
-    context: {
-      userId: "user-1",
-      language: "en",
-      currentView: "go",
-    },
-    wait: true,
-    timeoutMs: 3_000,
-  });
-  assert.equal(result.status, "succeeded");
-  assert.equal(observedContext.actor.actorId, "user-1");
-  assert.deepEqual(observedContext.policy.permissions, ["pulse:read"]);
-  assert.deepEqual(result.task.result.tool, {
-    name: "pulse.narratives.list",
-    version: "1.0.0",
-  });
-  assert.equal(result.task.result.recommendations[0].narrative_id, "narrative-1");
-});
-
-test("current Agent runtime executes filtered GMGN reads through immutable Tool v2", async () => {
-  let observedContext: any = null;
-  const runtime = createAgentRuntime({
-    stepDelayMs: 1,
-    toolRegistry: {
-      async execute(name: string, version: string, context: any, input: any) {
-        assert.equal(name, "market.gmgn.trending");
-        assert.equal(version, "2.0.0");
-        assert.equal(input.chain, "solana");
-        assert.equal(input.orderBy, "volume");
-        observedContext = context;
-        return {
-          status: "succeeded",
-          data: {
-            status: "live",
-            source: "gmgn",
-            data: [{ symbol: "NARRA" }],
-          },
-        };
-      },
-    },
-  });
-  const result = await runtime.handleMessage({
-    channel: "web",
-    message: "/market-trending solana",
-    command: "/market-trending solana",
-    context: {
-      userId: "user-1",
-      language: "en",
-      currentView: "go",
-    },
-    wait: true,
-    timeoutMs: 3_000,
-  });
-  assert.equal(result.status, "succeeded");
-  assert.equal(observedContext.actor.actorId, "user-1");
-  assert.deepEqual(observedContext.policy.permissions, ["market:read"]);
-  assert.deepEqual(result.task.result.tool, {
-    name: "market.gmgn.trending",
-    version: "2.0.0",
-  });
-  assert.equal(result.task.result.data_source, "gmgn");
 });
 
 test("public-link narrative reads execute through the published research Tool", async () => {

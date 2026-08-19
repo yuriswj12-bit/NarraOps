@@ -11,8 +11,8 @@ test("agent runtime turns a slash command into a structured card", async () => {
   const runtime = createAgentRuntime({ stepDelayMs: 1 });
   const result = await runtime.handleMessage({
     channel: "web",
-    message: "/dev-market solana",
-    command: "/dev-market solana",
+    message: "/recent-summary",
+    command: "/recent-summary",
     context: { language: "en", currentView: "go" },
     wait: true,
     timeoutMs: 3000,
@@ -21,25 +21,23 @@ test("agent runtime turns a slash command into a structured card", async () => {
   assert.ok(result.conversation_id);
   assert.ok(result.task_id);
   assert.equal(result.status, "succeeded");
-  assert.equal(result.cards[0]?.type, "dev_market");
+  assert.equal(result.cards[0]?.type, "recent_summary");
   assert.equal(result.persistence, "memory");
 });
 
-test("agent runtime exposes GMGN read-only market tasks", async () => {
+test("agent runtime routes analyze-meme through the analysis path", async () => {
   const runtime = createAgentRuntime({ stepDelayMs: 1 });
   const result = await runtime.handleMessage({
     channel: "web",
-    message: "/market-trending solana",
-    command: "/market-trending solana",
+    message: "/analyze-meme So11111111111111111111111111111111111111112",
+    command: "/analyze-meme So11111111111111111111111111111111111111112",
     context: { language: "zh", currentView: "go" },
     wait: true,
-    timeoutMs: 3000,
+    timeoutMs: 5000,
   });
   assert.equal(result.status, "succeeded");
-  assert.equal(result.task.type, "market.trending");
-  assert.equal(result.cards[0]?.type, "market_trending");
-  assert.equal(result.cards[0]?.data?.data_source, "gmgn");
-  assert.equal(result.cards[0]?.data?.data_source_status, "unavailable");
+  assert.equal(result.task.type, "meme.analyze");
+  assert.ok(["meme_analysis", "meme_package"].includes(result.cards[0]?.type));
 });
 
 test("agent runtime uses an OpenAI-compatible model for general conversation", async () => {
@@ -222,8 +220,8 @@ test("conversation messages are restored after create", async () => {
   const runtime = createAgentRuntime({ stepDelayMs: 1 });
   const first = await runtime.handleMessage({
     channel: "web",
-    message: "/meme raccoon mayor",
-    command: "/meme raccoon mayor",
+    message: "/recent-summary",
+    command: "/recent-summary",
     context: { language: "en", currentView: "go" },
     wait: true,
     timeoutMs: 3000,
@@ -239,14 +237,14 @@ test("telegram adapter parses bot updates and formats replies", async () => {
   const parsed = parseTelegramUpdate({
     message: {
       message_id: 9,
-      text: "/meme raccoon mayor",
+      text: "/recent-summary",
       chat: { id: 12345 },
       from: { id: 99, username: "dev", language_code: "en" },
     },
   });
   assert.equal(parsed.handled, true);
   assert.equal(parsed.channel, "telegram");
-  assert.equal(parsed.command, "/meme");
+  assert.equal(parsed.command, "/recent-summary");
 
   const runtime = createAgentRuntime({ stepDelayMs: 1 });
   const result = await runtime.handleMessage({
@@ -258,7 +256,7 @@ test("telegram adapter parses bot updates and formats replies", async () => {
     timeoutMs: 3000,
   });
   const reply = formatTelegramReply(result, "en");
-  assert.match(reply.text, /Card: meme_package|Meme package ready|Task completed/i);
+  assert.match(reply.text, /Card: recent_summary|Recent summary ready|Task completed/i);
 });
 
 test("unsupported telegram updates are ignored", () => {
@@ -457,25 +455,18 @@ test("plain chat with assets intent injects wallet groups for an authenticated a
   }
 });
 
-test("wallet.group.create creates a wallet group for the signed-in actor", async () => {
+test("wallet.group.create defers to Assets instead of creating from chat", async () => {
   const created = [];
   const walletGroupRepository = {
     async listGroups() { return []; },
-    async createGroup(input) {
-      created.push(input);
-      return {
-        groupId: "group-new",
-        name: input.name,
-        purpose: input.purpose,
-        network: input.network,
-        walletCount: input.walletCount,
-      };
-    },
+    async createGroup(input) { created.push(input); return { groupId: "g" }; },
   };
   const runtime = createAgentRuntime({
     stepDelayMs: 1,
     walletGroupRepository,
   });
+  // With the chat-creation rule removed, "创建一个钱包组" routes to agent.chat
+  // (no createGroup call). Verify no wallet group is created by chat.
   const result = await runtime.handleMessage({
     channel: "web",
     message: "创建一个钱包组叫 Alpha 3 个钱包",
@@ -484,10 +475,6 @@ test("wallet.group.create creates a wallet group for the signed-in actor", async
     timeoutMs: 3000,
   });
   assert.equal(result.status, "succeeded");
-  assert.equal(created.length, 1);
-  assert.equal(created[0].name, "Alpha");
-  assert.equal(created[0].walletCount, 3);
-  assert.equal(created[0].ownerUserId, "user-1");
-  assert.equal(result.cards[0]?.type, "wallet_group");
-  assert.equal(result.cards[0]?.data?.name, "Alpha");
+  assert.equal(created.length, 0);
+  assert.notEqual(result.task?.type, "wallet.group.create");
 });
