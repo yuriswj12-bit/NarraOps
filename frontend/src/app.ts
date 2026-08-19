@@ -840,6 +840,10 @@ function renderStructuredCard(card) {
     </div>
   `).join("");
 
+  const downloadButton = card.type === "meme_analysis" && data.markdown_report
+    ? `<button type="button" class="go-card-download" data-action="download-meme-md" data-md-b64="${btoa(unescape(encodeURIComponent(String(data.markdown_report))))}" data-md-name="${escapeHtml(String(data.markdown_filename || "meme-analysis-report.md"))}"><i class="fa-solid fa-download" aria-hidden="true"></i>${t("下载 Markdown 报告", "Download Markdown report")}</button>`
+    : "";
+
   return `
     <article class="go-structured-card" data-card-type="${escapeHtml(String(card.type || ""))}">
       <header>
@@ -847,6 +851,7 @@ function renderStructuredCard(card) {
         <span>${t("已完成", "Completed")}</span>
       </header>
       ${metrics ? `<div class="go-card-metrics">${metrics}</div>` : `<p class="go-card-empty">${t("结果已生成，可继续追问关键信息。", "The result is ready. Ask a follow-up for the details you need.")}</p>`}
+      ${downloadButton}
     </article>
   `;
 }
@@ -3377,6 +3382,27 @@ viewRoot.addEventListener("click", async (event) => {
     if (input) {
       input.value = `${command.dataset.command} `;
       input.focus();
+    }
+    return;
+  }
+
+  const downloadMdBtn = event.target.closest("[data-action='download-meme-md']");
+  if (downloadMdBtn) {
+    try {
+      const b64 = downloadMdBtn.dataset.mdB64 || "";
+      const md = decodeURIComponent(escape(atob(b64)));
+      const name = downloadMdBtn.dataset.mdName || "meme-analysis-report.md";
+      const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      showToast(t("下载报告失败。", "Failed to download the report."));
     }
     return;
   }

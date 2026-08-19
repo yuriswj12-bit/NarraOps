@@ -755,6 +755,8 @@ export function createAgentHandlers(integrations, services = {}) {
             : "unavailable",
         ...analysis,
         source: analysis.source || "gmgn",
+        markdown_report: renderMemeAnalysisMarkdown({ ...analysis, contract_address: contractAddress, chain }),
+        markdown_filename: `meme-analysis-${chain}-${String(contractAddress || "token").slice(0, 8)}.md`,
         ...(analysis.reason ? { data_gap: analysis.reason } : {}),
       };
       return { ...result, card: { type: "meme_analysis", data: result } };
@@ -981,4 +983,93 @@ function normalizeAnalysisChain(value, contractAddress) {
   if (text.includes("eth") || text.includes("ethereum")) return "eth";
   if (text.includes("bsc") || String(contractAddress || "").startsWith("0x")) return "bsc";
   return "solana";
+}
+
+function mdCell(value) {
+  return String(value ?? "").replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
+}
+
+function renderMemeAnalysisMarkdown(analysis) {
+  const address = String(analysis?.contract_address || analysis?.address || "unknown");
+  const chain = String(analysis?.chain || "solana");
+  const observedAt = analysis?.observed_at || new Date().toISOString();
+  const status = analysis?.status || analysis?.analysis_status || "unknown";
+  const data = analysis?.data && typeof analysis.data === "object" ? analysis.data : {};
+  const lines = [];
+
+  lines.push(`# Meme 分析报告`);
+  lines.push("");
+  lines.push(`- **链**: ${chain}`);
+  lines.push(`- **合约地址**: \`${address}\``);
+  lines.push(`- **状态**: ${status}`);
+  lines.push(`- **生成时间**: ${observedAt}`);
+  lines.push(`- **数据源**: GMGN`);
+  lines.push("");
+
+  const info = data.info || data.token || null;
+  if (info && typeof info === "object") {
+    lines.push(`## 代币信息`);
+    lines.push("");
+    lines.push(`| 字段 | 值 |`);
+    lines.push(`|---|---|`);
+    for (const [key, value] of Object.entries(info)) {
+      if (value == null || value === "") continue;
+      lines.push(`| ${mdCell(key)} | ${mdCell(value)} |`);
+    }
+    lines.push("");
+  }
+
+  const security = data.security || null;
+  if (security && typeof security === "object") {
+    lines.push(`## 安全审计`);
+    lines.push("");
+    lines.push(`| 项目 | 值 |`);
+    lines.push(`|---|---|`);
+    for (const [key, value] of Object.entries(security)) {
+      if (value == null || value === "") continue;
+      lines.push(`| ${mdCell(key)} | ${mdCell(value)} |`);
+    }
+    lines.push("");
+  }
+
+  const holders = data.smart_money_holders || data.holders || null;
+  if (Array.isArray(holders) && holders.length) {
+    lines.push(`## 聪明钱持有者（前 ${holders.length}）`);
+    lines.push("");
+    lines.push(`| 地址 | 余额 | 占比 |`);
+    lines.push(`|---|---|---|`);
+    for (const holder of holders.slice(0, 20)) {
+      lines.push(`| ${mdCell(holder?.address || holder?.holder || "")} | ${mdCell(holder?.balance || holder?.ui_amount || "")} | ${mdCell(holder?.percent || holder?.percentage || "")} |`);
+    }
+    lines.push("");
+  }
+
+  const traders = data.smart_money_traders || data.traders || null;
+  if (Array.isArray(traders) && traders.length) {
+    lines.push(`## 聪明钱交易者（前 ${traders.length}）`);
+    lines.push("");
+    lines.push(`| 地址 | 买入次数 | 卖出次数 |`);
+    lines.push(`|---|---|---|`);
+    for (const trader of traders.slice(0, 20)) {
+      lines.push(`| ${mdCell(trader?.address || trader?.trader || "")} | ${mdCell(trader?.buy_count || "")} | ${mdCell(trader?.sell_count || "")} |`);
+    }
+    lines.push("");
+  }
+
+  if (analysis?.reason) {
+    lines.push(`> 数据缺口：${analysis.reason}`);
+    lines.push("");
+  }
+
+  const componentStatuses = analysis?.component_statuses;
+  if (componentStatuses && typeof componentStatuses === "object") {
+    lines.push(`## 组件状态`);
+    lines.push("");
+    for (const [key, value] of Object.entries(componentStatuses)) {
+      lines.push(`- \`${key}\`: ${value}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
 }
