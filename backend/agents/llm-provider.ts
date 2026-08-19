@@ -181,16 +181,15 @@ export async function generateAgentReply({
   ].join(" ");
   const context = JSON.stringify({
     language: language === "zh" ? "zh" : "en",
-    user_message: String(message).slice(0, 8_000),
-    capabilities,
+    user_message: String(message).slice(0, 4_000),
+    capabilities: Array.isArray(capabilities) ? capabilities.slice(0, 5) : capabilities,
     durable_memory: (Array.isArray(durableMemories) ? durableMemories : [])
-      .slice(0, 50)
+      .slice(0, 20)
       .map((item) => ({
         scope: item?.scope,
         kind: item?.kind,
-        content: String(item?.content || "").slice(0, 2_000),
+        content: String(item?.content || "").slice(0, 500),
         confidence: item?.confidence,
-        source_type: item?.sourceType,
       })),
     task: task ? sanitizeAgentTask(task) : null,
   });
@@ -198,12 +197,12 @@ export async function generateAgentReply({
     .filter((entry) => entry?.role === "user" || entry?.role === "assistant")
     .map((entry) => ({
       role: entry.role,
-      content: String(entry.content || "").slice(0, 2_000),
+      content: String(entry.content || "").slice(0, 1_200),
     }))
     .filter((entry) => entry.content)
-    .slice(-8);
+    .slice(-4);
   if (!prior.length || prior.at(-1)?.role !== "user" || prior.at(-1)?.content !== message) {
-    prior.push({ role: "user", content: String(message).slice(0, 8_000) });
+    prior.push({ role: "user", content: String(message).slice(0, 4_000) });
   }
 
   try {
