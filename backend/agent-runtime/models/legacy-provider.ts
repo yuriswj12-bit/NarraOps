@@ -54,7 +54,7 @@ export class LegacyNarraOpsModelProvider implements ModelProvider {
         durableMemories: Array.isArray(input.durableMemories)
           ? input.durableMemories
           : [],
-        timeoutMs: Number(input.timeoutMs || 5_000),
+        timeoutMs: Number(input.timeoutMs || 8_000),
       });
       return {
         provider: result.provider || this.id,
