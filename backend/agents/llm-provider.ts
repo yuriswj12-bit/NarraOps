@@ -206,20 +206,24 @@ export async function streamAgentReply({
     }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    let buffer = "";
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      const text = decoder.decode(value, { stream: true });
-      for (const line of text.split("\n")) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-        const payload = trimmed.slice(5).trim();
+      buffer += decoder.decode(value, { stream: true });
+      let sep;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        const dataLine = frame.split("\n").find((l) => l.trim().startsWith("data:"));
+        if (!dataLine) continue;
+        const payload = dataLine.slice(5).trim();
         if (payload === "[DONE]") continue;
         try {
           const json = JSON.parse(payload);
           const delta = json?.choices?.[0]?.delta?.content || "";
           pushDelta(delta);
-        } catch { /* partial SSE frame */ }
+        } catch { /* malformed frame */ }
       }
     }
     if (!full) pushDelta(fallback.content);
