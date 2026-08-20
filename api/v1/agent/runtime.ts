@@ -122,11 +122,57 @@ export function getSharedAgentRuntime() {
 }
 
 export async function streamAgentChat({ message = "", language = "en", onDelta, timeoutMs = 30_000 } = {}) {
+  const text = String(message || "");
+  const narrativeIntent = /(有什么叙事|看下叙事|看下热点|热点叙事|叙事雷达|看看.*(热点|叙事|趋势|机会)|pulse|narrative|最近有什么)/i.test(text)
+    && !/(发射|买入|卖出|分析|launch|buy|sell|analy[sz]e|swap|钱包|转账)/i.test(text);
+  let pulseNarratives = null;
+  if (narrativeIntent) {
+    const supabase = serverSupabase();
+    if (supabase) {
+      try {
+        const { data } = await supabase
+          .from("pulse_narrative_candidates")
+          .select("narrative_id,category,platform,author_name,original_text,source_url,media_type,media_urls,published_at,expires_at")
+          .gt("expires_at", new Date().toISOString())
+          .order("published_at", { ascending: false })
+          .limit(12);
+        if (Array.isArray(data) && data.length) {
+          pulseNarratives = data.map((c) => ({
+            narrative_id: c.narrative_id,
+            title: c.original_text || c.title || "",
+            category: c.category || null,
+            platform: c.platform || null,
+            author_name: c.author_name || null,
+            source_url: c.source_url || null,
+            published_at: c.published_at || null,
+          }));
+        }
+      } catch {
+        pulseNarratives = null;
+      }
+    }
+  }
+  let task = null;
+  if (narrativeIntent) {
+    task = {
+      type: "agent.chat",
+      status: "succeeded",
+      execution_mode: "assistant",
+      result: {
+        mode: "assistant",
+        request: text,
+        ...(pulseNarratives?.length
+          ? { pulse_narratives: pulseNarratives }
+          : { pulse_unavailable: "No live Pulse narrative candidates are currently available." }),
+      },
+    };
+  }
   return streamAgentReply({
     message,
     language,
     onDelta,
     timeoutMs,
+    task,
   });
 }
 
