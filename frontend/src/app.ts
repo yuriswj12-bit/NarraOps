@@ -2902,11 +2902,20 @@ function isWalletStatusQuestion(command) {
     && !/(创建|新建|generate|create)/i.test(value);
 }
 
+function isNarrativeDiscoveryQuestion(command) {
+  const value = String(command || "").trim();
+  if (!value) return false;
+  return /(有无|有没有|有木有).*(叙事|热点|趋势|机会|pulse|narrative)/i.test(value)
+    || /(有什么叙事|有什么热点|看下叙事|看下热点|热点叙事|叙事雷达|最近有什么|看看.*(热点|叙事|趋势|机会))/i.test(value)
+    || /(^|\s)(pulse|narrative)(\s|$)/i.test(value);
+}
+
 function isLaunchIntent(command) {
   const value = String(command || "").trim();
   if (!value) return false;
   if (extractPublicUrl(value)) return true;
   if (/^\/launch\b/i.test(value)) return true;
+  if (isNarrativeDiscoveryQuestion(value)) return false;
   return /(发射|发射模板|launch\s*draft|生成发射|帮我发射|发射参数)/i.test(value);
 }
 
