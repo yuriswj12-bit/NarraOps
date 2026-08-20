@@ -124,8 +124,8 @@ export function getSharedAgentRuntime() {
 export function detectNarrativeChatIntent(text) {
   const value = String(text || "").trim();
   if (!value) return false;
-  return /(有无|有没有|有木有).*(叙事|热点|趋势|机会|pulse|narrative)/i.test(value)
-    || /(有什么叙事|有什么热点|看下叙事|看下热点|热点叙事|叙事雷达|最近有什么|看看.*(热点|叙事|趋势|机会))/i.test(value)
+  return /(有无|有没有|有木有|有哪些|有什么|哪些).*(叙事|热点|趋势|机会|pulse|narrative)/i.test(value)
+    || /(什么叙事|哪些叙事|看下叙事|看下热点|热点叙事|叙事雷达|最近有什么|现在.*(叙事|热点)|看看.*(热点|叙事|趋势|机会)|(叙事|热点|pulse|narrative)(的)?(有哪些|有什么|是什么))/i.test(value)
     || /(^|\s)(pulse|narrative)(\s|$)/i.test(value);
 }
 

@@ -3076,6 +3076,11 @@ test("stream chat narrative intent matches Chinese narration questions and rejec
   assert.equal(detectNarrativeChatIntent("有无可发射的叙事"), true);
   assert.equal(detectNarrativeChatIntent("有没有可以发币的叙事？"), true);
   assert.equal(detectNarrativeChatIntent("最近有什么热点叙事"), true);
+  assert.equal(detectNarrativeChatIntent("有哪些叙事"), true);
+  assert.equal(detectNarrativeChatIntent("现在有哪些叙事"), true);
+  assert.equal(detectNarrativeChatIntent("有哪些可以发射的叙事"), true);
+  assert.equal(detectNarrativeChatIntent("叙事有哪些"), true);
+  assert.equal(detectNarrativeChatIntent("热点有什么"), true);
   assert.equal(detectNarrativeChatIntent("pulse narrative 现在有哪些"), true);
   assert.equal(detectNarrativeChatIntent("分析这个叙事好不好"), false);
   assert.equal(detectNarrativeChatIntent("帮我 launch 这个项目"), false);
