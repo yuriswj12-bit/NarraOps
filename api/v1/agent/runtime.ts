@@ -121,10 +121,17 @@ export function getSharedAgentRuntime() {
   return getRuntime();
 }
 
+export function detectNarrativeChatIntent(text) {
+  const value = String(text || "").trim();
+  if (!value) return false;
+  return /(有无|有没有|有木有).*(叙事|热点|趋势|机会|pulse|narrative)/i.test(value)
+    || /(有什么叙事|有什么热点|看下叙事|看下热点|热点叙事|叙事雷达|最近有什么|看看.*(热点|叙事|趋势|机会))/i.test(value)
+    || /(^|\s)(pulse|narrative)(\s|$)/i.test(value);
+}
+
 export async function streamAgentChat({ message = "", language = "en", onDelta, timeoutMs = 30_000 } = {}) {
   const text = String(message || "");
-  const narrativeIntent = /(有什么叙事|看下叙事|看下热点|热点叙事|叙事雷达|看看.*(热点|叙事|趋势|机会)|pulse|narrative|最近有什么)/i.test(text)
-    && !/(发射|买入|卖出|分析|launch|buy|sell|analy[sz]e|swap|钱包|转账)/i.test(text);
+  const narrativeIntent = detectNarrativeChatIntent(text);
   let pulseNarratives = null;
   if (narrativeIntent) {
     const supabase = serverSupabase();

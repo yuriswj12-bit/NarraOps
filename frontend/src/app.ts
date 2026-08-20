@@ -3085,36 +3085,35 @@ async function streamPlainChat(command, pendingId) {
     state.conversation.push({ role: "agent", pending: true, pendingId, content: "", timestamp: getMessageTime() });
     renderConversation();
   }
-  const response = await fetch("/api/v1/agent/chat/stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: command,
-      context: { language: state.language, currentView: "go" },
-    }),
-  });
-  if (!response.ok || !response.body) {
-    let message = `HTTP ${response.status}`;
-    try { message = (await response.json()).error?.message || message; } catch {}
-    throw new Error(message);
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let full = "";
-  const current = () => state.conversation.find((item) => item.pendingId === pendingId);
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const blocks = buffer.split("\n\n");
-    buffer = blocks.pop() || "";
-    for (const block of blocks) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 30_000);
+  try {
+    const response = await fetch("/api/v1/agent/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: command,
+        context: { language: state.language, currentView: "go" },
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) {
+      let message = `HTTP ${response.status}`;
+      try { message = (await response.json()).error?.message || message; } catch {}
+      throw new Error(message);
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let full = "";
+    const current = () => state.conversation.find((item) => item.pendingId === pendingId);
+    const processBlock = (block) => {
       let eventType = "";
       let eventData = "";
       for (const line of block.split("\n")) {
-        if (line.startsWith("event:")) eventType = line.slice(6).trim();
-        else if (line.startsWith("data:")) eventData += line.slice(5).trim();
+        const trimmed = line.trim();
+        if (trimmed.startsWith("event:")) eventType = trimmed.slice(6).trim();
+        else if (trimmed.startsWith("data:")) eventData += trimmed.slice(5).trim();
       }
       if (eventType === "delta") {
         try {
@@ -3129,20 +3128,32 @@ async function streamPlainChat(command, pendingId) {
           }
         } catch { /* partial frame */ }
       } else if (eventType === "done") {
-        break;
+        return;
       } else if (eventType === "error") {
         let message = "stream error";
         try { message = JSON.parse(eventData).message || message; } catch {}
         throw new Error(message);
       }
+    };
+    for (;;) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() || "";
+      for (const block of blocks) processBlock(block);
+      if (done) break;
     }
-  }
-  const msg = current();
-  if (msg) {
-    msg.content = full || msg.content;
-    msg.lifecycle = "completed";
-    msg.pending = false;
-    renderConversation();
+    if (buffer.trim()) processBlock(buffer);
+    if (!full) throw new Error(t("Agent 返回了空响应，请重试。", "The Agent returned an empty response. Please retry."));
+    const msg = current();
+    if (msg) {
+      msg.content = full;
+      msg.lifecycle = "completed";
+      msg.pending = false;
+      renderConversation();
+    }
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 

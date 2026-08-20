@@ -70,7 +70,7 @@ import {
 import { createAgentRuntime } from "../../agents/agent-runtime.ts";
 import { createAgentHandlers } from "../../agents/agent-handlers.ts";
 import { TaskManager } from "../../agents/task-manager.ts";
-import { projectAgentCapabilities, submitPumpBroadcastViaGateway, submitSolanaSwapViaGateway, submitAssetTransferViaGateway } from "../../../api/v1/agent/runtime.ts";
+import { detectNarrativeChatIntent, projectAgentCapabilities, submitPumpBroadcastViaGateway, submitSolanaSwapViaGateway, submitAssetTransferViaGateway } from "../../../api/v1/agent/runtime.ts";
 import { validateConversationMessage } from "../src/validation.ts";
 import { InMemoryTaskRepository } from "../src/repositories/in-memory-task-repository.ts";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory-conversation-repository.ts";
@@ -3069,4 +3069,18 @@ test("Agent v3 publishes the meme-launch-plan business skill as declarative data
   assert.equal(manifest?.skills.length, 1);
   assert.equal(manifest?.skills[0].skill.slug, "meme-launch-plan");
   assert.equal("execute" in manifest!.skills[0].skill, false);
+});
+
+test("stream chat narrative intent matches Chinese narration questions and rejects execution intents", () => {
+  assert.equal(detectNarrativeChatIntent("看看有什么叙事"), true);
+  assert.equal(detectNarrativeChatIntent("有无可发射的叙事"), true);
+  assert.equal(detectNarrativeChatIntent("有没有可以发币的叙事？"), true);
+  assert.equal(detectNarrativeChatIntent("最近有什么热点叙事"), true);
+  assert.equal(detectNarrativeChatIntent("pulse narrative 现在有哪些"), true);
+  assert.equal(detectNarrativeChatIntent("分析这个叙事好不好"), false);
+  assert.equal(detectNarrativeChatIntent("帮我 launch 这个项目"), false);
+  assert.equal(detectNarrativeChatIntent("买入这个叙事代币"), false);
+  assert.equal(detectNarrativeChatIntent("我要转账到钱包"), false);
+  assert.equal(detectNarrativeChatIntent("你好"), false);
+  assert.equal(detectNarrativeChatIntent(""), false);
 });
