@@ -129,6 +129,14 @@ export function detectNarrativeChatIntent(text) {
     || /(^|\s)(pulse|narrative)(\s|$)/i.test(value);
 }
 
+const NARRATIVE_CATEGORIES = [
+  ["politics_satire", "Politics / Satire", "政治 / 讽刺"],
+  ["events", "Events", "事件"],
+  ["animals_characters", "Animals / Characters", "动物 / 角色"],
+  ["internet_culture", "Internet Culture", "互联网文化"],
+  ["crypto_native", "Crypto Native", "加密原生"],
+];
+
 export async function streamAgentChat({ message = "", language = "en", onDelta, timeoutMs = 30_000 } = {}) {
   const text = String(message || "");
   const narrativeIntent = detectNarrativeChatIntent(text);
@@ -142,9 +150,9 @@ export async function streamAgentChat({ message = "", language = "en", onDelta, 
           .select("narrative_id,category,platform,author_name,original_text,source_url,media_type,media_urls,published_at,expires_at")
           .gt("expires_at", new Date().toISOString())
           .order("published_at", { ascending: false })
-          .limit(12);
+          .limit(100);
         if (Array.isArray(data) && data.length) {
-          pulseNarratives = data.map((c) => ({
+          const rows = data.map((c) => ({
             narrative_id: c.narrative_id,
             title: c.original_text || c.title || "",
             category: c.category || null,
@@ -153,6 +161,16 @@ export async function streamAgentChat({ message = "", language = "en", onDelta, 
             source_url: c.source_url || null,
             published_at: c.published_at || null,
           }));
+          const grouped = NARRATIVE_CATEGORIES.map(([category, en, zh]) => ({
+            category,
+            label_en: en,
+            label_zh: zh,
+            items: rows.filter((row) => row.category === category),
+          }));
+          const nonEmpty = grouped.filter((group) => group.items.length > 0);
+          pulseNarratives = {
+            categories: nonEmpty,
+          };
         }
       } catch {
         pulseNarratives = null;
@@ -168,7 +186,7 @@ export async function streamAgentChat({ message = "", language = "en", onDelta, 
       result: {
         mode: "assistant",
         request: text,
-        ...(pulseNarratives?.length
+        ...(pulseNarratives
           ? { pulse_narratives: pulseNarratives }
           : { pulse_unavailable: "No live Pulse narrative candidates are currently available." }),
       },
