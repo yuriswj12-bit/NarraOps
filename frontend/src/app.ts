@@ -2916,7 +2916,8 @@ function isLaunchIntent(command) {
   if (extractPublicUrl(value)) return true;
   if (/^\/launch\b/i.test(value)) return true;
   if (isNarrativeDiscoveryQuestion(value)) return false;
-  return /(发射|发射模板|launch\s*draft|生成发射|帮我发射|发射参数)/i.test(value);
+  if (/(我的发射|发射记录|发射历史|launch\s*(history|record|count)|my\s*launches)/i.test(value)) return false;
+  return /(发射|发币|发个币|发一个币|发行代币|上币|发币方案|创建代币|建个币|做一个\s*(meme|币|代币)|生成发射|帮我发射|我要发射|想发射|准备发射|发射模板|发射卡片|发射方案|发射计划|发射参数|发射流程|launch\s*(draft|plan|template|card)?|token\s*(launch|draft|template)|deploy|创建.*(代币|token))/i.test(value);
 }
 
 function isSkillOrAnalysisIntent(command) {

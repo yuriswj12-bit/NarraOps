@@ -15,7 +15,7 @@ const NATURAL_RULES = [
   { pattern: /(^|\s)(确认|确认买入|确认卖出|confirm(?:\s+(?:buy|sell|trade))?|execute)(\s|$)/i, type: "trade.confirm" },
   { pattern: /(批量卖|卖出|batch\s*sell|\bsell\b)/i, type: "trade.sell.batch" },
   { pattern: /(批量买|买入|batch\s*buy|\bbuy\b)/i, type: "trade.buy.batch" },
-  { pattern: /(发射|发行|launch)/i, type: "launch.meme" },
+  { pattern: /(发射|发行\s*(?:代币|一个币|币)|发币|发个币|上币|创建代币|建个币|launch|deploy)/i, type: "launch.meme" },
 ];
 
 export function parseGoInput(text) {
