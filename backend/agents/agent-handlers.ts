@@ -381,13 +381,27 @@ export function createAgentHandlers(integrations, services = {}) {
           author_name: pendingNarrative.author_name || null,
           fetched: false,
         };
-      } else {
+      } else if (narrativeUrl) {
         linkRead = await readPublicLink(
           narrativeUrl,
           Number(input.link_timeout_ms || 6_000),
           context,
         );
         narrative = linkRead.data;
+      } else {
+        // No source link was supplied (e.g. the user just asked for a launch
+        // template). Generate a blank editable template without fetching any
+        // network resource.
+        narrative = {
+          status: "template",
+          url: null,
+          canonical_url: null,
+          title: input.prompt || null,
+          summary: null,
+          content: input.prompt || null,
+          author_name: null,
+          fetched: false,
+        };
       }
       const language = input?.context?.language === "zh" ? "zh" : "en";
       const sourceText = [

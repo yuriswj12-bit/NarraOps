@@ -147,6 +147,24 @@ test("launch draft can be created and patched through runtime", async () => {
   );
 });
 
+test("launch request without a URL generates an editable blank template card", async () => {
+  const runtime = createAgentRuntime({ stepDelayMs: 1 });
+  const created = await runtime.handleMessage({
+    channel: "web",
+    message: "/launch 给我发射模板",
+    command: "/launch 给我发射模板",
+    context: { language: "zh", currentView: "go" },
+    wait: true,
+    timeoutMs: 15000,
+  });
+  assert.equal(created.status, "succeeded");
+  assert.equal(created.cards[0]?.type, "launch_draft");
+  const data = created.cards[0]?.data || {};
+  assert.equal(data.preparation_status, "requires_enrichment");
+  assert.ok(Array.isArray(data.missing_fields));
+  assert.ok(data.missing_fields.length >= 1, "blank template must require enrichment");
+});
+
 test("a follow-up launch request reuses the link-derived draft from the same conversation", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
