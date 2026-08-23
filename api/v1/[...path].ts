@@ -3359,6 +3359,9 @@ export default async function handler(request, response) {
     const message = String(body.message || "").trim();
     const language = body.context?.language === "zh" ? "zh" : "en";
     if (!message) return apiError(response, 400, "VALIDATION_ERROR", "message is required");
+    const authSupabase = serverSupabase();
+    const session = authSupabase ? await loadSession(authSupabase, request) : null;
+    const userId = session?.user?.userId || null;
     response.statusCode = 200;
     response.setHeader("content-type", "text/event-stream; charset=utf-8");
     response.setHeader("cache-control", "no-cache, no-store");
@@ -3369,8 +3372,19 @@ export default async function handler(request, response) {
       await streamAgentChat({
         message,
         language,
+        conversationId: body.conversationId || body.conversation_id || null,
+        context: { ...(body.context || {}), ...(userId ? { userId } : {}) },
         onDelta: ({ content }) => {
           response.write(`event: delta\ndata: ${JSON.stringify({ content: String(content || "") })}\n\n`);
+        },
+        onResult: (result) => {
+          response.write(`event: result\ndata: ${JSON.stringify({
+            conversation_id: result?.conversation_id || result?.conversationId || null,
+            status: result?.status || null,
+            cards: result?.cards || [],
+            content: result?.message?.content || "",
+            agent: result?.agent || null,
+          })}\n\n`);
         },
       });
       response.write(`event: done\ndata: {}\n\n`);

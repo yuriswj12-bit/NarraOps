@@ -40,6 +40,16 @@ export function isLaunchCardRequest(text) {
   return /(发射|发币|发个币|发一个币|发行代币|上币|创建代币|建个币|做一个\s*(meme|币|代币)|生成发射|帮我发射|我要发射|想发射|准备发射|launch|deploy)/i.test(value);
 }
 
+export function shouldOpenLaunchCard(text) {
+  const value = String(text || "").trim();
+  if (!value) return false;
+  if (/https?:\/\/[^\s]+/i.test(value)) return true;
+  if (isLaunchAmountFill(value) && !/(我(?:的|发射了|发射过).*(?:发射|meme|代币)|发射.*(?:多少|几个|记录|历史)|launch\s*(history|record|count)|my\s*launches)/i.test(value)) {
+    return true;
+  }
+  return isLaunchCardRequest(value);
+}
+
 export function parseGoInput(text) {
   const normalized = String(text || "").trim();
   if (!normalized) throw new ApiError(400, "VALIDATION_ERROR", "input or command is required");

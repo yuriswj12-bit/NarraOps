@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { VersionedTransaction } from "@solana/web3.js";
 import { createAgentRuntime } from "../../../backend/agents/agent-runtime.ts";
 import { streamAgentReply } from "../../../backend/agents/llm-provider.ts";
+import { shouldOpenLaunchCard } from "../../../backend/agents/go-command-parser.ts";
 import { SupabaseWalletGroupRepository } from "../../../backend/api/src/repositories/supabase-wallet-group-repository.ts";
 import {
   AssetsWalletGroupContextProvider,
@@ -137,8 +138,28 @@ const NARRATIVE_CATEGORIES = [
   ["crypto_native", "Crypto Native", "加密原生"],
 ];
 
-export async function streamAgentChat({ message = "", language = "en", onDelta, timeoutMs = 30_000 } = {}) {
+export async function streamAgentChat({
+  message = "",
+  language = "en",
+  onDelta,
+  onResult,
+  conversationId = null,
+  context = {},
+  timeoutMs = 30_000,
+} = {}) {
   const text = String(message || "");
+  if (shouldOpenLaunchCard(text)) {
+    const result = await getRuntime().handleMessage({
+      channel: "web",
+      conversationId: conversationId || undefined,
+      message: text,
+      context: { language, currentView: "go", ...(context || {}) },
+      wait: true,
+      timeoutMs: Math.min(Math.max(Number(timeoutMs) || 30_000, 8_000), 40_000),
+    });
+    onResult?.(result);
+    return result;
+  }
   const narrativeIntent = detectNarrativeChatIntent(text);
   let pulseNarratives = null;
   if (narrativeIntent) {

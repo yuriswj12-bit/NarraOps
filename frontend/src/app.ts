@@ -3116,6 +3116,7 @@ async function streamPlainChat(command, pendingId) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message: command,
+        conversationId: conversationId || state.agent.conversationId || null,
         context: { language: state.language, currentView: "go" },
       }),
       signal: controller.signal,
@@ -3129,6 +3130,7 @@ async function streamPlainChat(command, pendingId) {
     const decoder = new TextDecoder();
     let buffer = "";
     let full = "";
+    let resultPayload = null;
     const current = () => state.conversation.find((item) => item.pendingId === pendingId);
     const processBlock = (block) => {
       let eventType = "";
@@ -3150,6 +3152,22 @@ async function streamPlainChat(command, pendingId) {
             renderConversation();
           }
         } catch { /* partial frame */ }
+      } else if (eventType === "result") {
+        try {
+          resultPayload = JSON.parse(eventData);
+          const msg = current();
+          if (msg) {
+            msg.content = resultPayload.content || "";
+            msg.cards = Array.isArray(resultPayload.cards) ? resultPayload.cards : [];
+            msg.lifecycle = "completed";
+            msg.pending = false;
+            full = msg.content;
+            renderConversation();
+          }
+          if ((resultPayload.cards || []).some((card) => card?.type === "launch_draft")) {
+            void loadGoWalletGroups();
+          }
+        } catch { /* partial frame */ }
       } else if (eventType === "done") {
         return;
       } else if (eventType === "error") {
@@ -3167,7 +3185,9 @@ async function streamPlainChat(command, pendingId) {
       if (done) break;
     }
     if (buffer.trim()) processBlock(buffer);
-    if (!full) throw new Error(t("Agent 返回了空响应，请重试。", "The Agent returned an empty response. Please retry."));
+    if (!full && !(resultPayload?.cards || []).length) {
+      throw new Error(t("Agent 返回了空响应，请重试。", "The Agent returned an empty response. Please retry."));
+    }
     const msg = current();
     if (msg) {
       msg.content = full;
