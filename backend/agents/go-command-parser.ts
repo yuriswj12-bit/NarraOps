@@ -15,7 +15,6 @@ const NATURAL_RULES = [
   { pattern: /(^|\s)(确认|确认买入|确认卖出|confirm(?:\s+(?:buy|sell|trade))?|execute)(\s|$)/i, type: "trade.confirm" },
   { pattern: /(批量卖|卖出|batch\s*sell|\bsell\b)/i, type: "trade.sell.batch" },
   { pattern: /(批量买|买入|batch\s*buy|\bbuy\b)/i, type: "trade.buy.batch" },
-  { pattern: /(发射|发行\s*(?:代币|一个币|币)|发币|发个币|上币|创建代币|建个币|launch|deploy)/i, type: "launch.meme" },
 ];
 
 export function isLaunchAmountFill(text) {
@@ -24,6 +23,21 @@ export function isLaunchAmountFill(text) {
   const hasCooking = /\b(?:cooking|首买)\b\s*(?:买入)?(?:金额|amount)?\s*[:：]?\s*\d+(?:\.\d+)?/i.test(value);
   const hasBundle = /(?:\bbundle(?:d)?\b|捆绑)\s*(?:买入)?(?:总额|总金额|总买|total|amount)?\s*[:：]?\s*\d+(?:\.\d+)?/i.test(value);
   return hasCooking || hasBundle;
+}
+
+export function wantsNewLaunchDraft(text) {
+  return /第[一二三四五六七八九十\d]+套|再来一套|再出一套|再给我一套|新的一套|再来一张|再出一张|再给我一张/i.test(String(text || ""));
+}
+
+export function isLaunchCardRequest(text) {
+  const value = String(text || "").trim();
+  if (!value) return false;
+  if (/(我(?:的|发射了|发射过).*(?:发射|meme|代币)|发射.*(?:多少|几个|记录|历史)|launch\s*(history|record|count)|my\s*launches)/i.test(value)) return false;
+  if (/(发行量)/i.test(value) && !/(发射|发币|模板|预案)/i.test(value)) return false;
+  if (/(记忆|memory).*(模板|template)/i.test(value)) return false;
+  if (wantsNewLaunchDraft(value)) return true;
+  if (/(模板|预案|发射草稿|代币草稿|launch\s*(draft|plan|template|card)|token\s*(template|draft))/i.test(value)) return true;
+  return /(发射|发币|发个币|发一个币|发行代币|上币|创建代币|建个币|做一个\s*(meme|币|代币)|生成发射|帮我发射|我要发射|想发射|准备发射|launch|deploy)/i.test(value);
 }
 
 export function parseGoInput(text) {
@@ -70,6 +84,20 @@ export function parseGoInput(text) {
       raw_input: normalized,
       arguments: normalized,
       parsed_by: "launch_amount_fill",
+      requires_confirmation: policy.requires_confirmation,
+      execution_mode: policy.execution_mode,
+    };
+  }
+
+  if (isLaunchCardRequest(normalized)) {
+    const policy = policyForType("launch.meme");
+    return {
+      type: "launch.meme",
+      category: policy.category,
+      command: "/launch",
+      raw_input: normalized,
+      arguments: normalized,
+      parsed_by: "launch_card_request",
       requires_confirmation: policy.requires_confirmation,
       execution_mode: policy.execution_mode,
     };

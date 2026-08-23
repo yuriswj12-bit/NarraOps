@@ -269,6 +269,11 @@ test("Chinese natural-language intents route without encoding loss", () => {
   assert.equal(parseGoInput("发行代币").type, "launch.meme");
   assert.equal(parseGoInput("帮我 launch 这个项目").type, "launch.meme");
   assert.equal(parseGoInput("发行量多少").type, "agent.chat");
+  assert.equal(parseGoInput("给我模板").type, "launch.meme");
+  assert.equal(parseGoInput("给我预案").type, "launch.meme");
+  assert.equal(parseGoInput("给我发射模板").type, "launch.meme");
+  assert.equal(parseGoInput("第二套给我").type, "launch.meme");
+  assert.equal(parseGoInput("再来一套").type, "launch.meme");
   assert.equal(parseGoInput("Cooking 2 SOL，捆绑 5 SOL").type, "launch.meme");
   assert.equal(parseGoInput("Cooking 2 SOL，捆绑 5 SOL").parsed_by, "launch_amount_fill");
   assert.equal(parseGoInput("把资金转到 cooking 钱包组").type, "funds.transfer");

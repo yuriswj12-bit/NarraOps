@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { resolveLaunchPlatform } from "../integrations/launch-platform-registry.ts";
 import { buildDraftMetadata, fetchNarrativeLink } from "../integrations/narrative-link-adapter.ts";
 import { generateStructuredLaunchContent } from "./llm-provider.ts";
+import { wantsNewLaunchDraft } from "./go-command-parser.ts";
 
 function slug(value, fallback) {
   const result = String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32);
@@ -374,6 +375,14 @@ export function createAgentHandlers(integrations, services = {}) {
     async "launch.meme"(input, context) {
       const launchContext = await resolveLaunchContext(input, context, services);
       const promptAmounts = parseLaunchAmountsFromText(input.prompt || "");
+      const createFresh = wantsNewLaunchDraft(input.prompt || "");
+      if (createFresh) {
+        launchContext.existingDraft = null;
+        if (!extractPublicUrl(input.prompt || "")) {
+          launchContext.narrativeUrl = null;
+          launchContext.pendingNarrative = null;
+        }
+      }
       if (launchContext.existingDraft) {
         let draft = launchContext.existingDraft;
         if ((promptAmounts.cooking_amount || promptAmounts.bundled_total) && draft.launch_draft_id && services.launchDraftRepository?.update) {

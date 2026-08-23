@@ -167,6 +167,47 @@ test("launch request without a URL generates an editable blank template card", a
   assert.equal(created.agent.provider, "launch_card");
 });
 
+test("template, plan, and second-set phrases return a launch card instead of chat", async () => {
+  const runtime = createAgentRuntime({ stepDelayMs: 1 });
+  for (const message of ["给我模板", "给我预案", "第二套给我"]) {
+    const result = await runtime.handleMessage({
+      channel: "web",
+      message,
+      context: { language: "zh", currentView: "go" },
+      wait: true,
+      timeoutMs: 8000,
+    });
+    assert.equal(result.status, "succeeded", message);
+    assert.equal(result.task.type, "launch.meme", message);
+    assert.equal(result.cards[0]?.type, "launch_draft", message);
+    assert.equal(result.agent.used_llm, false, message);
+  }
+});
+
+test("再来一套 creates a new blank launch card instead of reusing the previous draft", async () => {
+  const runtime = createAgentRuntime({ stepDelayMs: 1 });
+  const first = await runtime.handleMessage({
+    channel: "web",
+    message: "给我模板",
+    context: { language: "zh", currentView: "go" },
+    wait: true,
+    timeoutMs: 8000,
+  });
+  const firstId = first.cards[0]?.data?.launch_draft_id;
+  assert.ok(firstId);
+  const second = await runtime.handleMessage({
+    channel: "web",
+    conversationId: first.conversation_id,
+    message: "再来一套",
+    context: { language: "zh", currentView: "go" },
+    wait: true,
+    timeoutMs: 8000,
+  });
+  assert.equal(second.cards[0]?.type, "launch_draft");
+  assert.notEqual(second.cards[0]?.data?.launch_draft_id, firstId);
+  assert.equal(second.agent.used_llm, false);
+});
+
 test("amount-only follow-up patches the same launch draft without a new card or LLM narration", async () => {
   const runtime = createAgentRuntime({ stepDelayMs: 1 });
   const created = await runtime.handleMessage({

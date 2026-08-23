@@ -2916,9 +2916,13 @@ function isLaunchIntent(command) {
   if (extractPublicUrl(value)) return true;
   if (/^\/launch\b/i.test(value)) return true;
   if (isNarrativeDiscoveryQuestion(value)) return false;
-  if (/(我的发射|发射记录|发射历史|launch\s*(history|record|count)|my\s*launches)/i.test(value)) return false;
+  if (/(我(?:的|发射了|发射过).*(?:发射|meme|代币)|发射.*(?:多少|几个|记录|历史)|launch\s*(history|record|count)|my\s*launches)/i.test(value)) return false;
+  if (/(发行量)/i.test(value) && !/(发射|发币|模板|预案)/i.test(value)) return false;
+  if (/(记忆|memory).*(模板|template)/i.test(value)) return false;
   if (isLaunchAmountFill(value)) return true;
-  return /(发射|发币|发个币|发一个币|发行代币|上币|发币方案|创建代币|建个币|做一个\s*(meme|币|代币)|生成发射|帮我发射|我要发射|想发射|准备发射|发射模板|发射卡片|发射方案|发射计划|发射参数|发射流程|launch\s*(draft|plan|template|card)?|token\s*(launch|draft|template)|deploy|创建.*(代币|token))/i.test(value);
+  if (/第[一二三四五六七八九十\d]+套|再来一套|再出一套|再给我一套|新的一套|再来一张|再出一张|再给我一张/i.test(value)) return true;
+  if (/(模板|预案|发射草稿|代币草稿|launch\s*(draft|plan|template|card)|token\s*(template|draft))/i.test(value)) return true;
+  return /(发射|发币|发个币|发一个币|发行代币|上币|创建代币|建个币|做一个\s*(meme|币|代币)|生成发射|帮我发射|我要发射|想发射|准备发射|发射卡片|发射方案|发射计划|发射参数|发射流程|launch|deploy|创建.*(代币|token))/i.test(value);
 }
 
 function isLaunchAmountFill(command) {
