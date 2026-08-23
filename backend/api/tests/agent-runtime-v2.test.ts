@@ -2366,7 +2366,9 @@ test("structured launch content follows the Agent version model policy", async (
       timeoutMs: 3_000,
     });
     assert.equal(result.status, "succeeded");
-    assert.deepEqual(operations, ["launch.content", "agent.reply"]);
+    assert.deepEqual(operations, ["launch.content"]);
+    assert.equal(result.agent.provider, "launch_card");
+    assert.equal(result.agent.used_llm, false);
     assert.equal(result.cards[0]?.data?.token?.name, "Policy Launch");
     assert.equal(result.cards[0]?.data?.content_provider, "openai-compatible");
     assert.equal(result.cards[0]?.data?.used_llm, true);

@@ -94,7 +94,7 @@ function messageFromTask(task, language = "en") {
   const labels = {
     narrative_snapshot: zh ? "已生成叙事快照。" : "Narrative snapshot ready.",
     meme_package: zh ? "已生成 Meme 构建包。" : "Meme package ready.",
-    launch_draft: zh ? "已生成可编辑发射参数。" : "Editable launch fields are ready.",
+    launch_draft: zh ? "" : "",
     dev_market: zh ? "已生成链上 Dev 行情摘要。" : "On-chain Dev market summary ready.",
     narrative_trends: zh ? "已生成叙事趋势摘要。" : "Narrative trend summary ready.",
     meme_analysis: zh ? "已生成 Meme 分析报告。" : "Meme analysis report ready.",
@@ -106,10 +106,36 @@ function messageFromTask(task, language = "en") {
   };
   return {
     role: "assistant",
-    content: labels[cardType] || (zh ? "任务已完成。" : "Task completed."),
-    suggestion: zh
-      ? "可以继续修改参数，或要求生成/更新发射预案。"
-      : "You can refine parameters or ask to create/update a launch draft.",
+    content: Object.prototype.hasOwnProperty.call(labels, cardType)
+      ? labels[cardType]
+      : (zh ? "任务已完成。" : "Task completed."),
+    suggestion: cardType === "launch_draft"
+      ? ""
+      : zh
+        ? "可以继续修改参数，或要求生成/更新发射预案。"
+        : "You can refine parameters or ask to create/update a launch draft.",
+  };
+}
+
+function launchCardAssistantMessage(task, language = "en") {
+  const zh = language === "zh";
+  const data = task?.result?.card?.data || task?.result || {};
+  const token = data.token || data.launch_parameters?.token || {};
+  const needed = [];
+  if (token.initial_buy == null || token.initial_buy === "") {
+    needed.push(zh ? "Cooking 买入金额" : "Cooking buy amount");
+  }
+  if (token.bundle_buy_total == null || token.bundle_buy_total === "") {
+    needed.push(zh ? "捆绑买入总金额" : "bundled buy total");
+  }
+  return {
+    role: "assistant",
+    content: needed.length
+      ? (zh ? `还需要：${needed.join("、")}。` : `Still needed: ${needed.join(", ")}.`)
+      : "",
+    suggestion: "",
+    provider: "launch_card",
+    used_llm: false,
   };
 }
 
@@ -938,6 +964,16 @@ export function createAgentRuntime(options = {}) {
         4_000,
         "agent.conversation.reload",
       ).catch(() => conversation);
+      if (finalTask?.result?.card?.type === "launch_draft") {
+        assistantMessage = launchCardAssistantMessage(completed || task, validated.context.language);
+        agentReply = {
+          provider: "launch_card",
+          used_llm: false,
+          configured: true,
+          content: assistantMessage.content,
+          suggestion: "",
+        };
+      } else {
       agentReply = await withTimeout(
         generateConfiguredAgentReply({
           message: validated.message,
@@ -968,6 +1004,7 @@ export function createAgentRuntime(options = {}) {
         used_llm: Boolean(agentReply.used_llm),
         ...(agentReply.model ? { model: agentReply.model } : {}),
       };
+      }
       await withTimeout(
         conversations.addMessage(conversation.conversationId, {
           role: "assistant",

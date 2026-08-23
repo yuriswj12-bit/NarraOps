@@ -2,14 +2,16 @@
 
 ## Goal
 
-Prioritize the NarraOps Agent as the product operating system: stabilize the
-Go Agent main chain (conversation, `/analyze-meme`, `/launch`, session restore),
-harden Card/API contracts against field drift, and land the first business
-skills and user analytics tools. Wallet/gateway authority rollout is frozen
-until the Agent main chain and acceptance coverage are stable.
+Ship the Hermes launch loop: launch intent pops the editable card immediately,
+with no narration. Amount-only follow-ups patch the same card. Wallet/gateway
+authority rollout stays frozen.
 
 ## Completed
 
+- Launch intent now returns the launch_draft card without a second LLM
+  narration. Blank templates skip content generation entirely. Current-turn
+  Cooking/bundled SOL amounts prefill or patch the same draft. Go no longer
+  prints “已根据链接生成发射参数” above the card.
 - Agent main-chain audit complete: Go conversation, `/analyze-meme`, `/launch`,
   session restore, and message submission are wired through the conversation
   path with 140/140 API tests; all production Agent routes verified non-404.
@@ -269,19 +271,12 @@ the shared coordination/OpenCode command files. Preserve unrelated UI changes.
 
 ## Remaining
 
-1. Done: consolidated production acceptance canary
-   (`scripts/canary/production-agent-acceptance.mjs`) passes on narraops.xyz —
-   /recent-summary, /my-launches, /my-projects, /my-pnl, /launch
-   (launch_draft + meme-launch-plan), /analyze-meme, and durable event replay,
-   all with a fresh random wallet and full cleanup. Browser-side acceptance
-   steps remain in `docs/engineering/agent-main-chain-acceptance.md`.
-2. REMINDER from user: run the remaining real-browser acceptance pass:
-   authenticate in Go, propose/confirm a launch preference with the Memory
-   quick template, verify it appears in production `agent_memory_items`, then
-   run `/my-launches`, `/my-projects`, `/my-pnl`, and `/launch` to confirm the
-   analytics cards and Memory-prefilled launch card render end-to-end.
-3. Wallet/gateway authority rollout stays frozen until the Agent main chain is
-   stable.
+1. Browser check after this deploy: say “给我发射模板” or paste a link — the
+   launch card should appear with no narration. Then send “Cooking 2 SOL，捆绑 5 SOL”
+   and confirm the same card updates. Still must be logged in.
+2. Frontend multi-turn streaming: third pending bubble can vanish until refresh.
+   Still open; not part of this change.
+3. Wallet/gateway authority rollout stays frozen.
 4. Do not expand live fund execution beyond the current direct path.
 
 ## Known blockers

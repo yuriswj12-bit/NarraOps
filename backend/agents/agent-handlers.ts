@@ -9,6 +9,26 @@ function slug(value, fallback) {
   return result || fallback;
 }
 
+export function parseLaunchAmountsFromText(text) {
+  const value = String(text || "");
+  const cookingMatch = value.match(/\b(?:cooking|首买)\b\s*(?:买入)?(?:金额|amount)?\s*[:：]?\s*(\d+(?:\.\d+)?)/i);
+  const bundleMatch = value.match(/(?:\bbundle(?:d)?\b|捆绑)\s*(?:买入)?(?:总额|总金额|总买|total|amount)?\s*[:：]?\s*(\d+(?:\.\d+)?)/i);
+  return {
+    cooking_amount: cookingMatch?.[1] || null,
+    bundled_total: bundleMatch?.[1] || null,
+  };
+}
+
+function blankLaunchContent() {
+  return {
+    name: "",
+    symbol: "",
+    description: "",
+    narrative_thesis: "",
+    risk_notes: [],
+  };
+}
+
 function resolveLaunchSlippage(input, memoryPrefill) {
   const explicit = input?.token?.slippage_percent ?? input?.slippage_percent;
   if (explicit !== undefined && explicit !== null && explicit !== "") {
@@ -353,8 +373,18 @@ export function createAgentHandlers(integrations, services = {}) {
 
     async "launch.meme"(input, context) {
       const launchContext = await resolveLaunchContext(input, context, services);
+      const promptAmounts = parseLaunchAmountsFromText(input.prompt || "");
       if (launchContext.existingDraft) {
-        const result = launchResultFromDraft(launchContext.existingDraft, {
+        let draft = launchContext.existingDraft;
+        if ((promptAmounts.cooking_amount || promptAmounts.bundled_total) && draft.launch_draft_id && services.launchDraftRepository?.update) {
+          const token = {
+            ...(draft.token || {}),
+            ...(promptAmounts.cooking_amount ? { initial_buy: promptAmounts.cooking_amount } : {}),
+            ...(promptAmounts.bundled_total ? { bundle_buy_total: promptAmounts.bundled_total } : {}),
+          };
+          draft = await services.launchDraftRepository.update(draft.launch_draft_id, { token }) || { ...draft, token };
+        }
+        const result = launchResultFromDraft(draft, {
           reusedExistingDraft: true,
         });
         context.emitEvent("launch_plan_ready", {
@@ -415,11 +445,16 @@ export function createAgentHandlers(integrations, services = {}) {
       const chain = normalizeLaunchChain(input.chain || sourceText || input.prompt);
       const memoryPrefill = memoryPrefillForLaunch(input);
       const platform = resolveLaunchPlatform({ chain, platform: input.platform });
-      const generated = await generateLaunchContent({
-        prompt: input.prompt || "",
-        sourceText,
-        language,
-      }, context);
+      const isBlankTemplate = narrative?.status === "template" && !narrativeUrl && !pendingNarrative;
+      const generated = isBlankTemplate
+        ? { provider: "template", used_llm: false, content: blankLaunchContent() }
+        : await generateLaunchContent({
+            prompt: input.prompt || "",
+            sourceText,
+            language,
+          }, context);
+      const cookingAmount = input.token?.initial_buy ?? promptAmounts.cooking_amount ?? memoryPrefill.cooking_amount;
+      const bundledTotal = input.token?.bundle_buy_total ?? promptAmounts.bundled_total ?? memoryPrefill.bundled_total;
       const token = buildDraftMetadata({
         narrative,
         token: {
@@ -427,13 +462,13 @@ export function createAgentHandlers(integrations, services = {}) {
           symbol: generated.content.symbol,
           description: generated.content.description,
           ...(input.token || {}),
-          // Confirmed Memory prefill is an editable suggestion only; explicit
-          // user input still wins.
-          ...(input.token?.initial_buy == null && memoryPrefill.cooking_amount
-            ? { initial_buy: memoryPrefill.cooking_amount }
+          // Confirmed Memory / current-turn amounts are editable suggestions;
+          // explicit token fields still win.
+          ...(input.token?.initial_buy == null && cookingAmount
+            ? { initial_buy: cookingAmount }
             : {}),
-          ...(input.token?.bundle_buy_total == null && memoryPrefill.bundled_total
-            ? { bundle_buy_total: memoryPrefill.bundled_total }
+          ...(input.token?.bundle_buy_total == null && bundledTotal
+            ? { bundle_buy_total: bundledTotal }
             : {}),
         },
       });

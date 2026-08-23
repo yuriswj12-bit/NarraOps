@@ -2784,7 +2784,7 @@ function agentMessageFromRuntime(result, fallbackCommand = "") {
   const isLaunchDraft = card?.type === "launch_draft";
   if (isLaunchDraft) void ensureLaunchWalletGroups();
   const content = isLaunchDraft
-    ? t("已根据公开链接生成发射预案。你可以直接修改参数并选择钱包组。", "A launch draft was generated from the public link. Edit the fields and select wallet groups below.")
+    ? ""
     : result?.message?.content || t("任务已完成。", "Task completed.");
   const suggestion = isLaunchDraft
     ? ""
@@ -2917,7 +2917,16 @@ function isLaunchIntent(command) {
   if (/^\/launch\b/i.test(value)) return true;
   if (isNarrativeDiscoveryQuestion(value)) return false;
   if (/(我的发射|发射记录|发射历史|launch\s*(history|record|count)|my\s*launches)/i.test(value)) return false;
+  if (isLaunchAmountFill(value)) return true;
   return /(发射|发币|发个币|发一个币|发行代币|上币|发币方案|创建代币|建个币|做一个\s*(meme|币|代币)|生成发射|帮我发射|我要发射|想发射|准备发射|发射模板|发射卡片|发射方案|发射计划|发射参数|发射流程|launch\s*(draft|plan|template|card)?|token\s*(launch|draft|template)|deploy|创建.*(代币|token))/i.test(value);
+}
+
+function isLaunchAmountFill(command) {
+  const value = String(command || "").trim();
+  if (!value) return false;
+  const hasCooking = /\b(?:cooking|首买)\b\s*(?:买入)?(?:金额|amount)?\s*[:：]?\s*\d+(?:\.\d+)?/i.test(value);
+  const hasBundle = /(?:\bbundle(?:d)?\b|捆绑)\s*(?:买入)?(?:总额|总金额|总买|total|amount)?\s*[:：]?\s*\d+(?:\.\d+)?/i.test(value);
+  return hasCooking || hasBundle;
 }
 
 function isSkillOrAnalysisIntent(command) {
@@ -3049,10 +3058,10 @@ function agentMessageFromPayload(payload) {
     timestamp: getMessageTime(),
     lifecycle: "completed",
     pending: false,
-    content: message.content || (hasLaunch
-      ? t("已根据链接生成发射参数，请检查并选择钱包组。", "The launch fields are ready. Review them and select wallet groups.")
-      : hasSwap ? t("Swap 路由已准备，请核对并签名。", "The swap route is ready. Review and sign it.")
-      : t("任务已完成。", "Task completed.")),
+    content: hasLaunch
+      ? (message.content || "")
+      : (message.content || (hasSwap ? t("Swap 路由已准备，请核对并签名。", "The swap route is ready. Review and sign it.")
+      : t("任务已完成。", "Task completed."))),
     suggestion: message.suggestion || "",
     cards,
     taskId: payload?.taskId || payload?.task_id || task.task_id || task.taskId || null,

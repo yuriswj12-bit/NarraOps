@@ -163,6 +163,43 @@ test("launch request without a URL generates an editable blank template card", a
   assert.equal(data.preparation_status, "requires_enrichment");
   assert.ok(Array.isArray(data.missing_fields));
   assert.ok(data.missing_fields.length >= 1, "blank template must require enrichment");
+  assert.equal(created.agent.used_llm, false);
+  assert.equal(created.agent.provider, "launch_card");
+});
+
+test("amount-only follow-up patches the same launch draft without a new card or LLM narration", async () => {
+  const runtime = createAgentRuntime({ stepDelayMs: 1 });
+  const created = await runtime.handleMessage({
+    channel: "web",
+    message: "/launch 给我发射模板",
+    command: "/launch 给我发射模板",
+    context: { language: "zh", currentView: "go" },
+    wait: true,
+    timeoutMs: 15000,
+  });
+  assert.equal(created.status, "succeeded");
+  const draftId = created.cards[0]?.data?.launch_draft_id;
+  assert.ok(draftId);
+
+  const filled = await runtime.handleMessage({
+    channel: "web",
+    conversationId: created.conversation_id,
+    message: "Cooking 2 SOL，捆绑 5 SOL",
+    context: { language: "zh", currentView: "go" },
+    wait: true,
+    timeoutMs: 8000,
+  });
+  assert.equal(filled.status, "succeeded");
+  assert.equal(filled.task.type, "launch.meme");
+  assert.equal(filled.cards[0]?.type, "launch_draft");
+  assert.equal(filled.cards[0]?.data?.launch_draft_id, draftId);
+  assert.equal(filled.cards[0]?.data?.reused_existing_draft, true);
+  assert.equal(filled.cards[0]?.data?.token?.initial_buy, "2");
+  assert.equal(filled.cards[0]?.data?.token?.bundle_buy_total, "5");
+  assert.equal(filled.cards[0]?.data?.launch_parameters?.token?.initial_buy, "2");
+  assert.equal(filled.cards[0]?.data?.launch_parameters?.token?.bundle_buy_total, "5");
+  assert.equal(filled.agent.used_llm, false);
+  assert.equal(filled.message.content, "");
 });
 
 test("a follow-up launch request reuses the link-derived draft from the same conversation", async () => {
@@ -215,7 +252,10 @@ test("a follow-up launch request reuses the link-derived draft from the same con
       second.cards[0]?.data?.launch_parameters?.source_url,
       "https://x.com/coolish/status/2083800621321535680?s=20",
     );
-    assert.match(second.message.content, /发射预案/);
+    assert.equal(second.agent.used_llm, false);
+    assert.equal(second.agent.provider, "launch_card");
+    assert.doesNotMatch(second.message.content || "", /已生成可编辑发射参数|可以继续修改参数|已根据/);
+    assert.match(second.message.content, /还需要/);
 
     const third = await runtime.handleMessage({
       channel: "web",

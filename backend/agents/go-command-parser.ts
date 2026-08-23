@@ -18,6 +18,14 @@ const NATURAL_RULES = [
   { pattern: /(发射|发行\s*(?:代币|一个币|币)|发币|发个币|上币|创建代币|建个币|launch|deploy)/i, type: "launch.meme" },
 ];
 
+export function isLaunchAmountFill(text) {
+  const value = String(text || "").trim();
+  if (!value) return false;
+  const hasCooking = /\b(?:cooking|首买)\b\s*(?:买入)?(?:金额|amount)?\s*[:：]?\s*\d+(?:\.\d+)?/i.test(value);
+  const hasBundle = /(?:\bbundle(?:d)?\b|捆绑)\s*(?:买入)?(?:总额|总金额|总买|total|amount)?\s*[:：]?\s*\d+(?:\.\d+)?/i.test(value);
+  return hasCooking || hasBundle;
+}
+
 export function parseGoInput(text) {
   const normalized = String(text || "").trim();
   if (!normalized) throw new ApiError(400, "VALIDATION_ERROR", "input or command is required");
@@ -48,6 +56,20 @@ export function parseGoInput(text) {
       raw_input: normalized,
       arguments: normalized,
       parsed_by: "public_link",
+      requires_confirmation: policy.requires_confirmation,
+      execution_mode: policy.execution_mode,
+    };
+  }
+
+  if (isLaunchAmountFill(normalized) && !/(我的发射|发射记录|发射历史|launch\s*(history|record|count)|my\s*launches)/i.test(normalized)) {
+    const policy = policyForType("launch.meme");
+    return {
+      type: "launch.meme",
+      category: policy.category,
+      command: "/launch",
+      raw_input: normalized,
+      arguments: normalized,
+      parsed_by: "launch_amount_fill",
       requires_confirmation: policy.requires_confirmation,
       execution_mode: policy.execution_mode,
     };

@@ -269,6 +269,8 @@ test("Chinese natural-language intents route without encoding loss", () => {
   assert.equal(parseGoInput("发行代币").type, "launch.meme");
   assert.equal(parseGoInput("帮我 launch 这个项目").type, "launch.meme");
   assert.equal(parseGoInput("发行量多少").type, "agent.chat");
+  assert.equal(parseGoInput("Cooking 2 SOL，捆绑 5 SOL").type, "launch.meme");
+  assert.equal(parseGoInput("Cooking 2 SOL，捆绑 5 SOL").parsed_by, "launch_amount_fill");
   assert.equal(parseGoInput("把资金转到 cooking 钱包组").type, "funds.transfer");
 });
 
@@ -330,6 +332,24 @@ test("launch.meme prefills editable amounts from confirmed Memory without overri
     base,
   );
   assert.equal(explicitWins.launch_parameters.token.initial_buy, "0.1");
+});
+
+test("launch.meme skips the model for a blank template and applies current-turn amounts", async () => {
+  const handlers = createAgentHandlers({}, {
+    launchDraftRepository: new InMemoryLaunchDraftRepository(),
+    modelContentGenerator: async () => {
+      throw new Error("blank launch templates must not call the model");
+    },
+  });
+  const result = await handlers["launch.meme"](
+    { prompt: "给我发射模板 Cooking 2 SOL 捆绑 5 SOL", context: { language: "zh" } },
+    { taskId: "task-blank", requestId: "req-blank", conversationId: "conv-blank", emitEvent() {} },
+  );
+  assert.equal(result.card.type, "launch_draft");
+  assert.equal(result.used_llm, false);
+  assert.equal(result.content_provider, "template");
+  assert.equal(result.launch_parameters.token.initial_buy, "2");
+  assert.equal(result.launch_parameters.token.bundle_buy_total, "5");
 });
 
 test("launch.meme prefills wallet groups and slippage from confirmed Memory", async () => {
