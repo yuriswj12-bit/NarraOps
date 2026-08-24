@@ -779,7 +779,7 @@ function renderGoSelect(name, choices, selected, required = true) {
     <div class="go-select" data-go-select>
       <select class="go-select-native" name="${escapeHtml(name)}" ${required ? "required" : ""} tabindex="-1" aria-hidden="true">${options}</select>
       <button type="button" class="go-select-trigger" data-go-select-trigger aria-haspopup="listbox" aria-expanded="false">${escapeHtml(current.label)}</button>
-      <div class="go-select-menu" data-go-select-menu hidden role="listbox">${menu}</div>
+      <div class="go-select-menu" data-go-select-menu role="listbox">${menu}</div>
     </div>
   `;
 }
@@ -787,33 +787,19 @@ function renderGoSelect(name, choices, selected, required = true) {
 function closeGoSelects(except = null) {
   document.querySelectorAll("[data-go-select].is-open").forEach((root) => {
     if (root === except) return;
-    root.classList.remove("is-open");
+    root.classList.remove("is-open", "opens-up");
     const trigger = root.querySelector("[data-go-select-trigger]");
-    const menu = root.querySelector("[data-go-select-menu]");
     if (trigger) trigger.setAttribute("aria-expanded", "false");
-    if (menu) menu.hidden = true;
   });
 }
 
 function openGoSelect(root) {
   const trigger = root.querySelector("[data-go-select-trigger]");
-  const menu = root.querySelector("[data-go-select-menu]");
-  if (!trigger || !menu) return;
+  if (!trigger) return;
   closeGoSelects(root);
   const rect = trigger.getBoundingClientRect();
   const spaceBelow = window.innerHeight - rect.bottom;
-  menu.hidden = false;
-  menu.style.position = "fixed";
-  menu.style.left = `${Math.max(8, rect.left)}px`;
-  menu.style.width = `${Math.max(160, rect.width)}px`;
-  menu.style.zIndex = "80";
-  if (spaceBelow < 240 && rect.top > spaceBelow) {
-    menu.style.top = "auto";
-    menu.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 4)}px`;
-  } else {
-    menu.style.bottom = "auto";
-    menu.style.top = `${rect.bottom + 4}px`;
-  }
+  root.classList.toggle("opens-up", spaceBelow < 240 && rect.top > spaceBelow);
   root.classList.add("is-open");
   trigger.setAttribute("aria-expanded", "true");
 }
@@ -3476,8 +3462,6 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeGoSelects();
 });
-window.addEventListener("resize", () => closeGoSelects());
-window.addEventListener("scroll", () => closeGoSelects(), true);
 
 viewRoot.addEventListener("click", async (event) => {
   const goSelectOption = event.target.closest("[data-go-select-option]");

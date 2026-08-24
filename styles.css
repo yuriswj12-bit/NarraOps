@@ -1038,6 +1038,11 @@ button {
 .go-select {
   position: relative;
   min-width: 0;
+  z-index: 1;
+}
+
+.go-select.is-open {
+  z-index: 8;
 }
 
 .go-select-native {
@@ -1074,7 +1079,12 @@ button {
 }
 
 .go-select-menu {
-  display: grid;
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 9;
   gap: 2px;
   max-height: 280px;
   overflow-y: auto;
@@ -1086,6 +1096,15 @@ button {
   box-shadow: 0 16px 40px rgba(0,0,0,0.55);
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.16) transparent;
+}
+
+.go-select.is-open .go-select-menu {
+  display: grid;
+}
+
+.go-select.opens-up .go-select-menu {
+  top: auto;
+  bottom: calc(100% + 4px);
 }
 
 .go-select-option {
