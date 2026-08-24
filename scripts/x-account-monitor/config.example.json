@@ -1,0 +1,19 @@
+{
+  "accounts": [
+    { "handle": "elonmusk", "category_hint": "crypto_native", "priority": 10, "enabled": true },
+    { "handle": "solana", "category_hint": "crypto_native", "priority": 10, "enabled": true },
+    { "handle": "CryptoKoryo", "category_hint": "crypto_native", "priority": 20, "enabled": true }
+  ],
+  "ingest": {
+    "url": "https://<your-project-ref>.supabase.co/functions/v1/pulse-narrative-ingest",
+    "secret": "set PULSE_NARRATIVE_COLLECTOR_SECRET as env, or paste here for local dev only"
+  },
+  "cookie": {
+    "enabled": false,
+    "path": "./cookies.json"
+  },
+  "headless": true,
+  "windowMinutes": 240,
+  "maxTweetsPerAccount": 20,
+  "pollMinutes": 5
+}

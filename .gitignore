@@ -42,3 +42,8 @@ Thumbs.db
 /api/v1/launch-planner.cjs
 .vercel
 .env*
+
+# X account monitor: never commit local secrets, cookies, or per-machine config.
+scripts/x-account-monitor/config.json
+scripts/x-account-monitor/cookies.json
+scripts/x-account-monitor/node_modules/

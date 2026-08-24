@@ -1,0 +1,14 @@
+{
+  "name": "narraops-x-account-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Watch fixed X accounts, normalize tweets into Pulse narrative cards, and push them to NarraOps via the ingest endpoint.",
+  "scripts": {
+    "monitor": "node monitor.mjs",
+    "monitor:once": "node monitor.mjs --once"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

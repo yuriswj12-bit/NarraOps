@@ -27,7 +27,7 @@ function routeCategory(text: string, fallback: string) {
   let selectedCount = 0;
   for (const [category, terms] of Object.entries(categoryTerms)) {
     const count = terms.reduce((sum, term) => {
-      const escaped = term.replace(/[.*+?^${}()|[\]\]/g, "\$&");
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       return sum + (new RegExp(`(^|\\W)${escaped}(?=\\W|$)`, "i").test(normalized) ? 1 : 0);
     }, 0);
     if (count > selectedCount) {
