@@ -90,6 +90,30 @@ class NarrativeFeedTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "duplicate"):
                 feed.load_source_registry(path)
 
+    def test_displayable_narrative_requires_an_x_url_and_rejects_news_junk(self):
+        self.assertTrue(
+            feed.is_displayable_narrative(
+                "A raccoon in a tiny hat just went viral",
+                "https://x.com/coolish/status/1",
+            )
+        )
+        self.assertFalse(
+            feed.is_displayable_narrative(
+                "Rain to return this week with thunderstorms",
+                "https://news.google.com/item",
+            )
+        )
+        self.assertFalse(
+            feed.is_displayable_narrative(
+                "Missed SHIB and FLOKI Early? Next 100x meme",
+                "https://x.com/spam/status/1",
+            )
+        )
+        self.assertEqual(
+            feed.display_author_name("Twitter", "https://x.com/coolish/status/1"),
+            "coolish",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,7 +32,8 @@ class FreeSourceCollectorTests(unittest.TestCase):
             "tweets": {"items": []},
         }
         rows = collectors.parse_opennews_payload(payload, NOW)
-        self.assertEqual([row.platform for row in rows], ["x", "news"])
+        self.assertEqual([row.platform for row in rows], ["x"])
+        self.assertEqual(rows[0].author_name, "story")
         card = rows[0].to_card("events", NOW)
         self.assertEqual(card["original_text"], "Original X post")
         self.assertNotIn("score", card)
@@ -63,14 +64,14 @@ class FreeSourceCollectorTests(unittest.TestCase):
                 "items": [
                     {
                         "id": 1,
-                        "link": "https://example.com/story",
+                        "link": "https://x.com/Example/status/1",
                         "published_at": published,
                         "source": "Example",
                         "title": "Original headline",
                     },
                     {
                         "id": 2,
-                        "link": "https://example.com/story",
+                        "link": "https://x.com/Example/status/1",
                         "published_at": published,
                         "source": "Aggregator",
                         "title": "Original headline",
@@ -100,9 +101,43 @@ class FreeSourceCollectorTests(unittest.TestCase):
             {"name": "Example RSS", "url": "https://example.com/feed"},
             NOW,
         )
+        self.assertEqual(rows, [])
+
+    def test_opennews_keeps_x_posts_and_drops_news_and_junk(self):
+        published = (NOW - timedelta(minutes=10)).isoformat()
+        payload = {
+            "success": True,
+            "news": {
+                "items": [
+                    {
+                        "id": 1,
+                        "link": "https://x.com/coolish/status/1",
+                        "published_at": published,
+                        "source": "Twitter",
+                        "title": "A raccoon in a tiny hat just went viral",
+                    },
+                    {
+                        "id": 2,
+                        "link": "https://www.bbc.com/news/world",
+                        "published_at": published,
+                        "source": "BBC News",
+                        "title": "Rain to return this week with thunderstorms",
+                    },
+                    {
+                        "id": 3,
+                        "link": "https://x.com/spam/status/3",
+                        "published_at": published,
+                        "source": "twitter",
+                        "title": "Missed SHIB and FLOKI Early? Next 100x meme",
+                    },
+                ]
+            },
+            "tweets": {"items": []},
+        }
+        rows = collectors.parse_opennews_payload(payload, NOW)
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0].original_text, "Original body")
-        self.assertEqual(rows[0].media_urls, ("https://example.com/image.jpg",))
+        self.assertEqual(rows[0].author_name, "coolish")
+        self.assertEqual(rows[0].platform, "x")
 
     def test_rss_requires_real_published_timestamp(self):
         xml = b"""<rss><channel><item>
@@ -125,30 +160,19 @@ class FreeSourceCollectorTests(unittest.TestCase):
         self.assertEqual(statuses[0]["status"], "unavailable")
 
     def test_remote_disconnect_is_treated_as_source_unavailable(self):
-        class Boom(Exception):
-            pass
-
-        def boom(*_args, **_kwargs):
-            raise ConnectionResetError("Remote end closed connection without response")
-
-        original = collectors.fetch_rss
-        collectors.fetch_rss = boom
-        try:
-            items, statuses = collectors.collect_free_sources(
-                [{
-                    "id": "flaky",
-                    "type": "rss",
-                    "name": "Flaky",
-                    "url": "https://example.com/feed",
-                    "enabled": True,
-                }],
-                now=NOW,
-            )
-        finally:
-            collectors.fetch_rss = original
+        items, statuses = collectors.collect_free_sources(
+            [{
+                "id": "flaky",
+                "type": "rss",
+                "name": "Flaky",
+                "url": "https://example.com/feed",
+                "enabled": True,
+            }],
+            now=NOW,
+        )
         self.assertEqual(items, [])
-        self.assertEqual(statuses[0]["status"], "unavailable")
-        self.assertEqual(statuses[0]["error_type"], "ConnectionResetError")
+        self.assertEqual(statuses[0]["status"], "skipped")
+        self.assertEqual(statuses[0]["reason"], "x_posts_only")
 
 
 if __name__ == "__main__":

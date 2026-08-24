@@ -8,6 +8,51 @@ const CATEGORIES = Object.freeze([
   "crypto_native",
 ]);
 
+const X_HOSTS = new Set(["x.com", "www.x.com", "twitter.com", "www.twitter.com"]);
+const GENERIC_AUTHORS = new Set(["twitter", "x", "google news", "rss", "news"]);
+const JUNK_NARRATIVE = /\b(weather|forecast|thunderstorm|rainfall|flood warning|obituar\w*|funeral|killed in crash|died at the age|gaap|earnings call|quarterly (?:results|revenue)|10-k|10-q|unemployment|job market|graduates face|100x|10,000%|10000%|missed (?:shib|floki)|next \d+x meme|price today|to usd live price)\b/i;
+
+function hostnameOf(url) {
+  try {
+    return new URL(String(url || "")).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+export function isXSourceUrl(url) {
+  const host = hostnameOf(url);
+  return X_HOSTS.has(host) || host.endsWith(".x.com") || host.endsWith(".twitter.com");
+}
+
+function xHandleFromUrl(url) {
+  try {
+    const parts = new URL(String(url || "")).pathname.split("/").filter(Boolean);
+    if (parts.length >= 3 && parts[1].toLowerCase() === "status") {
+      const handle = parts[0];
+      if (!["i", "intent", "share", "search"].includes(handle.toLowerCase())) return handle;
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+export function isDisplayableNarrative(row) {
+  const text = String(row?.original_text || "").replace(/\s+/g, " ").trim();
+  if (text.length < 8) return false;
+  if (!isXSourceUrl(row?.source_url)) return false;
+  if (JUNK_NARRATIVE.test(text)) return false;
+  return true;
+}
+
+function displayAuthorName(row) {
+  const handle = xHandleFromUrl(row?.source_url);
+  const generic = GENERIC_AUTHORS.has(String(row?.author_name || "").trim().toLowerCase().replace(/^@/, ""));
+  if (handle && (generic || !String(row?.author_name || "").trim())) return handle;
+  return String(row?.author_name || handle || "").trim();
+}
+
 function buildCollectorHealth(latestRun = null, now = new Date()) {
   if (!latestRun) {
     return {
@@ -53,13 +98,14 @@ export function buildPulseNarrativesResponse(
     .filter((row) => Number.isFinite(Date.parse(row.expires_at)))
     .filter((row) => Date.parse(row.expires_at) > currentTime)
     .filter((row) => !hiddenNarrativeIds.has(row.narrative_id))
+    .filter((row) => isDisplayableNarrative(row))
     .sort((left, right) => Date.parse(right.published_at) - Date.parse(left.published_at))
     .map((row) => ({
       narrative_id: row.narrative_id,
       category: row.category,
-      platform: row.platform,
+      platform: isXSourceUrl(row.source_url) ? "x" : row.platform,
       source_type: row.source_type,
-      author_name: row.author_name,
+      author_name: displayAuthorName(row),
       original_text: row.original_text,
       source_url: row.source_url,
       media_type: row.media_type || null,

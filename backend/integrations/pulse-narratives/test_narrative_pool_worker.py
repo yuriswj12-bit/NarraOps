@@ -22,12 +22,12 @@ class NarrativePoolWorkerTests(unittest.TestCase):
         item = feed.SourceItem.from_dict(
             {
                 "source_id": "one",
-                "platform": "news",
+                "platform": "x",
                 "source_type": "trend_discovery",
                 "author_id": "source",
                 "author_name": "source",
                 "original_text": "A rescued raccoon becomes viral",
-                "source_url": "https://example.com/one",
+                "source_url": "https://x.com/source/status/1",
                 "published_at": feed.iso(NOW - timedelta(hours=3, minutes=50)),
                 "collected_at": feed.iso(NOW),
             }

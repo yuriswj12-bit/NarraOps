@@ -209,23 +209,35 @@ test("Pulse narratives returns only unexpired real source cards by category", ()
     {
       narrative_id: "nar_live",
       category: "events",
-      platform: "news",
+      platform: "x",
       source_type: "trend_discovery",
-      author_name: "source",
-      original_text: "Original source text",
-      source_url: "https://example.com/live",
+      author_name: "Twitter",
+      original_text: "Original source text from a public post",
+      source_url: "https://x.com/source/status/1",
       media_urls: [],
       published_at: "2026-07-30T08:45:00.000Z",
       expires_at: "2026-07-30T09:15:00.000Z",
     },
     {
-      narrative_id: "nar_expired",
+      narrative_id: "nar_news",
       category: "events",
       platform: "rss",
       source_type: "public_feed",
+      author_name: "Google News",
+      original_text: "Rain to return this week with chance of thunderstorms",
+      source_url: "https://news.google.com/rss/item",
+      media_urls: [],
+      published_at: "2026-07-30T08:50:00.000Z",
+      expires_at: "2026-07-30T09:15:00.000Z",
+    },
+    {
+      narrative_id: "nar_expired",
+      category: "events",
+      platform: "x",
+      source_type: "public_feed",
       author_name: "source",
       original_text: "Expired source text",
-      source_url: "https://example.com/expired",
+      source_url: "https://x.com/source/status/2",
       media_urls: [],
       published_at: "2026-07-30T08:00:00.000Z",
       expires_at: "2026-07-30T08:30:00.000Z",
@@ -242,7 +254,8 @@ test("Pulse narratives returns only unexpired real source cards by category", ()
   assert.equal(response.schema_version, "pulse.narratives.v1");
   assert.equal(response.data_status, "live");
   assert.equal(response.total, 1);
-  assert.equal(response.columns.events[0].original_text, "Original source text");
+  assert.equal(response.columns.events[0].original_text, "Original source text from a public post");
+  assert.equal(response.columns.events[0].author_name, "source");
   assert.equal(response.columns.events.length, 1);
   assert.equal(response.columns.ai_tech, undefined);
 });
@@ -274,11 +287,11 @@ test("Pulse narratives hides dismissed or used cards for a signed-in user", () =
   const rows = ["visible", "dismissed", "used"].map((id, index) => ({
     narrative_id: id,
     category: "events",
-    platform: "news",
+    platform: "x",
     source_type: "public_feed",
     author_name: "source",
-    original_text: `Source ${id}`,
-    source_url: `https://example.com/${id}`,
+    original_text: `Source ${id} stays long enough`,
+    source_url: `https://x.com/source/status/${index + 1}`,
     media_urls: [],
     published_at: `2026-07-30T08:${40 + index}:00.000Z`,
     expires_at: "2026-07-30T09:15:00.000Z",

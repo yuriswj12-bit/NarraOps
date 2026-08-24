@@ -15,7 +15,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 from xml.etree import ElementTree
 
-from narrative_feed import SourceItem, exact_dedupe, is_source_eligible, iso
+from narrative_feed import SourceItem, exact_dedupe, is_displayable_narrative, is_source_eligible, iso
 
 
 OPENNEWS_BASE_URL = "https://ai.6551.io"
@@ -72,7 +72,7 @@ def normalize_opennews_item(
     published = parse_source_timestamp(
         str(value.get("published_at") or value.get("created_at") or "")
     )
-    source_name = str(value.get("source") or "OpenNews")
+    source_name = str(value.get("source") or "Twitter")
     platform = "x" if urllib.parse.urlparse(source_url).netloc.casefold() in {
         "x.com",
         "twitter.com",
@@ -117,6 +117,10 @@ def parse_opennews_payload(
         try:
             item = normalize_opennews_item(row, collected_at, category_hint)
         except (KeyError, TypeError, ValueError):
+            continue
+        if item.platform != "x":
+            continue
+        if not is_displayable_narrative(item.original_text, item.source_url, platform=item.platform):
             continue
         if is_source_eligible(parse_source_timestamp(item.published_at), collected_at):
             normalized.append(item)
@@ -206,6 +210,8 @@ def parse_feed_payload(
             continue
         if not is_source_eligible(published, collected_at):
             continue
+        if not is_displayable_narrative(original_text, source_url, platform="rss"):
+            continue
         media_urls = _entry_media(entry, source["url"])
         source_id = _first_text(entry, {"guid", "id"}) or source_url
         source_name = str(source.get("name") or urllib.parse.urlparse(source["url"]).netloc)
@@ -268,7 +274,13 @@ def collect_free_sources(
                     now=collected_at,
                 )
             elif source.get("type") == "rss":
-                rows = fetch_rss(source, now=collected_at)
+                statuses.append({
+                    "source_id": source_id,
+                    "status": "skipped",
+                    "reason": "x_posts_only",
+                    "items": 0,
+                })
+                continue
             else:
                 raise ValueError("unsupported free source type")
             items.extend(rows)

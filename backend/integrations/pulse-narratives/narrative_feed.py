@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -27,6 +28,19 @@ CATEGORIES = frozenset(
     }
 )
 USER_STATES = frozenset({"unseen", "seen", "dismissed", "used"})
+X_HOSTS = frozenset({"x.com", "www.x.com", "twitter.com", "www.twitter.com"})
+GENERIC_AUTHORS = frozenset({"twitter", "x", "google news", "rss", "news"})
+JUNK_NARRATIVE = re.compile(
+    r"\b("
+    r"weather|forecast|thunderstorm|rainfall|flood warning|"
+    r"obituar\w*|funeral|killed in crash|died at the age|"
+    r"gaap|earnings call|quarterly (?:results|revenue)|10-k|10-q|"
+    r"unemployment|job market|graduates face|"
+    r"100x|10,000%|10000%|missed (?:shib|floki)|next \d+x meme|"
+    r"price today|to usd live price"
+    r")\b",
+    re.IGNORECASE,
+)
 # GitHub scheduled workflows are best-effort and can be delayed for several
 # hours. Keep genuinely recent source items visible across those gaps instead
 # of clearing the entire discovery layer between successful collector runs.
@@ -131,6 +145,49 @@ def is_source_eligible(published_at: datetime, now: datetime | None = None) -> b
     return timedelta(0) <= age < SOURCE_WINDOW
 
 
+def is_x_source_url(url: str) -> bool:
+    host = urllib.parse.urlparse(str(url or "")).netloc.casefold()
+    return host in X_HOSTS or host.endswith(".x.com") or host.endswith(".twitter.com")
+
+
+def x_handle_from_url(url: str) -> str | None:
+    parsed = urllib.parse.urlparse(str(url or ""))
+    if not is_x_source_url(url):
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) >= 3 and parts[1].casefold() == "status":
+        handle = parts[0]
+        if handle.casefold() not in {"i", "intent", "share", "search"}:
+            return handle
+    return None
+
+
+def display_author_name(author_name: str, source_url: str) -> str:
+    handle = x_handle_from_url(source_url)
+    generic = str(author_name or "").strip().casefold().lstrip("@") in GENERIC_AUTHORS
+    if handle and (generic or not str(author_name or "").strip()):
+        return handle
+    return str(author_name or handle or "").strip()
+
+
+def is_displayable_narrative(
+    original_text: str,
+    source_url: str,
+    *,
+    platform: str | None = None,
+) -> bool:
+    text = " ".join(str(original_text or "").split())
+    if len(text) < 8:
+        return False
+    if not is_x_source_url(source_url):
+        return False
+    if JUNK_NARRATIVE.search(text):
+        return False
+    if platform and platform not in {"x", "news", "rss"}:
+        return False
+    return True
+
+
 def route_category(original_text: str, category_hint: str | None = None) -> str:
     """Route source text deterministically; events is the honest fallback."""
     text = original_text.casefold()
@@ -195,6 +252,10 @@ class SourceItem:
             raise ValueError("original_text cannot be empty")
         if not str(value["source_url"]).strip():
             raise ValueError("source_url cannot be empty")
+        author_name = display_author_name(
+            str(value["author_name"]),
+            str(value["source_url"]),
+        )
         parse_timestamp(str(value["published_at"]))
         parse_timestamp(str(value["collected_at"]))
         media_urls = tuple(str(url) for url in value.get("media_urls") or ())
@@ -208,7 +269,7 @@ class SourceItem:
             platform=str(value["platform"]),
             source_type=str(value["source_type"]),
             author_id=str(value["author_id"]),
-            author_name=str(value["author_name"]),
+            author_name=author_name,
             original_text=str(value["original_text"]),
             source_url=str(value["source_url"]),
             media_type=value.get("media_type"),

@@ -486,6 +486,18 @@ function formatNarrativeTime(value) {
   }).format(new Date(timestamp));
 }
 
+function narrativeAuthor(item) {
+  const name = String(item?.author_name || "").replace(/^@/, "").trim();
+  let host = "";
+  try { host = new URL(String(item?.source_url || "")).hostname.toLowerCase(); } catch { host = ""; }
+  const isX = item?.platform === "x" || host === "x.com" || host === "www.x.com" || host === "twitter.com" || host === "www.twitter.com";
+  if (isX) {
+    if (name && !/^(twitter|google news)$/i.test(name)) return `@${name}`;
+    return "X";
+  }
+  return name || item?.platform || "";
+}
+
 function narrativeCard(item) {
   const mediaUrl = Array.isArray(item.media_urls) && item.media_urls.length
     ? item.media_urls[0]
@@ -504,7 +516,7 @@ function narrativeCard(item) {
       ` : ""}
       <div class="narrative-card-body">
         <div class="narrative-meta">
-          <span>${escapeHtml(item.platform === "x" ? "X" : item.author_name || item.platform || "")}</span>
+          <span>${escapeHtml(narrativeAuthor(item))}</span>
           <time datetime="${escapeHtml(item.published_at)}">${escapeHtml(formatNarrativeTime(item.published_at))}</time>
         </div>
         <p class="narrative-original">${escapeHtml(item.original_text)}</p>
@@ -526,7 +538,7 @@ function getVisibleNarratives() {
   return Object.fromEntries(narrativeCategories.map(([category]) => [
     category,
     (Array.isArray(columns[category]) ? columns[category] : [])
-      .filter((item) => item?.narrative_id && !dismissed.has(item.narrative_id)),
+      .filter((item) => item?.narrative_id && !dismissed.has(item.narrative_id) && String(item.original_text || "").trim().length >= 8),
   ]));
 }
 
