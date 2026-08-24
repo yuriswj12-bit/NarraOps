@@ -749,21 +749,88 @@ function launchDraftId(data = {}) {
   return data.launch_draft_id || data.draft_id || data.draft?.launch_draft_id || null;
 }
 
-function walletGroupOptions(groups, selected, { purpose = null, exclude = null } = {}) {
+function walletGroupChoices(groups, selected, { purpose = null, exclude = null } = {}) {
   if (!state.auth.session) {
-    return `<option value="">${t("请先连接钱包", "Connect wallet first")}</option>`;
+    return [{ value: "", label: t("请先连接钱包", "Connect wallet first") }];
   }
   const compatible = groups.filter((group) => {
     if (exclude && group.groupId === exclude) return false;
     if (!purpose) return true;
     return purpose === "cooking" ? group.purpose === "cooking" : group.purpose !== "cooking";
   });
-  const options = compatible.map((group) => `
-    <option value="${escapeHtml(group.groupId)}" ${selected === group.groupId ? "selected" : ""}>
-      ${escapeHtml(group.name)} · ${Number(group.walletCount || 0)} ${t("个钱包", "wallets")}
-    </option>
+  return [
+    { value: "", label: t("请选择钱包组", "Select a wallet group") },
+    ...compatible.map((group) => ({
+      value: String(group.groupId || ""),
+      label: `${group.name} · ${Number(group.walletCount || 0)} ${t("个钱包", "wallets")}`,
+    })),
+  ];
+}
+
+function renderGoSelect(name, choices, selected, required = true) {
+  const current = choices.find((item) => item.value === selected) || choices[0] || { value: "", label: t("请选择钱包组", "Select a wallet group") };
+  const options = choices.map((item) => `
+    <option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>
   `).join("");
-  return `<option value="">${t("请选择钱包组", "Select a wallet group")}</option>${options}`;
+  const menu = choices.map((item) => `
+    <button type="button" class="go-select-option${item.value === selected ? " is-selected" : ""}" data-go-select-option data-value="${escapeHtml(item.value)}" role="option" aria-selected="${item.value === selected ? "true" : "false"}">${escapeHtml(item.label)}</button>
+  `).join("");
+  return `
+    <div class="go-select" data-go-select>
+      <select class="go-select-native" name="${escapeHtml(name)}" ${required ? "required" : ""} tabindex="-1" aria-hidden="true">${options}</select>
+      <button type="button" class="go-select-trigger" data-go-select-trigger aria-haspopup="listbox" aria-expanded="false">${escapeHtml(current.label)}</button>
+      <div class="go-select-menu" data-go-select-menu hidden role="listbox">${menu}</div>
+    </div>
+  `;
+}
+
+function closeGoSelects(except = null) {
+  document.querySelectorAll("[data-go-select].is-open").forEach((root) => {
+    if (root === except) return;
+    root.classList.remove("is-open");
+    const trigger = root.querySelector("[data-go-select-trigger]");
+    const menu = root.querySelector("[data-go-select-menu]");
+    if (trigger) trigger.setAttribute("aria-expanded", "false");
+    if (menu) menu.hidden = true;
+  });
+}
+
+function openGoSelect(root) {
+  const trigger = root.querySelector("[data-go-select-trigger]");
+  const menu = root.querySelector("[data-go-select-menu]");
+  if (!trigger || !menu) return;
+  closeGoSelects(root);
+  const rect = trigger.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom;
+  menu.hidden = false;
+  menu.style.position = "fixed";
+  menu.style.left = `${Math.max(8, rect.left)}px`;
+  menu.style.width = `${Math.max(160, rect.width)}px`;
+  menu.style.zIndex = "80";
+  if (spaceBelow < 240 && rect.top > spaceBelow) {
+    menu.style.top = "auto";
+    menu.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 4)}px`;
+  } else {
+    menu.style.bottom = "auto";
+    menu.style.top = `${rect.bottom + 4}px`;
+  }
+  root.classList.add("is-open");
+  trigger.setAttribute("aria-expanded", "true");
+}
+
+function applyGoSelectValue(root, value) {
+  const select = root.querySelector("select");
+  const trigger = root.querySelector("[data-go-select-trigger]");
+  if (!select) return;
+  select.value = value;
+  const selected = [...select.options].find((option) => option.value === value);
+  if (trigger) trigger.textContent = selected ? selected.textContent.trim() : t("请选择钱包组", "Select a wallet group");
+  root.querySelectorAll("[data-go-select-option]").forEach((option) => {
+    const active = option.dataset.value === value;
+    option.classList.toggle("is-selected", active);
+    option.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  select.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 function renderLaunchDraftCard(card) {
@@ -794,8 +861,8 @@ function renderLaunchDraftCard(card) {
           <label class="go-field"><span>${t("官网 / Website", "Website")}</span><input name="website_url" type="url" value="${escapeHtml(token.website_url || "")}" placeholder="https://..." /></label>
         </div>
         <div class="go-launch-grid">
-          <label class="go-field"><span>${t("Cooking 钱包组", "Cooking wallet group")}</span><select name="cooking_wallet_group_id" required>${walletGroupOptions(groups, cooking, { purpose: "cooking" })}</select></label>
-          <label class="go-field"><span>${t("捆绑钱包组", "Bundled wallet group")}</span><select name="bundled_wallet_group_id" required>${walletGroupOptions(groups, bundled, { purpose: "general", exclude: cooking })}</select></label>
+          <label class="go-field"><span>${t("Cooking 钱包组", "Cooking wallet group")}</span>${renderGoSelect("cooking_wallet_group_id", walletGroupChoices(groups, cooking, { purpose: "cooking" }), cooking)}</label>
+          <label class="go-field"><span>${t("捆绑钱包组", "Bundled wallet group")}</span>${renderGoSelect("bundled_wallet_group_id", walletGroupChoices(groups, bundled, { purpose: "general", exclude: cooking }), bundled)}</label>
         </div>
         <label class="go-field go-field-full"><span>${t("捆绑钱包购买总额 SOL", "Bundled wallet total buy SOL")}</span><input name="bundle_buy_total" inputmode="decimal" value="${escapeHtml(token.bundle_buy_total || "")}" placeholder="例如 0.3，后端随机分配到每个钱包" /></label>
         <label class="go-field go-field-full"><span>${t("滑点 %", "Slippage %")}</span><input name="slippage_percent" inputmode="decimal" value="${escapeHtml(launchSlippagePercent(data))}" placeholder="例如 5" /></label>
@@ -3403,7 +3470,35 @@ languageMenu.addEventListener("click", (event) => {
 });
 
 
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("[data-go-select]")) closeGoSelects();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeGoSelects();
+});
+window.addEventListener("resize", () => closeGoSelects());
+window.addEventListener("scroll", () => closeGoSelects(), true);
+
 viewRoot.addEventListener("click", async (event) => {
+  const goSelectOption = event.target.closest("[data-go-select-option]");
+  if (goSelectOption) {
+    event.preventDefault();
+    const root = goSelectOption.closest("[data-go-select]");
+    if (root) applyGoSelectValue(root, goSelectOption.dataset.value || "");
+    closeGoSelects();
+    return;
+  }
+  const goSelectTrigger = event.target.closest("[data-go-select-trigger]");
+  if (goSelectTrigger) {
+    event.preventDefault();
+    const root = goSelectTrigger.closest("[data-go-select]");
+    if (!root) return;
+    if (root.classList.contains("is-open")) closeGoSelects();
+    else openGoSelect(root);
+    return;
+  }
+  if (!event.target.closest("[data-go-select]")) closeGoSelects();
+
   const refreshNarrativeId = event.target.closest("[data-refresh-narrative]")?.dataset.refreshNarrative;
   if (refreshNarrativeId) {
     if (state.pulse.narrativeActionsBusy.has(refreshNarrativeId)) return;
