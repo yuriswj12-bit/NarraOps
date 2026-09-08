@@ -3272,6 +3272,7 @@ async function logout(supabase, request, response) {
 export default async function handler(request, response) {
   const path = requestPath(request);
   if (request.method === "GET" && path === "/api/v1/health") {
+    const llmConfigured = Boolean(process.env.OPENAI_API_KEY || process.env.LLM_API_KEY);
     return sendJson(response, 200, {
       service: "narraops-api",
       status: "ok",
@@ -3282,6 +3283,8 @@ export default async function handler(request, response) {
       gmgn_market: gmgnCredentialsConfigured() ? "read_only" : "not_configured",
       gmgn_trade: "read_only",
       direct_swap: "direct_wallet_signature",
+      llm: llmConfigured ? "configured" : "missing",
+      llm_model: process.env.OPENAI_MODEL || process.env.LLM_MODEL || "gpt-4o-mini",
     });
   }
   if (request.method === "GET" && path === "/api/v1/pulse") {

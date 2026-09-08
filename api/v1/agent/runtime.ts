@@ -138,6 +138,16 @@ const NARRATIVE_CATEGORIES = [
   ["crypto_native", "Crypto Native", "加密原生"],
 ];
 
+export interface StreamAgentChatOptions {
+  message?: string;
+  language?: string;
+  onDelta?: (chunk: { content?: string }) => void;
+  onResult?: (result: unknown) => void;
+  conversationId?: string | null;
+  context?: Record<string, unknown>;
+  timeoutMs?: number;
+}
+
 export async function streamAgentChat({
   message = "",
   language = "en",
@@ -146,7 +156,7 @@ export async function streamAgentChat({
   conversationId = null,
   context = {},
   timeoutMs = 30_000,
-} = {}) {
+}: StreamAgentChatOptions = {}) {
   const text = String(message || "");
   if (shouldOpenLaunchCard(text)) {
     const result = await getRuntime().handleMessage({

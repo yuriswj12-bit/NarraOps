@@ -103,12 +103,23 @@ export function getLlmProviderStatus() {
   };
 }
 
+function openCodeSessionId() {
+  if (process.env.OPENCODE_SESSION_ID) return process.env.OPENCODE_SESSION_ID;
+  // One stable-ish id per process is enough for OpenCode Go routing.
+  return `narraops-agent-${globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)}`;
+}
+
 async function fetchChatCompletion(url, init, timeoutMs = 5_000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("llm_timeout")), timeoutMs);
+  const headers = new Headers(init?.headers);
+  if (!headers.has("x-opencode-session")) {
+    headers.set("x-opencode-session", openCodeSessionId());
+  }
   try {
     return await fetch(url, {
       ...init,
+      headers,
       signal: controller.signal,
     });
   } finally {
