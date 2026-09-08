@@ -244,3 +244,143 @@ npx supabase secrets set PULSE_NARRATIVE_COLLECTOR_SECRET=<secret>
 - 保留 Vercel `/api/v1/*` catch-all 与生成的 Runtime/launch-planner bundle。
 - 不引入 HertzFlow 运行时依赖；GMGN 只读。
 - 编辑 `llm-provider.ts` 注意 BOM+CRLF；编辑 supabase functions 后需 `deno`/esbuild 语法验证。
+
+---
+
+## 12. Grok 未熟悉区域说明（逐项）
+
+以下按你（Grok）说“还没走通/不熟”的区域，给出现状、关键文件、数据流与验证方法。
+所有结论基于 `main`（HEAD `371062c`）+ 全量测试 156/156。
+
+### 12.1 Pulse 四列 UI、刷新、dismiss/use 叙事
+
+- **功能**：Pulse 叙事发现页按 5 类别分列（`politics_satire / events /
+  animals_characters / internet_culture / crypto_native`）。每列顶部有刷新间隔
+  （3/5/15 MIN）+ 立即刷新按钮；每张卡有“原文 / 刷新 / 使用”。
+- **关键文件**：
+  - `frontend/src/app.ts`：
+    - `renderPulseConnected()`（L619）、`renderNarrativeDiscovery()`（L573）—
+      渲染两段（市场 + 叙事列）。
+    - `narrativeCard()` — 单卡渲染。
+    - `loadPulse()`（L334）— 并发拉 `/api/v1/pulse/narratives`（+market 等）。
+    - `findNarrativeById()`（L545）、`persistNarrativeState()`（L555）—
+      dismiss 状态。
+    - `handleUnavailableNarrative()`（L566）— 过期卡处理：加本地 dismiss 集 +
+      刷新 + toast。
+    - `getVisibleNarratives()` — 过滤已 dismiss 的卡。
+  - `api/v1/pulse-narratives.ts` — `buildPulseNarrativesResponse` /
+    `loadPulseNarrativesResponse` / `dismissPulseNarrative` / `usePulseNarrative`。
+  - 后端数据表：`pulse_narrative_candidates`（迁移 018）+ 用户状态表
+    `pulse_narrative_user_states`（迁移 019）。
+- **数据流**：
+  - 前端 `loadPulse` → `GET /api/v1/pulse/narratives` → 按 5 类别分列渲染。
+  - “使用”卡 → `usePulseNarrative`（RPC `pulse_use_narrative`）→ 生成 snapshot
+    → 进 Go 对话，随后 `/launch` 时作为 `pending_narrative` 来源（见 12.5）。
+  - “刷新”→ `data-refresh-narrative` → `handleUnavailableNarrative` / 重新拉取。
+  - dismiss → `POST /api/v1/pulse/narratives/state`（`persistNarrativeState`）。
+- **重要变化（`0db0a4b`）**：Pulse **只显示 `platform='x'` 的推文卡**，已去掉
+  Google News 新闻填充。前端过滤 + `pulse-narratives.ts` 同步改了。
+- **验证**：打开 `/app` 进 Pulse；本地 `npm run test:api` 覆盖
+  `vercel-handler.test.ts` 的 narratives 用例。
+
+### 12.2 Assets 建组、导出、真实转账 UI
+
+- **功能**：Assets 页有总览(portfolio) / 钱包组(groups) / 转账(transfer) 三块。
+  钱包组：建组（指定名称/网络/用途 cooking/general/初始数量）、导出私钥、
+  删除钱包/组。转账：钱包组间或到外部地址，支持按百分比/固定总额、均分/随机。
+- **关键文件**：
+  - `frontend/src/app.ts`：`loadAssets()`（L1115）、`renderAssets()`（L1617）、
+    建组弹窗（`openModal`，约 L2358）、导出弹窗（约 L2383）、转账弹窗（约 L2377）、
+    `confirm-transfer-plan` 提交（L4344）。
+  - `api/v1/wallet-groups.ts` — 组/钱包 CRUD、导出、余额。
+  - `api/v1/[...path].ts` — 转账路由 `/api/v1/transfers/preview` 与
+    `/api/v1/transfers`（真实执行，需登录 + 最近认证 + 确认）。
+  - `api/v1/agent/runtime.ts` — `recordAssetTransferSemanticShadow` /
+    `prepareAssetTransferRuntimeExecution` / `submitAssetTransferViaGateway`
+    （`AGENT_TRANSFER_*` 开关，生产 shadow 观察、enforcement 关）。
+- **数据流**：
+  - 建组 → `POST /api/v1/wallet-groups` → 服务端生成加密钱包（绝不回传私钥到
+    浏览器）。
+  - 导出 → 需输入 “EXPORT PRIVATE KEYS” 确认词 + 最近认证 → 下载文本文件；
+    卡片上有“导出后无法撤销”风险提示。
+  - 转账 → preview（不移动资金）→ 确认 → 服务端用加密保管私钥签名并广播。
+- **关键约束**：**所有真实转账必须登录 + 显式确认 + 最近 reauth**；私钥只在
+  服务端加密保管，绝不出现在浏览器/API/日志/模型上下文。
+- **验证**：`account-wallets.test.ts`、`vercel-handler.test.ts`（Assets 用例）。
+
+### 12.3 登录后 Memory 确认 → 发射卡预填
+
+- **功能**：登录用户可让 Agent 记住发射偏好（默认链/金额/cooking 组/bundled
+  组/滑点）。Memory 先进入“proposal”，用户显式确认后才生效；之后生成发射卡时
+  自动预填这些值（可编辑，用户显式输入优先）。
+- **关键文件**：
+  - 前端：`memoryManagerMarkup()`（L2392）、`data-memory-decision="confirm|reject|
+    forget"` 按钮（L2399-2401）、`open-agent-memory`（L1067）。
+  - `backend/agents/agent-handlers.ts`：`memoryPrefillForLaunch()`（L43）—
+    从 `input.context.memory_prefill` 解析 `cooking_amount / bundled_total /
+    default_chain / default_cooking_group / default_bundled_group /
+    default_slippage_bps`。
+  - `api/v1/agent/runtime.ts` — `RuntimeKnowledgeResolver` +
+    `AgentMemoryService`（`AGENT_KNOWLEDGE_ENABLED=true` 时注入 memory_prefill）。
+  - Memory API：`/api/v1/agent/memory`（proposal/confirm/reject/list/forget），
+    需登录 + same-origin + 服务端 session 时间。
+  - 表：`agent_memory_items`（确认后才 `status=confirmed`）。
+- **数据流**：用户在 Go 里提偏好 → 生成 proposal → 用户在 Memory 面板点“确认” →
+  `confirmed` → Runtime 解析 → `launch.meme` 里 `memoryPrefillForLaunch` 预填 →
+  前端卡片显示预填值。
+- **验证**：`agent-runtime.test.ts` 的 memory prefill 用例、
+  `vercel-handler.test.ts` Memory API 用例。
+
+### 12.4 浏览器签名发射全链路（Pump）
+
+- **功能**：发射卡填好参数 → 用户点“发射到 Pump” → 服务端 prepare（构建
+  Pump createV2 + dev buy）→ 返回待签交易 → **浏览器钱包签名** → 服务端校验
+  签名 → 直接提交 → 记录 `submitted` → 确认。捆绑买入在 Cooking 发射后窗口内
+  逐钱包执行。
+- **关键文件**：
+  - `api/v1/agent/runtime.ts`：
+    - `submitPumpBroadcastViaGateway`（L1547）— 网关入口，
+      `AGENT_PUMP_GATEWAY_AUTHORITY_ENABLED=true` 才走 Tool 网关。
+    - `recordSolanaPumpSemanticShadow`（约 L416）— semantic shadow，
+      `AGENT_PUMP_SEMANTIC_SHADOW_ENABLED=true`。
+    - `AGENT_PUMP_APPROVAL_DUAL_RUN_ENABLED` / `AGENT_PUMP_ENFORCEMENT_ENABLED`。
+  - `backend/agents/agent-handlers.ts` — `launch.meme` 生成 draft；Pump 提交在
+    运行时侧。
+  - `api/v1/[...path].ts` — `POST /api/v1/agent/launch-drafts/:id/...` 或
+    launch 执行路由（浏览器签名提交）。
+  - `launch.pump.broadcast@1.0.0` Tool 合约（`shared/schemas/`，本地已定义，
+    **未在生产注册/启用**）。
+- **状态语义**：`submission_pending`（提交前声明一次签名）→ `submitted`（仅
+  服务端确认接受后）→ `confirmed`。未知结果 → `reconciliation_required`，不盲
+  播。
+- **关键约束**：`AGENT_PUMP_ENFORCEMENT_ENABLED` 生产**关**；直接路径仍为准。
+  测试（`launch-transactions.test.ts`、`agent-runtime-v2.test.ts`）用
+  no-broadcast harness，**绝不真发**。Grok 不要擅自开 enforcement 或碰真钱。
+- **验证**：`npm run test:api`；手动走发射卡到“确认签名”即止，不真提交。
+
+### 12.5 Telegram webhook 等边缘入口
+
+- **功能**：把 Agent 能力接到 Telegram bot：收到消息 → 解析 → 走同一套
+  `handleMessage` → 用文本回复格式化发回。
+- **关键文件**：
+  - `backend/agents/channels/telegram.ts` — `parseTelegramUpdate()`（L28）、
+    `formatTelegramReply()`（L57）。
+  - `backend/agents/agent-runtime.ts` — `handleMessage`（channel 参数，`web` /
+    `telegram` / `api`）。
+- **测试**：`agent-runtime.test.ts` L335 “telegram adapter parses bot updates
+  and formats replies”。
+- **注意**：这是**适配层**，不独立处理业务；webhook 路由若部署，走 catch-all
+  `/api/v1/*`，同样受登录/确认边界约束。当前无独立 Telegram 部署配置，Grok 若
+  接需先确认 webhook secret 与回调端点。
+
+### 12.6 通用边界（适用以上全部）
+
+- 每个真实资金操作（导出/转账/发射）都要求：登录 + 最近认证 + 显式确认；
+  模型输出只是“建议”，不是动钱授权。
+- 前端所有调用走相对 `/api/v1`；不要引入直连外部域或把 key 写进前端。
+- 改表结构需先加 `database/migrations/` 并在本地/生产 Supabase 应用；RPC 用
+  service-role-only。
+- 新增/修改 supabase Edge Function 后用 esbuild 或 deno 验证语法（`npm:` 导入
+  esbuild 会因网络报错，用 `transformSync` 只查语法即可）。
+- 全部改动保持 `npm run typecheck` + `npm run test:api` 通过，`git diff --check`
+  干净后再提交。
