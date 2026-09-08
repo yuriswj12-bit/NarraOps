@@ -1602,8 +1602,15 @@ button {
 }
 
 .go-composer:focus-within {
-  border-color: rgba(139, 124, 255, 0.45);
-  box-shadow: 0 0 0 3px rgba(139, 124, 255, 0.10);
+  /* Keep the shell border unchanged on focus — no purple rectangle ring. */
+  border-color: rgba(255, 255, 255, 0.10);
+  box-shadow: none;
+}
+
+.go-composer .go-command-input:focus,
+.go-composer .go-command-input:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .go-command-input {
