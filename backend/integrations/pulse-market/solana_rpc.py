@@ -64,7 +64,7 @@ def fetch_pump_transactions(
         "limit": min(max(limit, 1), 100),
         "commitment": "finalized",
         "encoding": "json",
-        "maxSupportedTransactionVersion": 0,
+        "maxSupportedTransactionVersion": 1,
         "filters": {"status": "succeeded"},
     }
     if pagination_token:
